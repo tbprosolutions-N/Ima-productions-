@@ -1,0 +1,35 @@
+# Property of MODU. Unauthorized copying or distribution is prohibited.
+
+# OS
+.DS_Store
+.DS_Store?
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# IDE / editors
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
+
+# Local environment / secrets (do not commit API keys or tokens)
+.env
+.env.local
+.env.*.local
+*.pem
+secrets.json
+config.local.*
+
+# Logs and temp
+*.log
+npm-debug.log*
+tmp/
+temp/
+*.tmp
+
+# Optional: keep Dashboard folder empty if you removed files; uncomment if you use it
+# Dashboard/

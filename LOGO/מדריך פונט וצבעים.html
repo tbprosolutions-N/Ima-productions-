@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IMA PRODUCTIONS - Brand Design System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- Chosen Palette: Spotlight Amber & Deep Indigo for IMA PRODUCTIONS -->
+    <!-- Application Structure Plan: 
+         שיפור נגישות וקריאות על ידי הגדלת גדלי הגופנים (Typography Scale).
+         השינויים:
+         1. הגדלת טקסטים משניים מ-10px ל-12px (text-xs).
+         2. הגדלת טקסטים רגילים מ-12px ל-14px (text-sm).
+         3. הגדלת כותרות כרטיסים ל-16px (text-base).
+         4. הדגשת נתונים מספריים (KPIs) לגודל 36px (text-4xl).
+    -->
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Heebo:wght@100..900&display=swap');
+        
+        :root {
+            --bg-main: #06080C;
+            --bg-card: #0F1219;
+            --border-subtle: #1C212C;
+            --indigo-vivid: #4F46E5;
+            --indigo-dark: #1E1B4B;
+            --amber-vivid: #F59E0B;
+            --text-primary: #F9FAFB;
+            --text-secondary: #94A3B8;
+        }
+
+        body {
+            font-family: 'Heebo', sans-serif;
+            background-color: var(--bg-main);
+            color: var(--text-primary);
+            -webkit-font-smoothing: antialiased;
+            font-size: 15px; /* Base nudge */
+        }
+
+        .primary-gradient {
+            background: linear-gradient(135deg, var(--indigo-vivid) 0%, var(--indigo-dark) 100%);
+        }
+
+        .amber-text-gradient {
+            background: linear-gradient(to bottom right, #F59E0B, #D97706);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .card-surface {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            box-shadow: 0 10px 30px -10px rgba(0,0,0,0.5);
+        }
+
+        .code-block {
+            background-color: #020305;
+            border: 1px solid var(--border-subtle);
+            color: #94A3B8;
+        }
+
+        .chart-container {
+            position: relative;
+            width: 100%;
+            height: 250px;
+        }
+
+        .copy-toast {
+            display: none;
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #F59E0B;
+            color: #000000;
+            padding: 14px 28px;
+            border-radius: 10px;
+            font-weight: 800;
+            font-size: 15px;
+            z-index: 1000;
+            text-transform: uppercase;
+        }
+
+        .badge-amber {
+            background: rgba(245, 158, 11, 0.1);
+            color: var(--amber-vivid);
+            border: 1px solid rgba(245, 158, 11, 0.2);
+        }
+
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: var(--bg-main); }
+        ::-webkit-scrollbar-thumb { background: #1C212C; border-radius: 10px; }
+    </style>
+</head>
+<body class="p-6 lg:p-12">
+
+    <div id="toast" class="copy-toast">הקוד הועתק לקליפבורד</div>
+
+    <header class="max-w-6xl mx-auto mb-20">
+        <div class="flex flex-col md:flex-row items-center justify-between gap-6">
+            <div class="flex flex-col gap-3">
+                <div class="flex items-center gap-3">
+                    <span class="text-sm font-black bg-white text-black px-3 py-1 uppercase tracking-widest">Brand System</span>
+                    <span class="text-sm font-bold text-amber-500 uppercase tracking-widest">v2.2</span>
+                </div>
+                <h1 class="text-6xl md:text-8xl font-black tracking-tighter text-white uppercase italic">
+                    IMA <span class="primary-gradient bg-clip-text text-transparent">PRODUCTIONS</span>
+                </h1>
+                <p class="text-xl text-[#64748B] max-w-2xl font-medium mt-2">
+                    אמא הפקות: מערכת עיצוב מודרנית המבוססת על ניגודיות גבוהה בין עומק הלילה (Indigo) לבין אור הזרקורים (Spotlight Amber).
+                </p>
+            </div>
+            <div class="hidden lg:flex flex-col items-end text-right">
+                <span class="text-xs uppercase font-black tracking-[0.3em] text-[#64748B]">Designed for</span>
+                <span class="text-base font-bold">Artist Management & Production</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto space-y-24">
+
+        <!-- STEP 1: FOUNDATIONS -->
+        <section>
+            <div class="mb-10">
+                <h2 class="text-2xl font-black uppercase tracking-widest border-l-4 border-white pl-4">01. יסודות הממשק (Foundations)</h2>
+                <p class="text-base text-[#64748B] mt-2 italic">הצבעים שמהם מורכב גוף המערכת - רקעים וגבולות.</p>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                <div onclick="copy('#06080C')" class="group cursor-pointer card-surface p-6 rounded-[2rem] transition-all hover:border-white/20">
+                    <div class="h-36 bg-[#06080C] rounded-2xl mb-5 border border-[#1C212C]"></div>
+                    <h3 class="font-bold text-base uppercase">Obsidian Night</h3>
+                    <p class="text-sm text-[#64748B] mb-3">שימוש: רקע ראשי של המערכת.</p>
+                    <code class="text-sm text-amber-500 font-bold">#06080C</code>
+                </div>
+                <div onclick="copy('#0F1219')" class="group cursor-pointer card-surface p-6 rounded-[2rem] transition-all hover:border-white/20">
+                    <div class="h-36 bg-[#0F1219] rounded-2xl mb-5 border border-[#1C212C]"></div>
+                    <h3 class="font-bold text-base uppercase">Surface Slate</h3>
+                    <p class="text-sm text-[#64748B] mb-3">שימוש: כרטיסי מידע (Cards) ותפריטים.</p>
+                    <code class="text-sm text-amber-500 font-bold">#0F1219</code>
+                </div>
+                <div onclick="copy('#1C212C')" class="group cursor-pointer card-surface p-6 rounded-[2rem] transition-all hover:border-white/20">
+                    <div class="h-36 bg-[#1C212C] rounded-2xl mb-5"></div>
+                    <h3 class="font-bold text-base uppercase">Border Steel</h3>
+                    <p class="text-sm text-[#64748B] mb-3">שימוש: קווי הפרדה עדינים וגבולות.</p>
+                    <code class="text-sm text-amber-500 font-bold">#1C212C</code>
+                </div>
+            </div>
+        </section>
+
+        <!-- STEP 2: ACCENTS -->
+        <section>
+            <div class="mb-10 text-left">
+                <h2 class="text-2xl font-black uppercase tracking-widest border-l-4 border-amber-500 pl-4">02. צבעי דגש ופעולה (Accents)</h2>
+                <p class="text-base text-[#64748B] mt-2 italic">הצבעים שמושכים את העין ומשמשים לכפתורים ונתונים חשובים.</p>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <!-- Indigo Gradient -->
+                <div onclick="copy('linear-gradient(135deg, #4F46E5 0%, #1E1B4B 100%)')" class="group cursor-pointer card-surface p-8 rounded-[2.5rem] transition-all hover:shadow-[0_0_40px_rgba(79,70,229,0.2)]">
+                    <div class="h-48 primary-gradient rounded-3xl mb-6 flex items-center justify-center">
+                        <span class="text-white font-black uppercase italic tracking-widest text-xl opacity-20">Main Action Gradient</span>
+                    </div>
+                    <div class="flex justify-between items-end">
+                        <div>
+                            <h3 class="font-bold text-lg uppercase">IMA Indigo Gradient</h3>
+                            <p class="text-sm text-[#64748B] mt-1">שימוש: כפתורים ראשיים, מצבי Active וסטטוסים חשובים.</p>
+                        </div>
+                        <code class="text-sm text-amber-500 font-mono font-bold">#4F46E5 → #1E1B4B</code>
+                    </div>
+                </div>
+
+                <!-- Spotlight Amber -->
+                <div onclick="copy('#F59E0B')" class="group cursor-pointer card-surface p-8 rounded-[2.5rem] transition-all hover:shadow-[0_0_40px_rgba(245,158,11,0.2)]">
+                    <div class="h-48 bg-[#F59E0B] rounded-3xl mb-6 flex items-center justify-center relative overflow-hidden">
+                        <div class="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent"></div>
+                        <span class="text-black font-black uppercase italic tracking-widest text-2xl">Spotlight Amber</span>
+                    </div>
+                    <div class="flex justify-between items-end">
+                        <div>
+                            <h3 class="font-bold text-lg uppercase">IMA Amber</h3>
+                            <p class="text-sm text-[#64748B] mt-1">שימוש: נתונים כספיים, כוכבים, ודגשים (Highlighter).</p>
+                        </div>
+                        <code class="text-sm text-amber-500 font-mono font-bold">#F59E0B</code>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- STEP 3: LIVE DEMO -->
+        <section>
+            <div class="mb-12 text-center">
+                <span class="text-xs font-black uppercase tracking-[0.5em] text-amber-500">Prototype Simulator</span>
+                <h2 class="text-4xl font-black uppercase tracking-tight mt-2">IMA Management Interface</h2>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-10 items-start">
+                
+                <!-- Integration Info (For Developer/Beginner) -->
+                <div class="space-y-8">
+                    <div class="card-surface p-8 rounded-3xl border-t-4 border-indigo-500">
+                        <h4 class="text-sm font-black uppercase mb-5 tracking-widest">טיפ למעצב המתחיל</h4>
+                        <ul class="text-sm space-y-4 text-[#64748B] leading-relaxed">
+                            <li class="flex gap-3"><span class="text-amber-500 mt-1">●</span> <span><strong>אל תגזימו בכתום:</strong> השתמשו ב-Amber רק בשביל נתונים שצריכים "לקפוץ" לעין.</span></li>
+                            <li class="flex gap-3"><span class="text-amber-500 mt-1">●</span> <span><strong>עומק עם גרדיאנט:</strong> השתמשו בגרדיאנט הסגול לכפתורים שמובילים לפעולה מרכזית.</span></li>
+                            <li class="flex gap-3"><span class="text-amber-500 mt-1">●</span> <span><strong>טיפוגרפיה (Heebo):</strong> הפונט החדש נבחר כדי להבטיח שכל מספר ומילה בעברית יראו חדים ומקצועיים.</span></li>
+                        </ul>
+                    </div>
+
+                    <div class="code-block p-8 rounded-3xl text-sm font-mono leading-relaxed">
+<pre class="text-indigo-400">
+<span class="text-amber-500">// Tailwind Config</span>
+theme: {
+  extend: {
+    fontFamily: {
+      sans: ['Heebo', 'sans-serif'],
+    },
+    colors: {
+      ima: {
+        night: '#06080C',
+        surface: '#0F1219',
+        amber: '#F59E0B',
+        indigo: '#4F46E5',
+      }
+    }
+  }
+}
+</pre>
+                    </div>
+                </div>
+
+                <!-- Live Component Mockup -->
+                <div class="lg:col-span-2 card-surface p-10 md:p-14 rounded-[3.5rem] shadow-2xl border-t border-white/5 relative overflow-hidden group">
+                    <div class="absolute -top-24 -right-24 w-80 h-80 bg-indigo-500/10 rounded-full blur-[120px]"></div>
+                    
+                    <div class="flex flex-col md:flex-row md:items-center justify-between gap-8 mb-14">
+                        <div class="flex items-center gap-5">
+                            <div class="w-20 h-20 rounded-2xl primary-gradient flex items-center justify-center font-black text-3xl shadow-xl">IMA</div>
+                            <div>
+                                <h4 class="text-2xl font-black tracking-tighter uppercase">Red Axes // סיבוב הופעות</h4>
+                                <p class="text-xs text-amber-500 font-black uppercase tracking-[0.3em] mt-1">ניהול הפקה</p>
+                            </div>
+                        </div>
+                        <div class="flex gap-3">
+                            <span class="badge-amber text-xs font-black px-5 py-2.5 rounded-full uppercase tracking-widest">מוכן להפקה</span>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-14">
+                        <div class="bg-black/40 p-8 rounded-[2rem] border border-[#1C212C] transition-all hover:border-amber-500/30">
+                            <p class="text-xs text-[#64748B] uppercase font-black mb-2 tracking-widest">סך הכנסות בטור</p>
+                            <p class="text-4xl font-black amber-text-gradient">₪2,450,000</p>
+                        </div>
+                        <div class="bg-black/40 p-8 rounded-[2rem] border border-[#1C212C] transition-all hover:border-indigo-500/30">
+                            <p class="text-xs text-[#64748B] uppercase font-black mb-2 tracking-widest">הופעות קרובות</p>
+                            <p class="text-4xl font-black">12</p>
+                        </div>
+                    </div>
+
+                    <div class="chart-container">
+                        <canvas id="imaChart"></canvas>
+                    </div>
+
+                    <div class="mt-14 flex flex-col md:flex-row gap-5">
+                        <button class="flex-1 primary-gradient text-white text-sm font-black py-6 rounded-2xl shadow-xl shadow-indigo-950/50 uppercase tracking-[0.2em] transition-all hover:scale-[1.02] active:scale-95">צור חוזה חדש</button>
+                        <button class="flex-[0.5] bg-[#1C212C] text-white text-sm font-black py-6 rounded-2xl uppercase tracking-[0.2em] hover:bg-[#252B38] transition-all">ערוך פרטים</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <footer class="max-w-6xl mx-auto mt-32 py-20 border-t border-[#1C212C] flex flex-col md:flex-row justify-between items-center gap-8">
+        <div class="flex items-center gap-4">
+            <div class="w-3 h-3 rounded-full bg-amber-500 animate-pulse shadow-[0_0_10px_rgba(245,158,11,0.5)]"></div>
+            <span class="text-xs font-black uppercase tracking-[0.4em] text-[#64748B]">IMA PRODUCTIONS // 2026</span>
+        </div>
+        <div class="flex gap-10 text-xs font-bold text-[#64748B] uppercase tracking-widest">
+            <span class="hover:text-amber-500 cursor-pointer transition-colors">Style Guide</span>
+            <span class="hover:text-amber-500 cursor-pointer transition-colors">Components</span>
+            <span class="hover:text-amber-500 cursor-pointer transition-colors">Assets</span>
+        </div>
+    </footer>
+
+    <script>
+        function copy(text) {
+            const el = document.createElement('textarea');
+            el.value = text;
+            document.body.appendChild(el);
+            el.select();
+            document.execCommand('copy');
+            document.body.removeChild(el);
+            
+            const toast = document.getElementById('toast');
+            toast.style.display = 'block';
+            setTimeout(() => { toast.style.display = 'none'; }, 2000);
+        }
+
+        window.onload = function() {
+            const ctx = document.getElementById('imaChart').getContext('2d');
+            
+            const chartGradient = ctx.createLinearGradient(0, 0, 0, 250);
+            chartGradient.addColorStop(0, 'rgba(245, 158, 11, 0.12)');
+            chartGradient.addColorStop(1, 'rgba(245, 158, 11, 0)');
+
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: ['ינו', 'פבר', 'מרץ', 'אפר', 'מאי', 'יוני'],
+                    datasets: [{
+                        data: [20, 35, 45, 80, 75, 100],
+                        borderColor: '#F59E0B',
+                        borderWidth: 5,
+                        pointRadius: 0,
+                        fill: true,
+                        backgroundColor: chartGradient,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { 
+                            ticks: { color: '#64748B', font: { family: 'Heebo', size: 12 } },
+                            grid: { display: false }
+                        },
+                        y: { 
+                            grid: { color: '#1C212C', borderDash: [5, 5] },
+                            ticks: { display: false }
+                        }
+                    }
+                }
+            });
+        };
+    </script>
+</body>
+</html>

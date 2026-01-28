@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EMA - English Logo Concepts</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@900&family=Syne:wght@800&family=Space+Mono:ital,wght@0,700;1,700&family=Unbounded:wght@900&family=Bungee+Outline&family=Anton&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --bg-color: #050505;
+            --accent-red: #ff3c00;
+            --accent-green: #00ff41;
+            --accent-blue: #0075ff;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: white;
+            font-family: 'Syne', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 50px 20px;
+            gap: 60px;
+            margin: 0;
+        }
+
+        .card {
+            width: 100%;
+            max-width: 600px;
+            height: 350px;
+            border: 1px solid #222;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            background: #0a0a0a;
+            overflow: hidden;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.8);
+        }
+
+        .label {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            font-family: 'Space Mono', monospace;
+            font-size: 12px;
+            color: #444;
+            text-transform: uppercase;
+        }
+
+        /* 1. The Brutalist Block */
+        .c1-box {
+            background: white;
+            color: black;
+            padding: 10px 30px;
+            transform: skewX(-10deg);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .c1-title {
+            font-family: 'Anton', sans-serif;
+            font-size: 80px;
+            line-height: 0.9;
+            margin: 0;
+        }
+        .c1-sub {
+            font-family: 'Space Mono', monospace;
+            font-weight: bold;
+            font-size: 14px;
+            letter-spacing: 4px;
+            margin-top: 5px;
+        }
+
+        /* 2. The Liquid Chrome (Vintage Tech) */
+        .c2-title {
+            font-family: 'Unbounded', sans-serif;
+            font-size: 70px;
+            background: linear-gradient(180deg, #fff 0%, #444 50%, #fff 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            filter: drop-shadow(0 0 10px rgba(255,255,255,0.3));
+            letter-spacing: -2px;
+        }
+        .c2-sub {
+            color: var(--accent-blue);
+            font-family: 'Orbitron', sans-serif;
+            font-size: 12px;
+            letter-spacing: 10px;
+        }
+
+        /* 3. The 80s Wireframe (Shelter Vibe) */
+        #concept-3 {
+            background-image: 
+                linear-gradient(rgba(0, 255, 65, 0.1) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 255, 65, 0.1) 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+        .c3-title {
+            font-family: 'Bungee Outline', cursive;
+            font-size: 100px;
+            color: var(--accent-green);
+            line-height: 1;
+        }
+        .c3-inner {
+            position: absolute;
+            font-family: 'Syne', sans-serif;
+            font-size: 100px;
+            color: var(--accent-green);
+            opacity: 0.3;
+            transform: translate(4px, 4px);
+        }
+
+        /* 4. The Distorted Xerox */
+        .c4-title {
+            font-family: 'Syne', sans-serif;
+            font-weight: 800;
+            font-size: 90px;
+            text-transform: uppercase;
+            letter-spacing: -5px;
+            filter: contrast(200%) blur(0.5px);
+            position: relative;
+        }
+        .c4-title::after {
+            content: 'EMA';
+            position: absolute;
+            top: 5px;
+            left: -5px;
+            color: var(--accent-red);
+            z-index: -1;
+        }
+
+        /* 5. The "Parental Advisory" Flip */
+        .c5-badge {
+            border: 4px solid white;
+            padding: 20px;
+            text-align: center;
+        }
+        .c5-main {
+            font-family: 'Anton', sans-serif;
+            font-size: 60px;
+            letter-spacing: 2px;
+        }
+        .c5-bottom {
+            background: white;
+            color: black;
+            font-family: 'Space Mono', monospace;
+            font-weight: bold;
+            padding: 5px 10px;
+            font-size: 18px;
+        }
+
+    </style>
+</head>
+<body>
+
+    <h2 style="color: #666; font-family: 'Space Mono';">EMA PRODUCTIONS // LOGO EXPLORATION VOL. 2</h2>
+
+    <div class="card">
+        <div class="label">01. The Brutalist Block</div>
+        <div class="c1-box">
+            <div class="c1-title">EMA</div>
+        </div>
+        <div class="c1-sub">BOOKING AGENCY</div>
+    </div>
+
+    <div class="card">
+        <div class="label">02. Y2K Liquid Chrome</div>
+        <div class="c2-title">EMA</div>
+        <div class="c2-sub">PRODUCTIONS</div>
+    </div>
+
+    <div class="card" id="concept-3">
+        <div class="label">03. Shelter Grid</div>
+        <div class="c3-inner">EMA</div>
+        <div class="c3-title">EMA</div>
+    </div>
+
+    <div class="card">
+        <div class="label">04. Street Xerox</div>
+        <div class="c4-title">EMA</div>
+        <div style="font-family: 'Space Mono'; font-size: 14px; margin-top: 10px;">(HAF-AKOT)</div>
+    </div>
+
+    <div class="card">
+        <div class="label">05. The Booking Seal</div>
+        <div class="c5-badge">
+            <div class="c5-main">EMA</div>
+            <div class="c5-bottom">HAF-AKOT</div>
+        </div>
+    </div>
+
+</body>
+</html>

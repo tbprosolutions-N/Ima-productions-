@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EMA PRODUCTIONS // Final Identity</title>
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            /* Royal Indigo Gradient - Accents Only */
+            --indigo-bright: #5500ff;
+            --neon-purple: #9d00ff;
+            --indigo-deep: #2a0080;
+            --accent-gradient: linear-gradient(135deg, var(--indigo-bright) 0%, var(--neon-purple) 50%, var(--indigo-deep) 100%);
+            
+            /* UI Palette */
+            --bg-page: #e2e2e0;
+            --canvas-light: #f4f4f2;
+            --canvas-dark: #080808;
+            --memo-light: #ffffff;
+            --memo-dark: #121212;
+            --text-light: #000000;
+            --text-dark: #ffffff;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Syne', sans-serif;
+            background-color: var(--bg-page);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .presentation {
+            width: 100%;
+            max-width: 1200px;
+            padding: 80px 40px;
+            display: flex;
+            flex-direction: column;
+            gap: 100px;
+        }
+
+        .section-header {
+            font-family: 'Space Mono', monospace;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 5px;
+            color: #888;
+            border-bottom: 1px solid #ccc;
+            padding-bottom: 20px;
+            margin-bottom: 40px;
+        }
+
+        /* --- THE DISPLAY CANVAS --- */
+        .canvas {
+            width: 100%;
+            height: 600px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            border-radius: 4px;
+            position: relative;
+            margin-bottom: 40px;
+        }
+
+        .canvas.light { background-color: var(--canvas-light); }
+        .canvas.dark { background-color: var(--canvas-dark); }
+
+        /* --- THE PREMIUM MEMO CARD --- */
+        .memo-card {
+            width: 540px;
+            height: 360px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            box-shadow: 30px 30px 70px rgba(0,0,0,0.07);
+            transform: rotate(-0.5deg);
+        }
+
+        .light .memo-card { 
+            background-color: var(--memo-light); 
+            border: 1px solid #eee;
+        }
+        
+        .dark .memo-card { 
+            background-color: var(--memo-dark); 
+            border: 1px solid #1a1a1a;
+            box-shadow: 40px 40px 90px rgba(0,0,0,0.4);
+        }
+
+        /* Paper texture overlay */
+        .memo-card::after {
+            content: "";
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-image: radial-gradient(rgba(0,0,0,0.03) 1px, transparent 1px);
+            background-size: 18px 18px;
+            pointer-events: none;
+        }
+
+        /* --- LOGO ARCHITECTURE --- */
+        .logo-group {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            z-index: 5;
+        }
+
+        .top-row {
+            display: flex;
+            align-items: flex-end; /* Grounded to text baseline */
+            gap: 20px; /* Space between dot and EMA */
+            position: relative;
+        }
+
+        /* The Dot (Pixel) - Updated Positioning */
+        .accent-dot {
+            width: 18px;
+            height: 18px;
+            background: var(--accent-gradient);
+            margin-bottom: 14px; /* Perfectly aligned to Syne baseline for 115px size */
+            flex-shrink: 0;
+            box-shadow: 0 4px 12px rgba(85, 0, 255, 0.3);
+        }
+
+        .ema-text {
+            font-size: 115px;
+            line-height: 0.8;
+            margin: 0;
+            font-weight: 800;
+            /* Extended/Skewed look as requested */
+            transform: scaleX(1.25) skewX(-12deg);
+            transform-origin: left bottom;
+        }
+
+        .light .ema-text { color: var(--text-light); }
+        .dark .ema-text { color: var(--text-dark); }
+
+        /* Bottom Row */
+        .sub-row {
+            margin-top: 32px;
+            font-family: 'Space Mono', monospace;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 16px;
+            text-transform: uppercase;
+            display: flex;
+            align-items: center;
+            margin-right: -16px; /* Offset to center text with tracking */
+        }
+
+        .light .sub-row { color: var(--text-light); }
+        .dark .sub-row { color: var(--text-dark); }
+
+        .accent-slashes {
+            background: var(--accent-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-left: 10px;
+            font-size: 16px;
+            letter-spacing: 2px;
+            font-weight: 900;
+        }
+
+        /* Technical Info Label */
+        .card-footer {
+            position: absolute;
+            bottom: 30px;
+            left: 40px;
+            right: 40px;
+            display: flex;
+            justify-content: space-between;
+            font-family: 'Space Mono', monospace;
+            font-size: 8px;
+            color: #999;
+            text-transform: uppercase;
+            border-top: 1px solid rgba(150,150,150,0.1);
+            padding-top: 12px;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="presentation">
+
+        <!-- LIGHT MODE -->
+        <div class="section-wrap">
+            <div class="section-header">01 // FINAL IDENTITY: LIGHT PRESET</div>
+            <div class="canvas light">
+                <div class="memo-card">
+                    <div class="card-footer">
+                        <span>EMA_FINAL_V.05</span>
+                        <span>BOOKING_INTL</span>
+                    </div>
+                    <div class="logo-group">
+                        <div class="top-row">
+                            <div class="accent-dot"></div>
+                            <h1 class="ema-text">EMA</h1>
+                        </div>
+                        <div class="sub-row">
+                            PRODUCTIONS<span class="accent-slashes">//</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- DARK MODE -->
+        <div class="section-wrap">
+            <div class="section-header">02 // FINAL IDENTITY: DARK PRESET</div>
+            <div class="canvas dark">
+                <div class="memo-card">
+                    <div class="card-footer">
+                        <span>EMA_FINAL_V.05_NIGHT</span>
+                        <span>BOOKING_INTL</span>
+                    </div>
+                    <div class="logo-group">
+                        <div class="top-row">
+                            <div class="accent-dot"></div>
+                            <h1 class="ema-text">EMA</h1>
+                        </div>
+                        <div class="sub-row">
+                            PRODUCTIONS<span class="accent-slashes">//</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+</body>
+</html>

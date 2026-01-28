@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#0a0a0f">
+  <title>Ima Productions | Spotlight Agency | Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Sidebar / Mobile Nav -->
+    <nav class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">
+          <div class="logo-icon">🎵</div>
+          <span class="logo-text">Artist-Ops</span>
+        </div>
+      </div>
+      
+      <div class="nav-items">
+        <a href="#" class="nav-item active" data-page="dashboard">
+          <span class="nav-icon">📊</span>
+          <span class="nav-label">דאשבורד</span>
+        </a>
+        <a href="#" class="nav-item" data-page="events">
+          <span class="nav-icon">📅</span>
+          <span class="nav-label">אירועים</span>
+        </a>
+        <a href="#" class="nav-item" data-page="artists">
+          <span class="nav-icon">🎤</span>
+          <span class="nav-label">אמנים</span>
+        </a>
+        <a href="#" class="nav-item" data-page="clients">
+          <span class="nav-icon">🏢</span>
+          <span class="nav-label">לקוחות</span>
+        </a>
+        <a href="#" class="nav-item" data-page="finance">
+          <span class="nav-icon">💰</span>
+          <span class="nav-label">כספים</span>
+        </a>
+      </div>
+      
+      <div class="sidebar-footer">
+        <a href="#" class="nav-item" data-page="settings">
+          <span class="nav-icon">⚙️</span>
+          <span class="nav-label">הגדרות</span>
+        </a>
+      </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- Header -->
+      <header class="header">
+        <div class="header-content">
+          <div class="header-right">
+            <button class="menu-toggle" id="menuToggle">☰</button>
+            <div class="greeting">
+              <h1>שלום, נועה 👋</h1>
+              <p class="date-display" id="dateDisplay"></p>
+            </div>
+          </div>
+          <div class="header-left">
+            <button class="icon-btn notification-btn">
+              <span>🔔</span>
+              <span class="badge">3</span>
+            </button>
+            <div class="profile-avatar">נ</div>
+          </div>
+        </div>
+        
+        <!-- Search -->
+        <div class="search-wrapper">
+          <input type="search" class="search-input" placeholder="חיפוש אמנים, אירועים, לקוחות..." id="searchInput">
+          <span class="search-icon">🔍</span>
+        </div>
+      </header>
+
+      <!-- Dashboard Content -->
+      <div class="dashboard-content">
+        <!-- Stats Cards -->
+        <section class="stats-section">
+          <div class="stat-card stat-events">
+            <div class="stat-icon">📅</div>
+            <div class="stat-info">
+              <span class="stat-value" id="statEvents">12</span>
+              <span class="stat-label">אירועים החודש</span>
+            </div>
+            <div class="stat-trend up">+2 מהחודש שעבר</div>
+          </div>
+          
+          <div class="stat-card stat-revenue">
+            <div class="stat-icon">💰</div>
+            <div class="stat-info">
+              <span class="stat-value" id="statRevenue">₪85,000</span>
+              <span class="stat-label">הכנסה צפויה</span>
+            </div>
+            <div class="stat-trend up">+15%</div>
+          </div>
+          
+          <div class="stat-card stat-pending">
+            <div class="stat-icon">⏳</div>
+            <div class="stat-info">
+              <span class="stat-value" id="statPending">3</span>
+              <span class="stat-label">ממתינים לאישור</span>
+            </div>
+          </div>
+          
+          <div class="stat-card stat-overdue">
+            <div class="stat-icon">⚠️</div>
+            <div class="stat-info">
+              <span class="stat-value" id="statOverdue">1</span>
+              <span class="stat-label">חשבוניות באיחור</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Quick Actions -->
+        <section class="quick-actions">
+          <button class="action-card" onclick="openNewBooking()">
+            <div class="action-icon">➕</div>
+            <span class="action-label">הזמנה חדשה</span>
+          </button>
+          <button class="action-card" onclick="syncCalendar()">
+            <div class="action-icon">🔄</div>
+            <span class="action-label">סנכרון יומן</span>
+          </button>
+          <button class="action-card" onclick="generateReport()">
+            <div class="action-icon">📊</div>
+            <span class="action-label">דוח חודשי</span>
+          </button>
+          <button class="action-card" onclick="openInvoices()">
+            <div class="action-icon">📄</div>
+            <span class="action-label">חשבוניות</span>
+          </button>
+        </section>
+
+        <!-- Upcoming Events -->
+        <section class="events-section">
+          <div class="section-header">
+            <h2 class="section-title">
+              <span>אירועים קרובים</span>
+              <span class="title-badge">7 ימים</span>
+            </h2>
+            <button class="view-all-btn">הצג הכל ←</button>
+          </div>
+          
+          <div class="events-list" id="eventsList">
+            <!-- Event cards will be injected here -->
+          </div>
+        </section>
+
+        <!-- Attention Required -->
+        <section class="attention-section">
+          <div class="section-header">
+            <h2 class="section-title">
+              <span>דורש טיפול</span>
+              <span class="attention-badge">4</span>
+            </h2>
+          </div>
+          
+          <div class="attention-list" id="attentionList">
+            <!-- Attention items will be injected here -->
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <!-- FAB Button -->
+    <button class="fab" id="fabButton" onclick="openNewBooking()">
+      <span>+</span>
+    </button>
+
+    <!-- New Booking Modal -->
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal" id="newBookingModal">
+        <div class="modal-header">
+          <h3>📅 הזמנה חדשה</h3>
+          <button class="modal-close" onclick="closeModal()">✕</button>
+        </div>
+        <form class="modal-form" id="newBookingForm">
+          <div class="form-group">
+            <label>שם האמן</label>
+            <input type="text" name="artist" placeholder="הקלד שם אמן..." required>
+          </div>
+          <div class="form-group">
+            <label>מקום האירוע</label>
+            <input type="text" name="venue" placeholder="הקלד שם מקום..." required>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>תאריך</label>
+              <input type="date" name="date" required>
+            </div>
+            <div class="form-group">
+              <label>שעה</label>
+              <input type="time" name="time" value="21:00">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>סכום (₪)</label>
+            <input type="number" name="fee" placeholder="0" min="0">
+          </div>
+          <div class="form-actions">
+            <button type="button" class="btn btn-secondary" onclick="closeModal()">ביטול</button>
+            <button type="submit" class="btn btn-primary">צור הזמנה</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div class="toast-container" id="toastContainer"></div>
+  </div>
+
+
+  <script>
+    window.DASHBOARD_API_URL = "https://script.google.com/macros/s/AKfycbx1-IBlC7j_vRk_cTDraNG99EaiZVKzjBVPSamtpuqEFq7XhGNeCuOCA4V5EbWfJnVq/exec";
+    window.TERMS_URL = "#"; 
+  </script>
+  <script src="app.js"></script>
+</body>
+</html>
+

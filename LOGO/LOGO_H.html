@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>אמא הפקות - קונספטים ללוגו</title>
+    <link href="https://fonts.googleapis.com/css2?family=Rubik+Wet+Paint&family=Rubik+Mono+One&family=Black+Ops+One&family=VT323&family=Monoton&family=Heebo:wght@900&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background-color: #121212; /* רקע כהה כללי */
+            color: #ffffff;
+            font-family: 'Heebo', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 50px;
+        }
+
+        h1.main-title {
+            text-align: center;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 40px;
+            color: #888;
+        }
+
+        .logo-container {
+            width: 100%;
+            max-width: 500px;
+            height: 300px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+
+        .concept-title {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            font-size: 0.9rem;
+            opacity: 0.6;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            z-index: 10;
+        }
+
+        /* --- קונספט 1: התגית (Graffiti) --- */
+        #concept-1 {
+            background-color: #2a2a2a;
+            background-image: url('data:image/svg+xml;charset=utf8,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"%3E%3Cfilter id="noise"%3E%3CfeTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="4" stitchTiles="stitch"/%3E%3C/filter%3E%3Crect width="100" height="100" filter="url(%23noise)" opacity="0.15"/%3E%3C/svg%3E');
+        }
+        .c1-text {
+            font-family: 'Rubik Wet Paint', cursive;
+            font-size: 5rem;
+            color: #ff00cc; /* ורוד ניאון */
+            text-shadow: 
+                3px 3px 0px #00ffff, /* ציאן */
+                6px 6px 10px rgba(0,0,0,0.8),
+                0px 0px 20px rgba(255, 0, 204, 0.7);
+            transform: rotate(-5deg);
+            line-height: 0.8;
+            text-align: center;
+        }
+        .c1-subtext {
+            font-family: 'Heebo', sans-serif;
+            font-weight: 900;
+            font-size: 1.8rem;
+            letter-spacing: 5px;
+            color: #00ffff;
+            background: #ff00cc;
+            padding: 5px 15px;
+            transform: rotate(-3deg) translateY(-10px);
+        }
+
+        /* --- קונספט 2: המדבקה (90s Rave Sticker) --- */
+        #concept-2 {
+            background: repeating-linear-gradient( Let's use a solid color to avoid visual noise overload
+                45deg,
+                #1a1a1a,
+                #1a1a1a 10px,
+                #222 10px,
+                #222 20px
+            );
+        }
+        .c2-sticker {
+            background: #f7d51d; /* צהוב חרדל */
+            padding: 30px 40px;
+            border-radius: 4px;
+            transform: rotate(3deg);
+            border: 4px solid #000;
+            box-shadow: 5px 5px 0px #ff4400;
+            position: relative;
+            overflow: hidden;
+        }
+        /* אפקט רשת (Halftone) */
+        .c2-sticker::after {
+            content: '';
+            position: absolute;
+            top:0; left:0; right:0; bottom:0;
+            background-image: radial-gradient(circle, #000 20%, transparent 20%);
+            background-size: 8px 8px;
+            opacity: 0.15;
+        }
+        .c2-text {
+            font-family: 'Rubik Mono One', sans-serif;
+            font-size: 3rem;
+            color: #000;
+            text-transform: uppercase;
+            line-height: 1;
+            position: relative;
+            z-index: 2;
+        }
+        .c2-subtext {
+            font-family: 'Heebo', sans-serif;
+            font-weight: 900;
+            font-size: 1.5rem;
+            color: #ff4400;
+            text-align: right;
+        }
+
+        /* --- קונספט 3: תעשייתי (Industrial / The Block Vibe) --- */
+        #concept-3 {
+            background-color: #000;
+            border: 6px solid #333;
+        }
+        .c3-container {
+            border: 4px dashed #555;
+            padding: 20px;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0,0,0,0.8),
+                rgba(0,0,0,0.8) 2px,
+                transparent 2px,
+                transparent 4px
+            );
+        }
+        .c3-text {
+            font-family: 'Black Ops One', cursive;
+            font-size: 4rem;
+            color: #d4d4d4;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            /* אפקט מתכת חלודה */
+            background: linear-gradient(to bottom, #d4d4d4 30%, #503e3e 70%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            filter: drop-shadow(2px 4px 0px #000);
+        }
+        .c3-subtext {
+             font-family: 'Heebo', sans-serif;
+             font-weight: 900;
+             font-size: 1.2rem;
+             letter-spacing: 8px;
+             color: #7c2f2f; /* אדום חלודה */
+             text-align: center;
+             border-top: 2px solid #555;
+             padding-top: 10px;
+             margin-top: 10px;
+        }
+
+        /* --- קונספט 4: הגליץ' (Glitch / VHS) --- */
+        #concept-4 {
+            background-color: #0a001a;
+            overflow: hidden;
+        }
+        .c4-text {
+            font-family: 'VT323', monospace;
+            font-size: 6rem;
+            position: relative;
+            color: #fff;
+            animation: glitch-skew 1s infinite linear alternate-reverse;
+        }
+        /* יצירת שכבות צבע לגליץ' */
+        .c4-text::before,
+        .c4-text::after {
+            content: attr(data-text);
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+        .c4-text::before {
+            left: -3px;
+            text-shadow: 3px 0 red;
+            animation: glitch-anim 2s infinite linear alternate-reverse;
+        }
+        .c4-text::after {
+            left: 3px;
+            text-shadow: -3px 0 blue;
+            animation: glitch-anim2 2s infinite linear alternate-reverse;
+        }
+        .c4-subtext {
+            font-family: 'VT323', monospace;
+            font-size: 2rem;
+            letter-spacing: 4px;
+            color: limegreen;
+            margin-top: -15px;
+        }
+        @keyframes glitch-anim {
+            0% { clip-path: inset(10% 0 85% 0); }
+            100% { clip-path: inset(85% 0 10% 0); }
+        }
+        @keyframes glitch-anim2 {
+             0% { clip-path: inset(55% 0 10% 0); }
+            100% { clip-path: inset(10% 0 55% 0); }
+        }
+
+        /* --- קונספט 5: ניאון מחתרתי --- */
+        #concept-5 {
+            background-color: #08020a; /* רקע כמעט שחור עם טיפה סגול */
+            background-image: radial-gradient(circle at center, #2a0e35 0%, #000000 70%);
+        }
+        .c5-text {
+            font-family: 'Monoton', cursive; /* פונט פסים בסגנון דיסקו */
+            font-size: 4.5rem;
+            color: #fff;
+            text-transform: uppercase;
+            line-height: 1;
+            /* אפקט הניאון */
+            text-shadow: 
+                0 0 5px #fff,
+                0 0 10px #fff,
+                0 0 20px #9d00ff,
+                0 0 40px #9d00ff,
+                0 0 80px #9d00ff,
+                0 0 90px #9d00ff;
+            animation: flicker 1.5s infinite alternate;
+        }
+        .c5-subtext {
+            font-family: 'Heebo', sans-serif;
+            font-weight: 300;
+            font-size: 1.2rem;
+            letter-spacing: 6px;
+            color: #e2bdff;
+            margin-top: 15px;
+        }
+        @keyframes flicker {
+            0%, 18%, 22%, 25%, 53%, 57%, 100% {
+                opacity: 1;
+                text-shadow: 
+                0 0 5px #fff,
+                0 0 10px #fff,
+                0 0 20px #9d00ff,
+                0 0 40px #9d00ff,
+                0 0 80px #9d00ff,
+                0 0 90px #9d00ff;
+            }
+            20%, 24%, 55% {
+                opacity: 0.8;
+                 text-shadow: none;
+            }
+        }
+
+    </style>
+</head>
+<body>
+
+    <h1 class="main-title">EMA HAFAKOT - LOGO CONCEPTS</h1>
+
+    <div class="logo-container" id="concept-1">
+        <div class="concept-title">1. The Urban Tag (Street/Graffiti)</div>
+        <div class="c1-text">אמא</div>
+        <div class="c1-subtext">הפקות</div>
+    </div>
+
+    <div class="logo-container" id="concept-2">
+         <div class="concept-title">2. The 90s Sticker (Rave Vintage)</div>
+        <div class="c2-sticker">
+            <div class="c2-text">אמא<br>הפקות</div>
+            <div class="c2-subtext">BOOKING AGENCY</div>
+        </div>
+    </div>
+
+    <div class="logo-container" id="concept-3">
+         <div class="concept-title">3. The Industrial Stamp (Underground/Heavy)</div>
+        <div class="c3-container">
+            <div class="c3-text">אמא</div>
+            <div class="c3-text">הפקות</div>
+            <div class="c3-subtext">תל אביב | אנדרגראונד</div>
+        </div>
+    </div>
+
+    <div class="logo-container" id="concept-4">
+         <div class="concept-title">4. The Glitch Tape (Retro Tech)</div>
+        <div class="c4-text" data-text="אמא">אמא</div>
+        <div class="c4-subtext">// הפקות_</div>
+    </div>
+
+    <div class="logo-container" id="concept-5">
+         <div class="concept-title">5. Underground Neon (Nightlife/Style)</div>
+        <div class="c5-text">אמא הפקות</div>
+        <div class="c5-subtext">סוכנות בוקינג</div>
+    </div>
+
+</body>
+</html>

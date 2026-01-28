@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EMA PRODUCTIONS - Palette & Typography Study</title>
+    <link href="https://fonts.googleapis.com/css2?family=Suez+One&family=Syne:wght@800&family=Space+Mono:wght@400;700&family=Inter:wght@900&display=swap" rel="stylesheet">
+
+    <style>
+        /* הגדרות כלליות */
+        body {
+            margin: 0;
+            padding: 40px 20px;
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 80px;
+            background-color: #f0f0f0;
+        }
+
+        .palette-section {
+            width: 100%;
+            max-width: 1000px;
+            padding: 40px;
+            border-radius: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+        }
+
+        .section-header {
+            font-family: 'Space Mono', monospace;
+            font-size: 14px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            border-bottom: 1px solid rgba(0,0,0,0.1);
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .canvas {
+            height: 350px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            overflow: hidden;
+            border-radius: 4px;
+        }
+
+        /* סגנונות טיפוגרפיים */
+        .he-main { font-family: 'Suez One', serif; font-size: 75px; line-height: 1; margin: 0; }
+        .en-main { font-family: 'Syne', sans-serif; font-size: 70px; line-height: 0.8; letter-spacing: -4px; margin: 0; }
+        .tech-label { font-family: 'Space Mono', monospace; font-size: 12px; text-transform: uppercase; }
+
+        /* קונספט Sticky Note */
+        .sticky-note {
+            width: 280px;
+            height: 280px;
+            padding: 25px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            box-shadow: 15px 15px 40px rgba(0,0,0,0.1);
+            transform: rotate(-1.5deg);
+        }
+
+        /* קונספט ברוטליזם */
+        .brutal-tag {
+            padding: 5px 15px;
+            margin-top: 15px;
+            display: inline-block;
+        }
+
+        /* --- פלטה 1: Modern Curator --- */
+        #p1 { background-color: #f5f5f0; color: #1a1a1b; }
+        #p1 .canvas { background-color: #ffffff; border: 1px solid #e0e0d5; }
+        #p1 .sticky-note { background-color: #ffffff; border: 1px solid #f0f0e5; }
+        #p1 .accent-text { color: #0038ff; } /* כחול חשמלי */
+        #p1 .brutal-tag { background-color: #1a1a1b; color: #ffffff; }
+
+        /* --- פלטה 2: Soft Brutalist --- */
+        #p2 { background-color: #ebe8e2; color: #2d2d2d; }
+        #p2 .canvas { background-color: #f4f1ec; border: 1px solid #ddd6cc; }
+        #p2 .sticky-note { background-color: #ffffff; border: 1px solid #eee; }
+        #p2 .accent-text { color: #a47864; } /* מוקה */
+        #p2 .brutal-tag { background-color: #a47864; color: #ffffff; }
+
+        /* --- פלטה 3: Electric Midnight --- */
+        #p3 { background-color: #050505; color: #d1d1d1; }
+        #p3 .canvas { background-color: #0a0a0a; border: 1px solid #222; }
+        #p3 .sticky-note { background-color: #111; border: 1px solid #222; }
+        #p3 .accent-text { color: #baff00; } /* ליים חומצי */
+        #p3 .brutal-tag { background-color: #baff00; color: #000; }
+        #p3 .he-main, #p3 .en-main { color: #ffffff; }
+
+        /* --- פלטה 4: Street Archive --- */
+        #p4 { background-color: #ffffff; color: #121212; }
+        #p4 .canvas { background-color: #f9f9f9; border: 1px solid #eee; }
+        #p4 .sticky-note { background-color: #ffffff; border: 1px solid #121212; }
+        #p4 .accent-text { color: #ff3c00; } /* כתום תעשייתי */
+        #p4 .brutal-tag { background-color: #ff3c00; color: #ffffff; }
+
+    </style>
+</head>
+<body>
+
+    <div class="palette-section" id="p1">
+        <div class="section-header">01 // THE MODERN CURATOR (Bone White + Electric Blue)</div>
+        <div class="grid">
+            <div class="canvas">
+                <div class="sticky-note">
+                    <h1 class="he-main">אמא.</h1>
+                    <div class="tech-label" style="border-top: 1px solid #000; padding-top: 10px;">
+                        הפקות <span class="accent-text" style="float:left;">[2026]</span>
+                    </div>
+                </div>
+            </div>
+            <div class="canvas">
+                <div style="text-align: center;">
+                    <h1 class="en-main">EMA</h1>
+                    <div class="brutal-tag tech-label">PRODUCTIONS</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="palette-section" id="p2">
+        <div class="section-header">02 // SOFT BRUTALIST (Mocha Mousse + Ivory)</div>
+        <div class="grid">
+            <div class="canvas">
+                <div class="sticky-note">
+                    <h1 class="he-main accent-text">אמא</h1>
+                    <div class="tech-label">הפקות // Agency</div>
+                </div>
+            </div>
+            <div class="canvas">
+                <div style="text-align: center;">
+                    <h1 class="en-main">EMA</h1>
+                    <div class="brutal-tag tech-label">PRODUCTIONS // INTL</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="palette-section" id="p3">
+        <div class="section-header">03 // ELECTRIC MIDNIGHT (Ink Black + Acid Lime)</div>
+        <div class="grid">
+            <div class="canvas">
+                <div class="sticky-note">
+                    <h1 class="he-main">אמא</h1>
+                    <div class="tech-label" style="color: #666;">
+                        הפקות <span class="accent-text" style="float:left;">SCAN_04</span>
+                    </div>
+                </div>
+            </div>
+            <div class="canvas">
+                <div style="text-align: center;">
+                    <h1 class="en-main">EMA<span class="accent-text">.</span></h1>
+                    <div class="tech-label" style="letter-spacing: 5px; margin-top: 10px;">PRODUCTIONS</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="palette-section" id="p4">
+        <div class="section-header">04 // STREET ARCHIVE (Paper White + Industrial Orange)</div>
+        <div class="grid">
+            <div class="canvas">
+                <div class="sticky-note" style="transform: rotate(1deg);">
+                    <h1 class="he-main">אמא</h1>
+                    <div class="tech-label" style="background: #121212; color: #fff; padding: 2px 5px; display: inline-block;">הפקות</div>
+                </div>
+            </div>
+            <div class="canvas">
+                <div style="text-align: center;">
+                    <h1 class="en-main">EMA</h1>
+                    <div class="accent-text tech-label" style="font-weight: bold; margin-top: 10px;">PRODUCTIONS // 2026</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>

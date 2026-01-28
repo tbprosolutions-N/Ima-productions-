@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<!-- Property of MODU. Unauthorized copying or distribution is prohibited. -->
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#06080C" />
+  <meta name="color-scheme" content="light dark" />
+  <title>אמא הפקות – מערכת ניהול | Spotlight Amber</title>
+  <script>
+    (function(){var t=localStorage.getItem('theme');if(t==='light'||t==='dark'){document.documentElement.setAttribute('data-theme',t);var m=document.querySelector('meta[name="theme-color"]');if(m)m.content=t==='light'?'#f8f9fc':'#06080C';}})();
+  </script>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Assistant:wght@600&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="brand">
+        <img id="headerLogo" class="brand-img" src="" alt="אמא הפקות" role="img" />
+        <span id="brandFallbackText" style="display: none; font-weight: 700;">אמא הפקות</span>
+      </div>
+      <div class="header-actions">
+        <button type="button" class="btn btn-icon" id="themeToggle" title="החלף ערכת נושא" aria-label="החלף ערכת נושא">
+          <span class="theme-icon theme-icon-sun" aria-hidden="true">☀</span>
+          <span class="theme-icon theme-icon-moon" aria-hidden="true">🌙</span>
+        </button>
+        <button type="button" class="btn btn-primary" id="newBookingBtn" title="הזמנה חדשה">הזמנה חדשה</button>
+        <button type="button" class="btn btn-ghost" id="refreshBtn" title="רענן נתונים">רענן</button>
+        <span class="last-update" id="lastUpdate"></span>
+      </div>
+    </header>
+
+    <main class="main">
+      <section class="stats-grid" id="statsGrid">
+        <div class="stat-card stat-revenue" id="statCardRevenue">
+          <span class="stat-label">סה"כ הכנסות (₪)</span>
+          <span class="stat-value" id="statFee">–</span>
+        </div>
+        <div class="stat-card stat-total" id="statCardTotal">
+          <span class="stat-label">סה"כ הזמנות</span>
+          <span class="stat-value" id="statCount">–</span>
+        </div>
+        <div class="stat-card stat-pending">
+          <span class="stat-label">ממתינות</span>
+          <span class="stat-value" id="statPending">–</span>
+        </div>
+        <div class="stat-card stat-confirmed">
+          <span class="stat-label">אושרו</span>
+          <span class="stat-value" id="statConfirmed">–</span>
+        </div>
+        <div class="stat-card stat-review">
+          <span class="stat-label">נדרש סקירה</span>
+          <span class="stat-value" id="statNeedsReview">–</span>
+        </div>
+      </section>
+
+      <section class="bookings-section">
+        <h2 class="section-title">אירועים קרובים</h2>
+        <div class="table-filter-wrap">
+          <input type="text" id="tableFilter" class="form-input table-filter-input" placeholder="חפש לפי אמן או תאריך..." aria-label="חפש לפי אמן או תאריך" />
+        </div>
+        <div class="table-wrap">
+          <table class="bookings-table" id="bookingsTable">
+            <thead>
+              <tr>
+                <th>תאריך</th>
+                <th>אמן</th>
+                <th>מקום</th>
+                <th class="col-fee">סכום (₪)</th>
+                <th>סטטוס</th>
+                <th class="col-action">פעולה</th>
+              </tr>
+            </thead>
+            <tbody id="bookingsBody">
+              <tr class="loading-row">
+                <td colspan="6">טוען...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>אמא הפקות</span>
+      <span class="sep">·</span>
+      <span id="apiStatus">מחובר</span>
+      <span id="pendingIndicator" class="pending-indicator" aria-live="polite"></span>
+    </footer>
+  </div>
+
+  <!-- Terms overlay – first login of new session, one-time until "I Agree" -->
+  <div class="terms-overlay" id="termsOverlay" role="dialog" aria-labelledby="termsTitle" aria-modal="true" hidden>
+    <div class="terms-box">
+      <h2 id="termsTitle" class="terms-title">תנאי שימוש</h2>
+      <p class="terms-text">כדי להמשיך לשימוש במערכת, יש לאשר את תנאי השימוש.</p>
+      <p class="terms-text">
+        <a id="termsLink" href="#" target="_blank" rel="noopener">תנאי שימוש (Terms of Use)</a>
+      </p>
+      <button type="button" class="btn btn-primary" id="termsAgreeBtn">אני מסכים</button>
+    </div>
+  </div>
+
+  <!-- Modal: New Booking (iOS-style bottom sheet on mobile) -->
+  <div class="modal-overlay" id="modalOverlay" aria-hidden="true">
+    <div class="modal modal-sheet" id="modalNewBooking" role="dialog" aria-labelledby="modalTitle">
+      <div class="modal-handle" aria-hidden="true"></div>
+      <h2 class="modal-title" id="modalTitle">הזמנה חדשה</h2>
+      <form id="formNewBooking" class="modal-form">
+        <label class="form-label" for="formArtist">אמן</label>
+        <input type="text" id="formArtist" class="form-input" name="artist" placeholder="שם האמן" required />
+        <label class="form-label" for="formDate">תאריך</label>
+        <input type="date" id="formDate" class="form-input" name="date" required />
+        <label class="form-label" for="formVenue">מקום</label>
+        <input type="text" id="formVenue" class="form-input" name="venue" placeholder="שם המקום / לקוח" required />
+        <label class="form-label" for="formFee">סכום (₪)</label>
+        <input type="number" id="formFee" class="form-input" name="fee" min="0" step="1" placeholder="0" />
+        <label class="form-label" for="formNotes">הערות</label>
+        <textarea id="formNotes" class="form-input form-textarea" name="notes" rows="2" placeholder="הערות (אופציונלי)"></textarea>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" id="modalCancel">ביטול</button>
+          <button type="submit" class="btn btn-primary">שמירה</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    // After deploying the Google Web App, paste the /exec URL here (Deploy: "User accessing" + "Anyone with Google account").
+    window.DASHBOARD_API_URL = 'https://script.google.com/macros/s/AKfycbzWZpCgzmnfu2lLTVLfdp-Bn2ka0Z5dgsPjE_goWx-jhkXKCQyKasNGdkLcSSzVuA/exec';
+    // Optional: Terms of Use URL shown in the first-session overlay. Link your SLA/Terms document here.
+    window.TERMS_URL = '#';
+  </script>
+  <div id="successToast" class="success-toast" aria-live="polite" hidden>
+    <span class="success-toast-icon">✓</span>
+    <span class="success-toast-text">נשמר בהצלחה</span>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
