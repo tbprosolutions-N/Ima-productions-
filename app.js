@@ -624,14 +624,14 @@ var skelRow = '<tr class="skeleton-row"><td><span class="skeleton-line"></span><
         hapticFeedback();
         showTermsIfNeeded();
       } else {
-        showLoginError('המשתמש ' + email + ' אינו מורשה. פנה למנהל המערכת.');
+        showLoginError('הכניסה נדחתה: המשתמש ' + email + ' אינו רשום במערכת. אנא ודא שהאימייל שלך נמצא בגיליון "משתמשים" עם תפקיד Admin או Staff.');
         if (typeof sessionStorage !== 'undefined') {
           sessionStorage.removeItem(GOOGLE_TOKEN_KEY);
         }
       }
     })
     .catch(function (error) {
-      showLoginError('שגיאת רשת: ' + error.message);
+      showLoginError('שגיאת חיבור: לא ניתן להתחבר לשרת. בדוק את החיבור לאינטרנט או שהכתובת DASHBOARD_API_URL תקינה. שגיאה: ' + error.message);
     });
   }
 
