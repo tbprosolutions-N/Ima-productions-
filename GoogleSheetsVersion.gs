@@ -1453,6 +1453,26 @@ function doGet(e) {
     return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
   }
 
+  if (action === 'verifyUser') {
+    var emailToVerify = params.email || '';
+    if (!emailToVerify) {
+      return ContentService.createTextOutput(JSON.stringify({ authorized: false, error: 'No email provided' })).setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    var userRole = getCurrentUserRole(ss, emailToVerify);
+    var isAuthorized = (userRole === 'Admin' || userRole === 'Staff');
+    
+    var response = {
+      authorized: isAuthorized,
+      role: isAuthorized ? userRole : null,
+      email: emailToVerify
+    };
+    
+    logActivity('VerifyUser:' + emailToVerify + ':' + (isAuthorized ? 'Authorized' : 'Denied'));
+    
+    return ContentService.createTextOutput(JSON.stringify(response)).setMimeType(ContentService.MimeType.JSON);
+  }
+
   if (action === 'artists') {
     var artists = [];
     if (ss) {

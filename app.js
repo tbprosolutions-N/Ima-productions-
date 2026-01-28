@@ -12,10 +12,12 @@
   'use strict';
 
   var API_URL = (typeof window !== 'undefined' && window.DASHBOARD_API_URL) || '';
+  var GOOGLE_CLIENT_ID = (typeof window !== 'undefined' && window.GOOGLE_CLIENT_ID) || '';
   var PENDING_KEY = 'ema_pending_bookings';
   var TERMS_ACCEPTED_KEY = 'ema_terms_accepted';
   var USER_EMAIL_KEY = 'ema_user_email';
   var USER_ROLE_KEY = 'ema_user_role';
+  var GOOGLE_TOKEN_KEY = 'ema_google_token';
 
   function hapticFeedback() {
     if (typeof navigator !== 'undefined' && navigator.vibrate) {
@@ -54,7 +56,7 @@
     formNotes: document.getElementById('formNotes'),
     pendingIndicator: document.getElementById('pendingIndicator'),
     loginOverlay: document.getElementById('loginOverlay'),
-    loginBtn: document.getElementById('loginBtn'),
+    googleSignInButton: document.getElementById('googleSignInButton'),
     loginError: document.getElementById('loginError'),
     termsOverlay: document.getElementById('termsOverlay'),
     termsAgreeBtn: document.getElementById('termsAgreeBtn'),
@@ -279,19 +281,31 @@
   }
 
   function fetchWhoami() {
-    return fetch(urlAction('whoami')).then(function (r) { return r.json(); });
+    return fetch(urlAction('whoami'), {
+      method: 'GET',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+    }).then(function (r) { return r.json(); });
   }
 
   function fetchArtists() {
-    return fetch(urlAction('artists')).then(function (r) { return r.json(); });
+    return fetch(urlAction('artists'), {
+      method: 'GET',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+    }).then(function (r) { return r.json(); });
   }
 
   function fetchLogo() {
-    return fetch(urlAction('logo')).then(function (r) { return r.json(); });
+    return fetch(urlAction('logo'), {
+      method: 'GET',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+    }).then(function (r) { return r.json(); });
   }
 
   function fetchData() {
-    return fetch(urlAction('data') || API_URL).then(function (r) { return r.json(); });
+    return fetch(urlAction('data') || API_URL, {
+      method: 'GET',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+    }).then(function (r) { return r.json(); });
   }
 
   function loadLogo() {
@@ -507,35 +521,99 @@ var skelRow = '<tr class="skeleton-row"><td><span class="skeleton-line"></span><
     });
   });
 
-  function showLoginIfNeeded() {
-    if (!els.loginOverlay) return;
-    var userEmail = (typeof sessionStorage !== 'undefined') && sessionStorage.getItem(USER_EMAIL_KEY);
-    if (userEmail) {
-      els.loginOverlay.setAttribute('hidden', '');
-      showTermsIfNeeded();
-      return;
-    }
-    els.loginOverlay.removeAttribute('hidden');
-  }
-
-  function handleLogin() {
-    if (!API_URL) {
+  function initGoogleSignIn() {
+    if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID.indexOf('YOUR_GOOGLE_CLIENT_ID') !== -1) {
       if (els.loginError) {
-        els.loginError.textContent = 'חסר כתובת API. הגדר DASHBOARD_API_URL.';
+        els.loginError.textContent = 'שגיאה: לא הוגדר Google Client ID. עדכן את window.GOOGLE_CLIENT_ID ב-index.html';
         els.loginError.removeAttribute('hidden');
       }
       return;
     }
-    if (els.loginBtn) {
-      els.loginBtn.disabled = true;
-      els.loginBtn.textContent = 'מתחבר...';
+
+    if (typeof google === 'undefined' || !google.accounts) {
+      setTimeout(initGoogleSignIn, 100);
+      return;
     }
+
+    google.accounts.id.initialize({
+      client_id: GOOGLE_CLIENT_ID,
+      callback: handleGoogleSignIn,
+      auto_select: false,
+      cancel_on_tap_outside: false
+    });
+
+    google.accounts.id.renderButton(
+      els.googleSignInButton,
+      {
+        theme: 'filled_black',
+        size: 'large',
+        text: 'signin_with',
+        shape: 'rectangular',
+        logo_alignment: 'left',
+        width: 280
+      }
+    );
+  }
+
+  function handleGoogleSignIn(response) {
+    if (!response.credential) {
+      showLoginError('לא התקבל אסימון מ-Google');
+      return;
+    }
+
+    var token = response.credential;
+    var payload = parseJwt(token);
+    
+    if (!payload || !payload.email) {
+      showLoginError('לא ניתן לקרוא את פרטי המשתמש');
+      return;
+    }
+
+    var email = payload.email;
+    
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem(GOOGLE_TOKEN_KEY, token);
+    }
+
+    verifyUserWithBackend(email);
+  }
+
+  function parseJwt(token) {
+    try {
+      var base64Url = token.split('.')[1];
+      var base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      var jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+      }).join(''));
+      return JSON.parse(jsonPayload);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function verifyUserWithBackend(email) {
+    if (!API_URL) {
+      showLoginError('חסר כתובת API. הגדר DASHBOARD_API_URL.');
+      return;
+    }
+
     if (els.loginError) els.loginError.setAttribute('hidden', '');
 
-    fetchWhoami().then(function (res) {
-      if (res && res.email) {
-        var email = res.email;
-        var role = res.role || 'Staff';
+    var url = API_URL + '?action=verifyUser&email=' + encodeURIComponent(email);
+    
+    fetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8'
+      }
+    })
+    .then(function (response) {
+      if (!response.ok) throw new Error('Network response was not ok');
+      return response.json();
+    })
+    .then(function (data) {
+      if (data && data.authorized) {
+        var role = data.role || 'Staff';
         if (typeof sessionStorage !== 'undefined') {
           sessionStorage.setItem(USER_EMAIL_KEY, email);
           sessionStorage.setItem(USER_ROLE_KEY, role);
@@ -546,22 +624,34 @@ var skelRow = '<tr class="skeleton-row"><td><span class="skeleton-line"></span><
         hapticFeedback();
         showTermsIfNeeded();
       } else {
-        if (els.loginError) {
-          els.loginError.textContent = 'לא התקבל אימייל. וודא שהסקריפט פרוס ב-"User accessing".';
-          els.loginError.removeAttribute('hidden');
+        showLoginError('המשתמש ' + email + ' אינו מורשה. פנה למנהל המערכת.');
+        if (typeof sessionStorage !== 'undefined') {
+          sessionStorage.removeItem(GOOGLE_TOKEN_KEY);
         }
       }
-    }).catch(function () {
-      if (els.loginError) {
-        els.loginError.textContent = 'שגיאת רשת. בדוק חיבור ל-API.';
-        els.loginError.removeAttribute('hidden');
-      }
-    }).then(function () {
-      if (els.loginBtn) {
-        els.loginBtn.disabled = false;
-        els.loginBtn.textContent = 'התחבר';
-      }
+    })
+    .catch(function (error) {
+      showLoginError('שגיאת רשת: ' + error.message);
     });
+  }
+
+  function showLoginError(message) {
+    if (els.loginError) {
+      els.loginError.textContent = message;
+      els.loginError.removeAttribute('hidden');
+    }
+  }
+
+  function showLoginIfNeeded() {
+    if (!els.loginOverlay) return;
+    var userEmail = (typeof sessionStorage !== 'undefined') && sessionStorage.getItem(USER_EMAIL_KEY);
+    if (userEmail) {
+      els.loginOverlay.setAttribute('hidden', '');
+      showTermsIfNeeded();
+      return;
+    }
+    els.loginOverlay.removeAttribute('hidden');
+    initGoogleSignIn();
   }
 
   function showTermsIfNeeded() {
@@ -592,7 +682,6 @@ var skelRow = '<tr class="skeleton-row"><td><span class="skeleton-line"></span><
     setInterval(runFlow, 2 * 60 * 1000);
   }
 
-  if (els.loginBtn) els.loginBtn.addEventListener('click', handleLogin);
   if (els.termsAgreeBtn) els.termsAgreeBtn.addEventListener('click', acceptTerms);
 
   if (els.tableFilter) els.tableFilter.addEventListener('input', function () {

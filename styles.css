@@ -18,14 +18,14 @@
   --indigo: #4F46E5;
   --indigo-dim: rgba(79, 70, 229, 0.28);
   --primary-gradient: linear-gradient(135deg, #4F46E5 0%, #1E1B4B 100%);
-  --accent-amber: #F59E0B;
-  --accent-amber-dim: rgba(245, 158, 11, 0.22);
-  --success: #F59E0B;
-  --success-dim: rgba(245, 158, 11, 0.22);
-  --warning: #F59E0B;
-  --warning-dim: rgba(245, 158, 11, 0.22);
-  --pending: #F59E0B;
-  --pending-dim: rgba(245, 158, 11, 0.22);
+  --accent-amber: #FFBF00;
+  --accent-amber-dim: rgba(255, 191, 0, 0.22);
+  --success: #FFBF00;
+  --success-dim: rgba(255, 191, 0, 0.22);
+  --warning: #FFBF00;
+  --warning-dim: rgba(255, 191, 0, 0.22);
+  --pending: #FFBF00;
+  --pending-dim: rgba(255, 191, 0, 0.22);
   --radius: 14px;
   --radius-sm: 10px;
   --radius-sheet: 20px 20px 0 0;
@@ -51,13 +51,13 @@
   --indigo-dim: rgba(79, 70, 229, 0.15);
   --primary-gradient: linear-gradient(135deg, #4F46E5 0%, #312e81 100%);
   --accent-amber: #D97706;
-  --accent-amber-dim: rgba(245, 158, 11, 0.18);
+  --accent-amber-dim: rgba(217, 119, 6, 0.18);
   --success: #D97706;
-  --success-dim: rgba(245, 158, 11, 0.18);
+  --success-dim: rgba(217, 119, 6, 0.18);
   --warning: #D97706;
-  --warning-dim: rgba(245, 158, 11, 0.18);
+  --warning-dim: rgba(217, 119, 6, 0.18);
   --pending: #D97706;
-  --pending-dim: rgba(245, 158, 11, 0.18);
+  --pending-dim: rgba(217, 119, 6, 0.18);
   --shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
 }
 
@@ -891,18 +891,19 @@ body.modal-open {
   overflow: hidden;
 }
 
-/* Login overlay (Google auto-login) */
+/* Login overlay (Official Google Sign-In) */
 .login-overlay {
   position: fixed;
   inset: 0;
   z-index: 2100;
-  background: rgba(6, 8, 12, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(6, 8, 12, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 1.5rem;
+  animation: fadeIn 0.3s ease;
 }
 .login-overlay[hidden] {
   display: none;
@@ -911,34 +912,93 @@ body.modal-open {
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
-  padding: 1.5rem;
+  padding: 2rem;
   max-width: 420px;
   width: 100%;
-  box-shadow: var(--shadow);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
   text-align: center;
+  animation: slideUp 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.login-header {
+  margin-bottom: 1.5rem;
+}
+.login-icon {
+  font-size: 3rem;
+  margin-bottom: 0.75rem;
+  filter: drop-shadow(0 4px 12px rgba(255, 191, 0, 0.3));
 }
 .login-title {
   font-family: var(--font-heading);
   font-weight: 600;
-  font-size: 1.25rem;
-  margin: 0 0 0.75rem 0;
+  font-size: 1.5rem;
+  margin: 0 0 0.5rem 0;
   color: var(--text-primary);
+  background: linear-gradient(135deg, var(--accent-amber) 0%, #FFD700 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.login-subtitle {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin: 0;
+}
+.login-divider {
+  height: 1px;
+  background: var(--border-subtle);
+  margin: 1.5rem 0;
 }
 .login-text {
   font-size: 0.95rem;
   color: var(--text-secondary);
-  margin: 0 0 1rem 0;
+  margin: 0 0 1.5rem 0;
+  line-height: 1.5;
+}
+.google-signin-container {
+  display: flex;
+  justify-content: center;
+  margin: 1.5rem 0;
 }
 .login-error {
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   color: #ff453a;
-  margin: 0.75rem 0 0 0;
+  margin: 1rem 0 0 0;
+  padding: 0.75rem;
+  background: rgba(255, 69, 58, 0.1);
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 69, 58, 0.2);
 }
 .login-error[hidden] {
   display: none;
 }
-.login-box .btn {
-  width: 100%;
+.login-footer {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 1.5rem 0 0 0;
+}
+.login-link {
+  color: var(--accent-amber);
+  text-decoration: none;
+  transition: opacity 0.2s ease;
+}
+.login-link:hover {
+  opacity: 0.8;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* Terms overlay */
