@@ -1,10 +1,13 @@
 /**
- * Artist-Ops 360 - Dashboard Application
- * Handles all client-side interactions and data display
+ * Property of MODU. Unauthorized copying or distribution is prohibited.
+ */
+/**
+ * Artist-Ops 360 / Ima Productions – Dashboard Application
+ * Save Event: POST to window.DASHBOARD_API_URL with Content-Type text/plain (CORS-safe).
  */
 
 // ============================================
-// Sample Data (Replace with API calls)
+// Sample Data (Replace with API calls for initial load)
 // ============================================
 
 const sampleEvents = [
@@ -361,38 +364,59 @@ function closeModal() {
 
 function handleNewBooking(e) {
   e.preventDefault();
-  
+
   const formData = new FormData(e.target);
   const data = Object.fromEntries(formData);
-  
-  // Validate
+
   if (!data.artist || !data.venue || !data.date) {
     showToast('נא למלא את כל השדות הנדרשים', 'error');
     return;
   }
-  
-  // In production, this would send to your API
-  console.log('New booking:', data);
-  
-  // Add to sample data
-  const newEvent = {
-    id: sampleEvents.length + 1,
-    artist: data.artist,
-    venue: data.venue,
-    date: new Date(data.date),
-    fee: parseInt(data.fee) || 0,
-    status: 'pending',
-    paymentStatus: 'pending'
+
+  const apiUrl = typeof window !== 'undefined' && window.DASHBOARD_API_URL ? window.DASHBOARD_API_URL : '';
+  if (!apiUrl) {
+    showToast('חסר כתובת API. הגדר DASHBOARD_API_URL ב-index.html', 'error');
+    return;
+  }
+
+  const payload = {
+    action: 'addBooking',
+    date: String(data.date || '').trim(),
+    artist: String(data.artist || '').trim(),
+    venue: String(data.venue || '').trim(),
+    fee: data.fee != null && data.fee !== '' ? Number(data.fee) : 0,
+    notes: String(data.time || '').trim()
   };
-  
-  sampleEvents.unshift(newEvent);
-  
-  // Update UI
-  renderEvents();
-  updateStats();
-  closeModal();
-  
-  showToast('ההזמנה נוצרה בהצלחה! 🎉', 'success');
+
+  fetch(apiUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(payload)
+  })
+    .then(function (r) { return r.json(); })
+    .then(function (res) {
+      if (res && res.ok) {
+        const newEvent = {
+          id: res.id != null ? res.id : sampleEvents.length + 1,
+          artist: payload.artist,
+          venue: payload.venue,
+          date: new Date(payload.date),
+          fee: payload.fee,
+          status: 'pending',
+          paymentStatus: 'pending'
+        };
+        sampleEvents.unshift(newEvent);
+        renderEvents();
+        updateStats();
+        closeModal();
+        showToast('ההזמנה נוצרה בהצלחה! 🎉', 'success');
+      } else {
+        showToast((res && res.error) ? res.error : 'שגיאה בשמירה', 'error');
+      }
+    })
+    .catch(function () {
+      showToast('שגיאת רשת. וודא שהסקריפט פרוס ואפשר גישה.', 'error');
+    });
 }
 
 // ============================================

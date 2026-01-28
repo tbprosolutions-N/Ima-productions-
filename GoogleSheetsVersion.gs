@@ -1529,6 +1529,7 @@ function doPost(e) {
   if (!assertAuthorized()) {
     return ContentService.createTextOutput(JSON.stringify({ ok: false, error: 'Unauthorized License' })).setMimeType(ContentService.MimeType.JSON);
   }
+  // Body may be sent as text/plain (avoids CORS preflight); contents is still JSON string.
   var body = (e.postData && e.postData.contents) ? e.postData.contents : '{}';
   var data;
   try {

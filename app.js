@@ -211,7 +211,7 @@
     if (btn) { btn.disabled = true; btn.textContent = 'שולח…'; }
     fetch(API_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ action: 'sendPaymentRequest', bookingId: bookingId })
     })
       .then(function (r) { return r.json(); })
@@ -373,7 +373,7 @@
     };
     return fetch(API_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(body)
     }).then(function (r) { return r.json(); });
   }
