@@ -14,6 +14,8 @@
   var API_URL = (typeof window !== 'undefined' && window.DASHBOARD_API_URL) || '';
   var PENDING_KEY = 'ema_pending_bookings';
   var TERMS_ACCEPTED_KEY = 'ema_terms_accepted';
+  var USER_EMAIL_KEY = 'ema_user_email';
+  var USER_ROLE_KEY = 'ema_user_role';
 
   function hapticFeedback() {
     if (typeof navigator !== 'undefined' && navigator.vibrate) {
@@ -22,8 +24,12 @@
   }
 
   var els = {
-    headerLogo: document.getElementById('headerLogo'),
-    brandFallbackText: document.getElementById('brandFallbackText'),
+    sidebar: document.getElementById('sidebar'),
+    menuToggle: document.getElementById('menuToggle'),
+    sidebarLogo: document.getElementById('sidebarLogo'),
+    logoIconFallback: document.getElementById('logoIconFallback'),
+    dateDisplay: document.getElementById('dateDisplay'),
+    fabButton: document.getElementById('fabButton'),
     themeToggle: document.getElementById('themeToggle'),
     statsGrid: document.getElementById('statsGrid'),
     statCardRevenue: document.getElementById('statCardRevenue'),
@@ -47,6 +53,9 @@
     formFee: document.getElementById('formFee'),
     formNotes: document.getElementById('formNotes'),
     pendingIndicator: document.getElementById('pendingIndicator'),
+    loginOverlay: document.getElementById('loginOverlay'),
+    loginBtn: document.getElementById('loginBtn'),
+    loginError: document.getElementById('loginError'),
     termsOverlay: document.getElementById('termsOverlay'),
     termsAgreeBtn: document.getElementById('termsAgreeBtn'),
     termsLink: document.getElementById('termsLink'),
@@ -119,6 +128,24 @@
     if (els.statPending) els.statPending.textContent = byStatus.Pending != null ? byStatus.Pending : '0';
     if (els.statConfirmed) els.statConfirmed.textContent = [byStatus.Confirmed, byStatus.Completed].filter(Boolean).reduce(function (a, b) { return a + b; }, 0) || '0';
     if (els.statNeedsReview) els.statNeedsReview.textContent = byStatus['Needs Review'] != null ? byStatus['Needs Review'] : '0';
+    updateSheetPendingCounter(byStatus.Pending || 0);
+  }
+
+  function updateSheetPendingCounter(sheetPending) {
+    if (!els.pendingIndicator) return;
+    var localQueue = getPendingBookings();
+    var parts = [];
+    if (sheetPending > 0) parts.push(sheetPending + ' ממתינות בגיליון');
+    if (localQueue.length > 0) parts.push(localQueue.length + ' ממתינות לשליחה');
+    if (parts.length > 0) {
+      els.pendingIndicator.textContent = ' · ' + parts.join(' · ');
+      els.pendingIndicator.style.display = 'inline';
+      els.pendingIndicator.className = 'pending-indicator visible';
+    } else {
+      els.pendingIndicator.textContent = '';
+      els.pendingIndicator.style.display = 'none';
+      els.pendingIndicator.className = 'pending-indicator';
+    }
   }
 
   function rowDate(row) {
@@ -301,6 +328,19 @@
     if (meta) meta.setAttribute('content', next === 'light' ? '#f5f5f7' : '#0d0d0f');
   }
 
+  function toggleSidebar() {
+    if (els.sidebar) {
+      els.sidebar.classList.toggle('open');
+    }
+  }
+
+  function updateDateTime() {
+    if (!els.dateDisplay) return;
+    var now = new Date();
+    var options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+    els.dateDisplay.textContent = now.toLocaleDateString('he-IL', options);
+  }
+
   function openModal() {
     document.body.classList.add('modal-open');
     if (els.modalOverlay) {
@@ -329,17 +369,8 @@
     } catch (e) {}
   }
   function updatePendingIndicator() {
-    if (!els.pendingIndicator) return;
-    var p = getPendingBookings();
-    if (p.length > 0) {
-      els.pendingIndicator.textContent = ' · ' + p.length + ' ממתינים לשליחה';
-      els.pendingIndicator.style.display = 'inline';
-      els.pendingIndicator.className = 'pending-indicator visible';
-    } else {
-      els.pendingIndicator.textContent = '';
-      els.pendingIndicator.style.display = 'none';
-      els.pendingIndicator.className = 'pending-indicator';
-    }
+    var localQueue = getPendingBookings();
+    updateSheetPendingCounter(0);
   }
   function flushPendingBookings() {
     var p = getPendingBookings();
@@ -476,11 +507,69 @@ var skelRow = '<tr class="skeleton-row"><td><span class="skeleton-line"></span><
     });
   });
 
+  function showLoginIfNeeded() {
+    if (!els.loginOverlay) return;
+    var userEmail = (typeof sessionStorage !== 'undefined') && sessionStorage.getItem(USER_EMAIL_KEY);
+    if (userEmail) {
+      els.loginOverlay.setAttribute('hidden', '');
+      showTermsIfNeeded();
+      return;
+    }
+    els.loginOverlay.removeAttribute('hidden');
+  }
+
+  function handleLogin() {
+    if (!API_URL) {
+      if (els.loginError) {
+        els.loginError.textContent = 'חסר כתובת API. הגדר DASHBOARD_API_URL.';
+        els.loginError.removeAttribute('hidden');
+      }
+      return;
+    }
+    if (els.loginBtn) {
+      els.loginBtn.disabled = true;
+      els.loginBtn.textContent = 'מתחבר...';
+    }
+    if (els.loginError) els.loginError.setAttribute('hidden', '');
+
+    fetchWhoami().then(function (res) {
+      if (res && res.email) {
+        var email = res.email;
+        var role = res.role || 'Staff';
+        if (typeof sessionStorage !== 'undefined') {
+          sessionStorage.setItem(USER_EMAIL_KEY, email);
+          sessionStorage.setItem(USER_ROLE_KEY, role);
+        }
+        state.role = role;
+        applyRoleView(role);
+        if (els.loginOverlay) els.loginOverlay.setAttribute('hidden', '');
+        hapticFeedback();
+        showTermsIfNeeded();
+      } else {
+        if (els.loginError) {
+          els.loginError.textContent = 'לא התקבל אימייל. וודא שהסקריפט פרוס ב-"User accessing".';
+          els.loginError.removeAttribute('hidden');
+        }
+      }
+    }).catch(function () {
+      if (els.loginError) {
+        els.loginError.textContent = 'שגיאת רשת. בדוק חיבור ל-API.';
+        els.loginError.removeAttribute('hidden');
+      }
+    }).then(function () {
+      if (els.loginBtn) {
+        els.loginBtn.disabled = false;
+        els.loginBtn.textContent = 'התחבר';
+      }
+    });
+  }
+
   function showTermsIfNeeded() {
     if (!els.termsOverlay) return;
     var accepted = (typeof sessionStorage !== 'undefined') && sessionStorage.getItem(TERMS_ACCEPTED_KEY);
     if (accepted) {
       els.termsOverlay.setAttribute('hidden', '');
+      startApp();
       return;
     }
     if (els.termsLink && typeof window !== 'undefined' && window.TERMS_URL) {
@@ -503,17 +592,40 @@ var skelRow = '<tr class="skeleton-row"><td><span class="skeleton-line"></span><
     setInterval(runFlow, 2 * 60 * 1000);
   }
 
+  if (els.loginBtn) els.loginBtn.addEventListener('click', handleLogin);
   if (els.termsAgreeBtn) els.termsAgreeBtn.addEventListener('click', acceptTerms);
 
   if (els.tableFilter) els.tableFilter.addEventListener('input', function () {
     renderBookings();
   });
 
+  if (els.menuToggle) els.menuToggle.addEventListener('click', toggleSidebar);
+  if (els.fabButton) els.fabButton.addEventListener('click', openModal);
+
+  var navItems = document.querySelectorAll('.nav-item');
+  navItems.forEach(function (item) {
+    item.addEventListener('click', function (e) {
+      e.preventDefault();
+      navItems.forEach(function (nav) { nav.classList.remove('active'); });
+      item.classList.add('active');
+      if (window.innerWidth < 768 && els.sidebar) {
+        els.sidebar.classList.remove('open');
+      }
+    });
+  });
+
   initTheme();
-  showTermsIfNeeded();
-  if ((typeof sessionStorage !== 'undefined') && sessionStorage.getItem(TERMS_ACCEPTED_KEY)) {
-    startApp();
+  updateDateTime();
+  setInterval(updateDateTime, 60000);
+  
+  var userEmail = (typeof sessionStorage !== 'undefined') && sessionStorage.getItem(USER_EMAIL_KEY);
+  var userRole = (typeof sessionStorage !== 'undefined') && sessionStorage.getItem(USER_ROLE_KEY);
+  if (userEmail && userRole) {
+    state.role = userRole;
+    applyRoleView(userRole);
+    showTermsIfNeeded();
   } else {
-    updatePendingIndicator();
+    showLoginIfNeeded();
   }
+  updatePendingIndicator();
 })();

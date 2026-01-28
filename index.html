@@ -18,80 +18,160 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Assistant:wght@600&display=swap" rel="stylesheet" />
 </head>
 <body>
-  <div class="app">
-    <header class="header">
-      <div class="brand">
-        <img id="headerLogo" class="brand-img" src="" alt="אמא הפקות" role="img" />
-        <span id="brandFallbackText" style="display: none; font-weight: 700;">אמא הפקות</span>
+  <div class="app-container">
+    <!-- Sidebar Navigation -->
+    <nav class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">
+          <img id="sidebarLogo" class="logo-img" alt="" hidden />
+          <div class="logo-icon" id="logoIconFallback">🎵</div>
+          <span class="logo-text">אמא הפקות</span>
+        </div>
       </div>
-      <div class="header-actions">
-        <button type="button" class="btn btn-icon" id="themeToggle" title="החלף ערכת נושא" aria-label="החלף ערכת נושא">
-          <span class="theme-icon theme-icon-sun" aria-hidden="true">☀</span>
-          <span class="theme-icon theme-icon-moon" aria-hidden="true">🌙</span>
-        </button>
-        <button type="button" class="btn btn-primary" id="newBookingBtn" title="הזמנה חדשה">הזמנה חדשה</button>
-        <button type="button" class="btn btn-ghost" id="refreshBtn" title="רענן נתונים">רענן</button>
-        <span class="last-update" id="lastUpdate"></span>
+      
+      <div class="nav-items">
+        <a href="#" class="nav-item active" data-page="dashboard">
+          <span class="nav-icon">📊</span>
+          <span class="nav-label">דאשבורד</span>
+        </a>
+        <a href="#" class="nav-item" data-page="events">
+          <span class="nav-icon">📅</span>
+          <span class="nav-label">אירועים</span>
+        </a>
+        <a href="#" class="nav-item" data-page="artists">
+          <span class="nav-icon">🎤</span>
+          <span class="nav-label">אמנים</span>
+        </a>
+        <a href="#" class="nav-item" data-page="finance">
+          <span class="nav-icon">💰</span>
+          <span class="nav-label">כספים</span>
+        </a>
       </div>
-    </header>
+      
+      <div class="sidebar-footer">
+        <a href="#" class="nav-item" data-page="settings">
+          <span class="nav-icon">⚙️</span>
+          <span class="nav-label">הגדרות</span>
+        </a>
+      </div>
+    </nav>
 
-    <main class="main">
-      <section class="stats-grid" id="statsGrid">
-        <div class="stat-card stat-revenue" id="statCardRevenue">
-          <span class="stat-label">סה"כ הכנסות (₪)</span>
-          <span class="stat-value" id="statFee">–</span>
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- Header -->
+      <header class="header">
+        <div class="header-content">
+          <div class="header-right">
+            <button class="menu-toggle" id="menuToggle" aria-label="Toggle menu">☰</button>
+            <div class="greeting">
+              <h1 class="header-title">אמא הפקות</h1>
+              <p class="date-display" id="dateDisplay"></p>
+            </div>
+          </div>
+          <div class="header-left">
+            <button type="button" class="btn btn-icon" id="themeToggle" title="החלף ערכת נושא" aria-label="החלף ערכת נושא">
+              <span class="theme-icon theme-icon-sun" aria-hidden="true">☀</span>
+              <span class="theme-icon theme-icon-moon" aria-hidden="true">🌙</span>
+            </button>
+            <button type="button" class="btn btn-primary" id="newBookingBtn" title="הזמנה חדשה">+ הזמנה חדשה</button>
+            <button type="button" class="btn btn-ghost" id="refreshBtn" title="רענן נתונים">רענן</button>
+          </div>
         </div>
-        <div class="stat-card stat-total" id="statCardTotal">
-          <span class="stat-label">סה"כ הזמנות</span>
-          <span class="stat-value" id="statCount">–</span>
-        </div>
-        <div class="stat-card stat-pending">
-          <span class="stat-label">ממתינות</span>
-          <span class="stat-value" id="statPending">–</span>
-        </div>
-        <div class="stat-card stat-confirmed">
-          <span class="stat-label">אושרו</span>
-          <span class="stat-value" id="statConfirmed">–</span>
-        </div>
-        <div class="stat-card stat-review">
-          <span class="stat-label">נדרש סקירה</span>
-          <span class="stat-value" id="statNeedsReview">–</span>
-        </div>
-      </section>
+      </header>
 
-      <section class="bookings-section">
-        <h2 class="section-title">אירועים קרובים</h2>
-        <div class="table-filter-wrap">
-          <input type="text" id="tableFilter" class="form-input table-filter-input" placeholder="חפש לפי אמן או תאריך..." aria-label="חפש לפי אמן או תאריך" />
-        </div>
-        <div class="table-wrap">
-          <table class="bookings-table" id="bookingsTable">
-            <thead>
-              <tr>
-                <th>תאריך</th>
-                <th>אמן</th>
-                <th>מקום</th>
-                <th class="col-fee">סכום (₪)</th>
-                <th>סטטוס</th>
-                <th class="col-action">פעולה</th>
-              </tr>
-            </thead>
-            <tbody id="bookingsBody">
-              <tr class="loading-row">
-                <td colspan="6">טוען...</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <!-- Dashboard Content -->
+      <div class="dashboard-content">
+        <!-- Stats Cards -->
+        <section class="stats-grid" id="statsGrid">
+          <div class="stat-card stat-revenue" id="statCardRevenue">
+            <div class="stat-icon">💰</div>
+            <div class="stat-info">
+              <span class="stat-value" id="statFee">–</span>
+              <span class="stat-label">סה"כ הכנסות (₪)</span>
+            </div>
+          </div>
+          <div class="stat-card stat-total" id="statCardTotal">
+            <div class="stat-icon">📊</div>
+            <div class="stat-info">
+              <span class="stat-value" id="statCount">–</span>
+              <span class="stat-label">סה"כ הזמנות</span>
+            </div>
+          </div>
+          <div class="stat-card stat-pending">
+            <div class="stat-icon">⏳</div>
+            <div class="stat-info">
+              <span class="stat-value" id="statPending">–</span>
+              <span class="stat-label">ממתינות</span>
+            </div>
+          </div>
+          <div class="stat-card stat-confirmed">
+            <div class="stat-icon">✓</div>
+            <div class="stat-info">
+              <span class="stat-value" id="statConfirmed">–</span>
+              <span class="stat-label">אושרו</span>
+            </div>
+          </div>
+          <div class="stat-card stat-review">
+            <div class="stat-icon">⚠️</div>
+            <div class="stat-info">
+              <span class="stat-value" id="statNeedsReview">–</span>
+              <span class="stat-label">נדרש סקירה</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Bookings Table -->
+        <section class="bookings-section">
+          <h2 class="section-title">אירועים קרובים</h2>
+          <div class="table-filter-wrap">
+            <input type="text" id="tableFilter" class="form-input table-filter-input" placeholder="חפש לפי אמן או תאריך..." aria-label="חפש לפי אמן או תאריך" />
+          </div>
+          <div class="table-wrap">
+            <table class="bookings-table" id="bookingsTable">
+              <thead>
+                <tr>
+                  <th>תאריך</th>
+                  <th>אמן</th>
+                  <th>מקום</th>
+                  <th class="col-fee">סכום (₪)</th>
+                  <th>סטטוס</th>
+                  <th class="col-action">פעולה</th>
+                </tr>
+              </thead>
+              <tbody id="bookingsBody">
+                <tr class="loading-row">
+                  <td colspan="6">טוען...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <!-- Footer -->
+      <footer class="footer">
+        <span>אמא הפקות</span>
+        <span class="sep">·</span>
+        <span id="apiStatus">מחובר</span>
+        <span id="lastUpdate" class="last-update"></span>
+        <span id="pendingIndicator" class="pending-indicator" aria-live="polite"></span>
+      </footer>
     </main>
 
-    <footer class="footer">
-      <span>אמא הפקות</span>
-      <span class="sep">·</span>
-      <span id="apiStatus">מחובר</span>
-      <span id="pendingIndicator" class="pending-indicator" aria-live="polite"></span>
-    </footer>
+    <!-- FAB Button (Mobile) -->
+    <button class="fab" id="fabButton" aria-label="הזמנה חדשה">
+      <span>+</span>
+    </button>
+  </div>
+
+  <!-- Login overlay – Google auto-login verification -->
+  <div class="login-overlay" id="loginOverlay" role="dialog" aria-labelledby="loginTitle" aria-modal="true" hidden>
+    <div class="login-box">
+      <h2 id="loginTitle" class="login-title">התחברות למערכת</h2>
+      <p class="login-text">מתחבר באמצעות חשבון Google...</p>
+      <button type="button" class="btn btn-primary" id="loginBtn">התחבר</button>
+      <p id="loginError" class="login-error" hidden></p>
+    </div>
   </div>
 
   <!-- Terms overlay – first login of new session, one-time until "I Agree" -->
