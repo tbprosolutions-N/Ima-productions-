@@ -1,0 +1,108 @@
+/**
+ * Morning (Green Invoice) API via Netlify Function proxy.
+ * Never sends API Secret to the client; all auth is server-side.
+ */
+
+export type MorningCreateDocumentResult =
+  | { ok: true; docId: string | null; docNumber: string | null; docUrl: string | null }
+  | { ok: false; error: string; detail?: string };
+
+export type MorningCheckStatusResult =
+  | { ok: true; morning_doc_status: string | null; status?: string }
+  | { ok: false; error: string; detail?: string };
+
+/**
+ * Fetch latest document status from Morning and update the event in Supabase.
+ * Call after creating a document or to refresh payment status.
+ */
+export async function checkEventDocumentStatus(
+  agencyId: string,
+  eventId: string
+): Promise<MorningCheckStatusResult> {
+  const base = typeof window !== 'undefined' ? window.location.origin : '';
+  const url = `${base}/.netlify/functions/morning-api`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      action: 'getDocumentStatus',
+      agencyId,
+      eventId,
+    }),
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    error?: string;
+    detail?: string;
+    morning_doc_status?: string | null;
+    status?: string;
+  };
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: data?.error || `HTTP ${res.status}`,
+      detail: data?.detail,
+    };
+  }
+  if (data?.ok) {
+    return {
+      ok: true,
+      morning_doc_status: data.morning_doc_status ?? null,
+      status: data.status,
+    };
+  }
+  return {
+    ok: false,
+    error: data?.error || 'Unknown error',
+    detail: data?.detail,
+  };
+}
+
+/**
+ * Request creation of a document (invoice/receipt) in Morning for the given event.
+ * Calls the Netlify Function which uses server-side credentials.
+ */
+export async function createEventDocument(
+  agencyId: string,
+  eventId: string
+): Promise<MorningCreateDocumentResult> {
+  const base = typeof window !== 'undefined' ? window.location.origin : '';
+  const url = `${base}/.netlify/functions/morning-api`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      action: 'createDocument',
+      agencyId,
+      eventId,
+    }),
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    error?: string;
+    detail?: string;
+    docId?: string | null;
+    docNumber?: string | null;
+    docUrl?: string | null;
+  };
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: data?.error || `HTTP ${res.status}`,
+      detail: data?.detail,
+    };
+  }
+  if (data?.ok) {
+    return {
+      ok: true,
+      docId: data.docId ?? null,
+      docNumber: data.docNumber ?? null,
+      docUrl: data.docUrl ?? null,
+    };
+  }
+  return {
+    ok: false,
+    error: data?.error || 'Unknown error',
+    detail: data?.detail,
+  };
+}

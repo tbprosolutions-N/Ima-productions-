@@ -1,0 +1,38 @@
+---
+description: List/card row vertical alignment and layout consistency
+globs: "**/*.tsx, **/index.css"
+alwaysApply: false
+---
+
+# List Items, Cards, and Headers — Alignment
+
+## Universal vertical centering
+
+- Parent containers for **list rows**, **cards**, and **header bars** must use **`flex items-center`** so content and actions share one baseline.
+- Do **not** use `items-start` for action+content rows; it causes "floating" misalignment.
+
+## Structural consistency
+
+- Prefer **Flexbox** over random margins: use **`justify-between`**, **`gap-4`** (or `gap-2`/`gap-3` where appropriate). Avoid one-off `mt-2`, `mb-4` for spacing between siblings; use `gap-*` on the parent.
+- **Right side (content):** Group in a flex container, e.g. `flex flex-col items-end gap-1` or `flex flex-row items-center gap-3`.
+- **Left side (actions):** Group in `flex gap-2` (and `shrink-0` so they don’t wrap into the content).
+
+## Pattern for a single row (e.g. ClientCard, ArtistRow, expense row)
+
+```tsx
+<div className="flex items-center justify-between gap-4">
+  <div className="flex flex-col gap-1 min-w-0 flex-1">
+    {/* Content: name, subtitle, meta */}
+  </div>
+  <div className="flex items-center gap-2 shrink-0">
+    {/* Action buttons */}
+  </div>
+</div>
+```
+
+Optional: use the shared classes from `index.css`: `list-row`, `list-row-content`, `list-row-actions`.
+
+## Forms
+
+- Use **`flex flex-col gap-2`** for label + input groups instead of `space-y-2` or `mt-*`.
+- Use **`gap-4`** on the form or grid container for consistent spacing between fields.

@@ -1,0 +1,255 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 3.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 3.9%;
+    --primary: 0 0% 9%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 0 0% 96.1%;
+    --secondary-foreground: 0 0% 9%;
+    --muted: 0 0% 96.1%;
+    --muted-foreground: 0 0% 45.1%;
+    --accent: 0 0% 96.1%;
+    --accent-foreground: 0 0% 9%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 89.8%;
+    --input: 0 0% 89.8%;
+    --ring: 0 0% 9%;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 0 0% 6%;
+    --foreground: 0 0% 96%;
+    /* Slightly lighter cards for better readability in dark mode */
+    --card: 0 0% 11%;
+    --card-foreground: 0 0% 96%;
+    --popover: 0 0% 10%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 0 0% 90%;
+    --primary-foreground: 0 0% 9%;
+    --secondary: 0 0% 18%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 0 0% 18%;
+    --muted-foreground: 0 0% 78%;
+    --accent: 0 0% 18%;
+    --accent-foreground: 0 0% 96%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    /* Higher contrast borders/inputs for professional dark mode */
+    --border: 0 0% 26%;
+    --input: 0 0% 26%;
+    --ring: 0 0% 88%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html, body, #root {
+    min-height: 100vh;
+    min-height: 100dvh;
+    overflow-x: hidden;
+  }
+  body {
+    @apply bg-background text-foreground text-gray-900 dark:text-gray-100;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  .dark h1, .dark h2, .dark h3, .dark h4, .dark h5, .dark h6 {
+    @apply text-gray-100;
+  }
+}
+
+/* Custom scrollbar for dark theme */
+.dark ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.dark ::-webkit-scrollbar-track {
+  background: #0B0B0B;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: hsl(var(--primary));
+  border-radius: 5px;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  filter: brightness(1.15);
+}
+
+/* RTL Support */
+[dir="rtl"] {
+  direction: rtl;
+}
+
+[dir="ltr"] {
+  direction: ltr;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* Glass morphism effect */
+.glass {
+  /* Theme-aware glass (works in dark + light) */
+  background: hsl(var(--card) / 0.72);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid hsl(var(--ring) / 0.18);
+}
+
+/* Dark mode needs less transparency, otherwise modals/cards get too dark */
+.dark .glass,
+.dark .glass-light {
+  background: hsl(var(--card) / 0.94);
+  border: 1px solid hsl(var(--ring) / 0.26);
+}
+
+.glass-light {
+  /* Backwards-compat: keep, but now token-based */
+  background: hsl(var(--card) / 0.72);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid hsl(var(--ring) / 0.18);
+}
+
+/* Premium button styles – use --primary so accent palette changes all pink places */
+.btn-magenta {
+  background: hsl(var(--primary));
+  @apply text-primary-foreground font-semibold py-2 px-4 rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl hover:opacity-95;
+}
+.btn-magenta:hover {
+  filter: brightness(1.08);
+}
+
+/* Sidebar logo and gradients – use --primary so accent palette applies */
+.ima-palette-gradient {
+  background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary) / 0.8));
+}
+.sidebar-logo-shadow {
+  box-shadow: 0 10px 30px hsl(var(--primary) / 0.3);
+}
+
+.ima-palette-gradient-soft {
+  background: linear-gradient(135deg, hsl(var(--primary) / 0.25), hsl(var(--primary) / 0.18), hsl(var(--primary) / 0.12));
+}
+
+/* App background: uses theme (primary) so it matches user accent */
+.ima-bg-vertical {
+  background-image:
+    radial-gradient(1200px 600px at 20% 0%, hsl(var(--primary) / 0.18), hsl(var(--primary) / 0) 55%),
+    radial-gradient(900px 500px at 80% 20%, hsl(var(--primary) / 0.14), hsl(var(--primary) / 0) 60%),
+    linear-gradient(180deg, hsl(var(--primary) / 0.1) 0%, hsl(var(--primary) / 0.08) 35%, hsl(var(--primary) / 0.06) 70%, transparent 100%);
+  background-attachment: fixed;
+}
+
+.dark .ima-bg-vertical {
+  background-image:
+    radial-gradient(1200px 600px at 20% 0%, hsl(var(--primary) / 0.08), hsl(var(--primary) / 0) 60%),
+    radial-gradient(900px 500px at 80% 20%, hsl(var(--primary) / 0.06), hsl(var(--primary) / 0) 62%),
+    linear-gradient(180deg, hsl(var(--primary) / 0.05) 0%, hsl(var(--primary) / 0.04) 38%, hsl(var(--primary) / 0.06) 75%, transparent 100%);
+}
+
+.btn-obsidian {
+  @apply bg-obsidian-300 hover:bg-obsidian-400 text-white font-semibold py-2 px-4 rounded-lg transition-all duration-200;
+}
+
+/* Palette variants (Settings → צבע דגש) */
+[data-palette="blue"] { --primary: 217 91% 60%; --ring: 217 91% 60%; }
+[data-palette="blue"].dark { --primary: 217 91% 55%; --ring: 217 91% 55%; }
+[data-palette="green"] { --primary: 142 71% 45%; --ring: 142 71% 45%; }
+[data-palette="green"].dark { --primary: 142 71% 50%; --ring: 142 71% 50%; }
+[data-palette="purple"] { --primary: 270 70% 50%; --ring: 270 70% 50%; }
+[data-palette="purple"].dark { --primary: 270 70% 55%; --ring: 270 70% 55%; }
+[data-palette="magenta"] { --primary: 322 76% 41%; --ring: 322 76% 41%; }
+[data-palette="bw"],
+[data-palette=""] { --primary: 0 0% 9%; --ring: 0 0% 9%; }
+.dark [data-palette="bw"],
+.dark [data-palette=""] { --primary: 0 0% 88%; --ring: 0 0% 88%; }
+
+/* Login / wizard background – theme tint instead of hardcoded pink */
+.auth-page-bg {
+  background: linear-gradient(to bottom right, hsl(var(--background)), hsl(var(--background)), hsl(var(--primary) / 0.12));
+}
+.dark .auth-page-bg {
+  background: linear-gradient(to bottom right, hsl(var(--background)), hsl(var(--background)), hsl(var(--primary) / 0.15));
+}
+
+/* Form controls (checkboxes, etc.) follow accent palette */
+.accent-primary {
+  accent-color: hsl(var(--primary));
+}
+
+/* PWA / Mobile: touch-friendly targets (min 44x44px) – nightlife/native app feel */
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea,
+  [role="button"]:not(button),
+  button:not([data-no-touch]) {
+    min-height: 44px;
+  }
+  button:not([data-no-touch]) {
+    min-width: 44px;
+  }
+}
+/* List/card row: vertical alignment and structural consistency (actions + content) */
+.list-row {
+  @apply flex items-center justify-between gap-4;
+}
+.list-row-actions {
+  @apply flex items-center gap-2 shrink-0;
+}
+.list-row-content {
+  @apply flex flex-col gap-1 min-w-0 flex-1;
+}
+
+/* Tables: horizontal scroll only on small screens; desktop fits width without forced scroll */
+.table-scroll-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+.table-scroll-wrap table {
+  min-width: 800px;
+}
+@media (min-width: 1024px) {
+  .table-scroll-wrap {
+    overflow-x: visible;
+  }
+  .table-scroll-wrap table {
+    min-width: 0;
+  }
+}
+
+/* Dark mode: subtle borders (gray-700) – not stark black/white */
+.dark .border-border { border-color: hsl(220 13% 27%); }
+
+/* Tables: readable text in dark mode */
+.dark thead th { @apply text-gray-200; }
+.dark tbody td { @apply text-gray-100; }
+.dark tbody td.text-muted-foreground { @apply text-gray-400; }
