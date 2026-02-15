@@ -321,6 +321,39 @@ serve(async (req) => {
     }
   }
 
+  // Helper: send invite via Resend (when Gmail and Supabase SMTP both fail)
+  async function sendViaResend(magicLink: string): Promise<boolean> {
+    const resendKey = Deno.env.get("RESEND_API_KEY")?.trim();
+    if (!resendKey) return false;
+    const fnUrl = `${SUPABASE_URL.replace(/\/$/, "")}/functions/v1/send-email`;
+    try {
+      const res = await fetch(fnUrl, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${SERVICE_ROLE}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          to: [email],
+          subject: "הזמנה להתחברות — NPC",
+          html: `
+            <div dir="rtl" style="font-family: sans-serif;">
+              <p>שלום ${full_name || email},</p>
+              <p>הוזמנת למערכת NPC. לחץ על הקישור להלן כדי להתחבר:</p>
+              <p><a href="${magicLink}" style="background:#7c3aed;color:white;padding:10px 20px;text-decoration:none;border-radius:8px;">התחברות</a></p>
+              <p>או העתק את הקישור: ${magicLink}</p>
+              <p>אם לא ביקשת זאת, התעלם ממייל זה.</p>
+            </div>`,
+        }),
+      });
+      const data = (await res.json()) as { ok?: boolean };
+      return res.ok && !!data?.ok;
+    } catch (e) {
+      console.error("Resend fallback failed", e);
+      return false;
+    }
+  }
+
   if (!invitedId) {
     // No Gmail: use Supabase Auth invite (sends via Supabase mailer)
     try {
@@ -375,6 +408,12 @@ serve(async (req) => {
     await tryUpsert({ ...baseRow, permissions });
   } catch {
     await tryUpsert(baseRow);
+  }
+
+  // If we have a magic link but email wasn't sent, try Resend as fallback
+  if (magicLinkFallback) {
+    const sent = await sendViaResend(magicLinkFallback);
+    if (sent) magicLinkFallback = null;
   }
 
   const hint = magicLinkFallback
