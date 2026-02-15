@@ -1232,13 +1232,6 @@ const SettingsPage: React.FC = () => {
                     {isDemo() ? 'הוסף משתמש' : 'שלח הזמנה'}
                   </Button>
                 </div>
-
-                {!isDemo() && (
-                  <div className="text-xs text-muted-foreground space-y-1">
-                    <div>בפרודקשן ההזמנה נשלחת דרך Supabase Edge Function בשם <span className="font-mono">invite-user</span>.</div>
-                    <div>אם המייל לא הגיע: בדוק דואר זבל, והרשם ב־Supabase Auth → URL Configuration את ה־Redirect URL: <span className="font-mono text-primary">{typeof window !== 'undefined' ? window.location.origin + '/login' : ''}</span></div>
-                  </div>
-                )}
               </div>
 
               {usersLoading ? (
@@ -1614,7 +1607,8 @@ const SettingsPage: React.FC = () => {
                     const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
                     pdf.setFont('helvetica');
                     pdf.setFontSize(14);
-                    pdf.text('NPC - מדריך משתמש', 14, 20);
+                    pdf.setR2L(true);
+                    pdf.text('NPC — מדריך משתמש', 200, 20, { align: 'right' });
                     pdf.setFontSize(10);
                     const sections = [
                       { h: 'מדריך לפי תפקיד', lines: ['בעלים: מיתוג, ניהול משתמשים, אינטגרציות, כספים.', 'מנהל: ניהול תפעולי, משתמשים, דוחות.', 'כספים: הוצאות, Morning, Excel/Sheets.', 'מפיק: אירועים, יומן, אמנים, לקוחות (ללא סכומים).'] },
@@ -1623,19 +1617,19 @@ const SettingsPage: React.FC = () => {
                     ];
                     let y = 30;
                     sections.forEach(s => {
-                      if (y > 260) { pdf.addPage(); y = 20; }
+                      if (y > 260) { pdf.addPage(); y = 20; pdf.setR2L(true); }
                       pdf.setFontSize(11);
-                      pdf.text(s.h, 14, y);
+                      pdf.text(s.h, 200, y, { align: 'right' });
                       y += 8;
                       pdf.setFontSize(10);
                       s.lines.forEach(l => {
-                        if (y > 270) { pdf.addPage(); y = 20; }
-                        pdf.text(l, 20, y);
+                        if (y > 270) { pdf.addPage(); y = 20; pdf.setR2L(true); }
+                        pdf.text(l, 200, y, { align: 'right' });
                         y += 6;
                       });
                       y += 6;
                     });
-                    pdf.save(`npc-user-manual-${new Date().toISOString().slice(0, 10)}.pdf`);
+                    pdf.save(`npc-guide-${new Date().toISOString().slice(0, 10)}.pdf`);
                     toast.success('מדריך המשתמש הורד');
                   }}
                 >

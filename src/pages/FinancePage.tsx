@@ -1565,13 +1565,6 @@ const FinancePageContent: React.FC = () => {
                 onChange={(e) => addFiles(e.target.files || [])}
               />
 
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-2">
-                <p className="text-sm font-medium text-amber-800 mb-1">OCR בהשבתה זמנית</p>
-                <p className="text-xs text-amber-700">
-                  העלאת קבצים וחילוץ אוטומטי (OCR) בתחזוקה. ניתן להוסיף הוצאות ידנית ולייצא ל-Excel. קבצים שהועלו נשמרים בתיקיית "הקבצים שלי".
-                </p>
-              </div>
-
               <div
                 className="border-2 border-dashed border-primary/30 rounded-lg p-6 text-center hover:border-primary/50 hover:bg-primary/5 transition-all cursor-pointer"
                 onClick={openFilePicker}

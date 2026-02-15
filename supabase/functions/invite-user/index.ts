@@ -139,21 +139,24 @@ async function sendViaGmail(args: {
   }
 }
 
-function corsHeaders(origin = "*") {
+function corsHeaders(req?: Request) {
+  const origin = req?.headers?.get("origin") || req?.headers?.get("referer")?.replace(/\/[^/]*$/, "") || "*";
+  const allowOrigin = origin && origin !== "null" ? origin : "*";
   return {
-    "access-control-allow-origin": origin,
+    "access-control-allow-origin": allowOrigin,
     "access-control-allow-headers":
       "authorization, x-client-info, apikey, content-type, x-supabase-authorization",
     "access-control-allow-methods": "POST, OPTIONS",
+    "access-control-max-age": "86400",
   };
 }
 
-function json(body: unknown, status = 200, extraHeaders: Record<string, string> = {}) {
+function json(body: unknown, status = 200, extraHeaders: Record<string, string> = {}, req?: Request) {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
       "content-type": "application/json; charset=utf-8",
-      ...corsHeaders(),
+      ...corsHeaders(req),
       ...extraHeaders,
     },
   });
@@ -169,8 +172,10 @@ type Body = {
 };
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders() });
-  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders(req) });
+  }
+  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405, {}, req);
 
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
   const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") || "";
@@ -183,6 +188,8 @@ serve(async (req) => {
           "Missing server configuration (SUPABASE_URL / SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY).",
       },
       500,
+      {},
+      req,
     );
   }
 
@@ -190,7 +197,7 @@ serve(async (req) => {
   try {
     body = await req.json();
   } catch {
-    return json({ error: "Invalid JSON body" }, 400);
+    return json({ error: "Invalid JSON body" }, 400, {}, req);
   }
 
   const agencyId = (body.agencyId || "").trim();
@@ -204,13 +211,13 @@ serve(async (req) => {
   const effectiveRedirect = redirectTo || undefined;
   let magicLinkFallback: string | null = null;
 
-  if (!agencyId) return json({ error: "agencyId is required" }, 400);
-  if (!email) return json({ error: "email is required" }, 400);
-  if (!full_name) return json({ error: "full_name is required" }, 400);
-  if (!role) return json({ error: "role is required" }, 400);
+  if (!agencyId) return json({ error: "agencyId is required" }, 400, {}, req);
+  if (!email) return json({ error: "email is required" }, 400, {}, req);
+  if (!full_name) return json({ error: "full_name is required" }, 400, {}, req);
+  if (!role) return json({ error: "role is required" }, 400, {}, req);
 
   const authHeader = req.headers.get("authorization") || req.headers.get("Authorization") || "";
-  if (!authHeader) return json({ error: "Missing Authorization header" }, 401);
+  if (!authHeader) return json({ error: "Missing Authorization header" }, 401, {}, req);
 
   // User-scoped client to verify caller + permissions
   const userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -220,7 +227,7 @@ serve(async (req) => {
 
   const { data: userData, error: userErr } = await userClient.auth.getUser();
   if (userErr || !userData?.user) {
-    return json({ error: "Unauthorized" }, 401);
+    return json({ error: "Unauthorized" }, 401, {}, req);
   }
 
   const callerId = userData.user.id;
@@ -232,17 +239,17 @@ serve(async (req) => {
     .maybeSingle();
 
   if (callerProfileErr || !callerProfile) {
-    return json({ error: "Caller profile missing (run bootstrap.sql / ensure_user_profile.sql)" }, 403);
+    return json({ error: "Caller profile missing (run bootstrap.sql / ensure_user_profile.sql)" }, 403, {}, req);
   }
 
   const callerRole = String((callerProfile as any).role || "");
   const callerAgency = String((callerProfile as any).agency_id || "");
 
   if (callerAgency !== agencyId) {
-    return json({ error: "Forbidden: agency mismatch" }, 403);
+    return json({ error: "Forbidden: agency mismatch" }, 403, {}, req);
   }
   if (!(callerRole === "owner" || callerRole === "manager")) {
-    return json({ error: "Forbidden: requires owner/manager" }, 403);
+    return json({ error: "Forbidden: requires owner/manager" }, 403, {}, req);
   }
 
   // Service-role client for admin operations + DB writes
@@ -273,7 +280,7 @@ serve(async (req) => {
         return json({
           error: createErr.message,
           hint: "If user already exists, use 'Send Link' from the user list to resend the login link via Gmail.",
-        }, 400);
+        }, 400, {}, req);
       }
     } else {
       invitedId = createData?.user?.id || null;
@@ -334,7 +341,7 @@ serve(async (req) => {
         return json({
           error: errMsg || error.message,
           hint: "If email not received: check spam; ensure Redirect URLs in Supabase Auth include your app URL. Or connect Google (Gmail) in Settings → Integrations to send from your Gmail.",
-        }, 400);
+        }, 400, {}, req);
       }
       invitedId = data?.user?.id || null;
       // Generate link so admin can send manually when Supabase mailer didn't send
@@ -347,7 +354,7 @@ serve(async (req) => {
     }
   }
 
-  if (!invitedId) return json({ error: "Failed to determine invited user id" }, 500);
+  if (!invitedId) return json({ error: "Failed to determine invited user id" }, 500, {}, req);
 
   // Ensure `public.users` row exists. Try with permissions column; if schema doesn't have it, retry without.
   const baseRow: Record<string, unknown> = {
@@ -380,6 +387,6 @@ serve(async (req) => {
     email,
     hint,
     ...(magicLinkFallback ? { magic_link: magicLinkFallback } : {}),
-  });
+  }, 200, {}, req);
 });
 
