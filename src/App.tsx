@@ -100,14 +100,14 @@ const AppRoutes: React.FC = () => {
   const isLoginPage = location.pathname === '/login';
 
   // SAFETY: absolute hard-cap on the loading spinner at the route level.
-  // If AuthContext's loading=true sticks beyond 25s, redirect to login.
+  // If AuthContext's loading=true sticks beyond 8s, force-render routes.
   const [forceReady, setForceReady] = React.useState(false);
   React.useEffect(() => {
     if (!loading) return;
     const t = setTimeout(() => {
-      console.warn('[NPC AppRoutes] Loading exceeded 25s — forcing ready state');
+      console.warn('[NPC AppRoutes] Loading exceeded 8s — forcing ready state');
       setForceReady(true);
-    }, 25000);
+    }, 8000);
     return () => clearTimeout(t);
   }, [loading]);
 

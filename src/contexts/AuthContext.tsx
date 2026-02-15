@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User as SupabaseUser } from '@supabase/supabase-js';
-import { supabase, getSessionUserFast, getSupabaseEnvDiagnostic, signOut as supabaseSignOut } from '@/lib/supabase';
+import { supabase, getSessionUserFast, signOut as supabaseSignOut } from '@/lib/supabase';
 import type { User } from '@/types';
 import { withTimeout } from '@/lib/utils';
 
@@ -8,11 +8,8 @@ interface AuthContextType {
   user: User | null;
   supabaseUser: SupabaseUser | null;
   loading: boolean;
-  /** True when initial auth check timed out (e.g. 10s) — show "Retry Connection" */
   authConnectionFailed: boolean;
-  /** Call after authConnectionFailed to retry the connection */
   retryConnection: () => void;
-  /** Set user from login response so we can navigate without full reload (no getSession timeout) */
   setUserFromLogin: (profile: User, supabaseUser: SupabaseUser) => void;
   signOut: () => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -22,88 +19,52 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const IS_PROD = typeof window !== 'undefined' && window.location?.hostname !== 'localhost';
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [supabaseUser, setSupabaseUser] = useState<SupabaseUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [authConnectionFailed, setAuthConnectionFailed] = useState(false);
 
-  const fetchUserProfile = async (authUser: SupabaseUser) => {
-    const isProduction = typeof window !== 'undefined' && window.location?.hostname !== 'localhost';
-    const profileTimeoutMs = isProduction ? 18000 : 12000;
+  // ── Profile fetch (used AFTER login or on confirmed session) ──────────
+  const fetchUserProfile = async (authUser: SupabaseUser): Promise<User | null> => {
+    const timeout = IS_PROD ? 10000 : 8000;
     try {
       const { data, error } = await withTimeout<any>(
         supabase.from('users').select('*').eq('id', authUser.id).single() as any,
-        profileTimeoutMs,
+        timeout,
         'Fetch user profile'
       );
-
       if (error) throw error;
-      setUser(data);
-    } catch (error) {
-      const e = error as any;
-      const code = String(e?.code || '');
-      const message = String(e?.message || '');
-      const isMissingRow =
-        code === 'PGRST116' ||
-        message.toLowerCase().includes('0 rows') ||
-        message.toLowerCase().includes('json object requested, multiple (or no) rows returned');
-      const isTimeout = message.toLowerCase().includes('timed out') || message.toLowerCase().includes('timeout');
+      if (data) { setUser(data); return data; }
+    } catch (err) {
+      const msg = String((err as any)?.message || '');
+      const isMissing = String((err as any)?.code || '') === 'PGRST116' || msg.includes('0 rows');
 
-      // On missing row OR timeout: try ensure_user_profile then re-fetch (handles slow Supabase / missing profile)
-      if (isMissingRow || isTimeout) {
+      // Only try provisioning on explicit missing row (NOT on timeout)
+      if (isMissing) {
         try {
-          const company_code = (() => {
-            try {
-              return (localStorage.getItem('ima:last_company_id') || '').trim() || null;
-            } catch {
-              return null;
-            }
-          })();
-
-          await withTimeout<any>(
-            supabase.rpc('ensure_user_profile', { company_code }) as any,
-            profileTimeoutMs,
-            'Provision missing profile'
-          );
-
-          const { data: data2, error: error2 } = await withTimeout<any>(
-            supabase.from('users').select('*').eq('id', authUser.id).single() as any,
-            profileTimeoutMs,
-            'Re-fetch user profile'
-          );
-
-          if (!error2 && data2) {
-            setUser(data2);
-            return;
-          }
-        } catch (provisionError) {
-          console.error('Auth: profile provisioning failed', provisionError);
+          const cc = (() => { try { return (localStorage.getItem('ima:last_company_id') || '').trim() || null; } catch { return null; } })();
+          await withTimeout<any>(supabase.rpc('ensure_user_profile', { company_code: cc }) as any, 8000, 'Provision profile');
+          const { data: d2, error: e2 } = await withTimeout<any>(
+            supabase.from('users').select('*').eq('id', authUser.id).single() as any, 8000, 'Re-fetch profile');
+          if (!e2 && d2) { setUser(d2); return d2; }
+        } catch (pe) {
+          console.warn('Auth: profile provisioning failed', pe);
         }
       }
-
-      console.error('Auth: Failed to fetch profile', error);
-      // Don't clear user on transient profile fetch failure when we already have a session:
-      // avoids "logout" after actions (e.g. adding expense) that trigger a refresh.
-      try {
-        const { data: sessionCheck } = await withTimeout(supabase.auth.getSession(), 5000, 'Session check after profile failure');
-        if (!sessionCheck?.session?.user) setUser(null);
-      } catch {
-        // getSession timed out — keep current user state to avoid false logouts
-      }
+      console.warn('Auth: profile fetch failed', err);
     }
+    return null;
   };
 
   const refreshUser = async () => {
-    // Fast-first refresh to avoid long hangs on bad networks.
-    const { user: authUser } = await withTimeout(getSessionUserFast(), 1500, 'Supabase getSession (refresh fast)');
-    if (authUser) {
-      setSupabaseUser(authUser);
-      await fetchUserProfile(authUser);
-    } else {
-      setUser(null);
-      setSupabaseUser(null);
-    }
+    try {
+      const { user: au } = await withTimeout(getSessionUserFast(), 3000, 'getSession (refresh)');
+      if (au) { setSupabaseUser(au); await fetchUserProfile(au); }
+      else { setUser(null); setSupabaseUser(null); }
+    } catch { /* ignore */ }
   };
 
   const retryConnection = React.useCallback(() => {
@@ -112,125 +73,90 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initAuthRef.current?.();
   }, []);
 
-  const setUserFromLogin = React.useCallback((profile: User, supabaseUser: SupabaseUser) => {
+  const setUserFromLogin = React.useCallback((profile: User, sbUser: SupabaseUser) => {
     setUser(profile);
-    setSupabaseUser(supabaseUser);
+    setSupabaseUser(sbUser);
     setLoading(false);
     setAuthConnectionFailed(false);
   }, []);
 
   const initAuthRef = React.useRef<() => void>(() => {});
 
+  // ── INIT: must resolve FAST — show login page within 3-6s max ─────────
   useEffect(() => {
     let mounted = true;
 
-    if (import.meta.env.DEV) {
-      try {
-        const d = getSupabaseEnvDiagnostic();
-        let hint = !d.urlSet || !d.keySet
-          ? 'Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY at build time (Netlify env) and redeploy.'
-          : !d.anonKeyLooksLikeJwt
-            ? 'VITE_SUPABASE_ANON_KEY must be the JWT from Supabase → Settings → API → anon public (starts with eyJ). You may have set a wrong key (e.g. sb_publishable_...).'
-            : 'Env loaded. If auth times out, add Site URL and Redirect URLs in Supabase → Authentication → URL Configuration.';
-        console.log('[NPC Auth Diagnostic]', JSON.stringify({ ...d, hint }, null, 2));
-      } catch (e) {
-        console.warn('[NPC Auth Diagnostic]', e);
-      }
-    }
-
-    // HARD SAFETY TIMEOUT: Absolute maximum time loading can stay true.
-    // Prevents infinite loading spinner if any auth path hangs (Supabase down, paused project, network hung, etc.)
-    const isProduction = typeof window !== 'undefined' && window.location?.hostname !== 'localhost';
-    const hardTimeoutMs = isProduction ? 20000 : 12000;
+    // Hard safety: ABSOLUTE cap — 6s prod, 5s dev. No matter what, stop loading.
+    const hardMs = IS_PROD ? 6000 : 5000;
     const hardTimer = setTimeout(() => {
-      if (mounted) {
-        console.warn(`[NPC Auth] Hard safety timeout (${hardTimeoutMs}ms) — forcing loading=false`);
+      if (mounted && loading) {
+        console.warn(`[NPC Auth] Hard safety (${hardMs}ms) — forcing loading=false`);
         setLoading(false);
       }
-    }, hardTimeoutMs);
+    }, hardMs);
 
     const initAuth = async () => {
-      setAuthConnectionFailed(false);
-
       try {
-        // Allow guest/demo auth when user entered via "Hello NPC user" screen (no email login).
+        // Demo mode — instant, no Supabase
         const demoAuth = localStorage.getItem('demo_authenticated');
         const demoUserData = localStorage.getItem('demo_user');
-        const useDemoAuth = demoAuth === 'true' && demoUserData;
-        if (useDemoAuth) {
-          console.log('⚡ DEMO MODE: INSTANT AUTH (no Supabase)');
+        if (demoAuth === 'true' && demoUserData) {
           try {
-            const demoUser = JSON.parse(demoUserData) as User;
-            if (mounted) {
-              setUser(demoUser);
-              setLoading(false);
-            }
-          } catch {
-            if (mounted) setLoading(false);
-          }
-          return; // EXIT - don't check Supabase
-        } else if (false) {
-          // Safety: ensure demo auth cannot “stick” in non-demo builds
-          localStorage.removeItem('demo_authenticated');
-          localStorage.removeItem('demo_user');
+            const du = JSON.parse(demoUserData) as User;
+            if (mounted) { setUser(du); setLoading(false); }
+          } catch { if (mounted) setLoading(false); }
+          return;
         }
 
-        // Soft timeout: race getSession vs delay. On timeout show login (no throw, no rescue screen).
-        const sessionMaxWaitMs = isProduction ? 15000 : 8000;
-        const softTimeout = new Promise<{ user: any }>((resolve) => {
-          setTimeout(() => resolve({ user: null }), sessionMaxWaitMs);
-        });
-        let result: { user: any } = await Promise.race([
-          getSessionUserFast().then((r) => ({ user: r.user })),
-          softTimeout,
-        ]);
-        let authUser = result.user;
+        // Fast session check: 3s max. If no session → show login immediately.
+        let authUser: SupabaseUser | null = null;
+        try {
+          const r = await withTimeout(getSessionUserFast(), 3000, 'getSession (init)');
+          authUser = r.user ?? null;
+        } catch {
+          authUser = null; // timeout → treat as no session
+        }
 
-        // Magic-link callback: tokens in URL hash; Supabase may need a moment to process them.
+        // Magic-link callback: tokens in URL hash
         const hash = typeof window !== 'undefined' ? window.location.hash : '';
-        if (mounted && !authUser && (hash.includes('access_token=') || hash.includes('refresh_token='))) {
+        if (!authUser && (hash.includes('access_token=') || hash.includes('refresh_token='))) {
           await new Promise((r) => setTimeout(r, 1500));
-          const retry = await getSessionUserFast();
-          if (retry.user) authUser = retry.user;
+          try {
+            const r2 = await withTimeout(getSessionUserFast(), 3000, 'getSession (magic-link)');
+            if (r2.user) authUser = r2.user;
+          } catch { /* ignore */ }
         }
 
-        if (mounted) {
-          if (authUser) {
-            setSupabaseUser(authUser);
-            await fetchUserProfile(authUser);
+        if (!mounted) return;
+
+        if (authUser) {
+          setSupabaseUser(authUser);
+          // Try to fetch profile with SHORT timeout — if it fails, still show login
+          const profile = await Promise.race([
+            fetchUserProfile(authUser),
+            new Promise<null>((res) => setTimeout(() => res(null), 4000)),
+          ]);
+          if (!mounted) return;
+          if (!profile) {
+            // Profile not available — clear stale session, show login
+            setUser(null);
+            setSupabaseUser(null);
           }
-          setLoading(false);
         }
-      } catch (error: any) {
-        console.error('Auth initialization failed', error);
-        if (isProduction) {
-          const origin = window.location.origin;
-          console.warn(
-            'Auth: add these in Supabase Dashboard → Authentication → URL Configuration → Redirect URLs:',
-            origin,
-            origin + '/login'
-          );
-        }
-        if (mounted) {
-          setLoading(false);
-        }
+        if (mounted) setLoading(false);
+      } catch (err) {
+        console.warn('Auth init error', err);
+        if (mounted) setLoading(false);
       }
     };
 
     initAuthRef.current = () => initAuth();
-    initAuth().catch(() => {
-      if (mounted) setLoading(false);
-    });
+    initAuth().catch(() => { if (mounted) setLoading(false); });
 
+    // Auth state listener (for magic-link completion, sign-out, etc.)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (!mounted) return;
-
-      const demoAuth = localStorage.getItem('demo_authenticated');
-      const inDemoMode = demoAuth === 'true';
-      if (inDemoMode) {
-        console.log('⚡ DEMO MODE: Ignoring Supabase auth changes');
-        return;
-      }
+      if (localStorage.getItem('demo_authenticated') === 'true') return;
 
       if (session?.user) {
         setSupabaseUser(session.user);
@@ -239,111 +165,66 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
 
-      // Session null: retry immediately, then again after a short delay (token refresh race)
+      // No session — quick retry (token refresh race)
       try {
-        const { data: retry } = await withTimeout(supabase.auth.getSession(), 5000, 'Auth listener getSession retry 1');
-        if (retry?.session?.user && mounted) {
-          setSupabaseUser(retry.session.user);
-          await fetchUserProfile(retry.session.user);
+        const { data: r } = await withTimeout(supabase.auth.getSession(), 3000, 'listener retry');
+        if (r?.session?.user && mounted) {
+          setSupabaseUser(r.session.user);
+          await fetchUserProfile(r.session.user);
           setLoading(false);
           return;
         }
-      } catch { /* timeout — continue to retry 2 */ }
+      } catch { /* timeout */ }
 
-      // Delayed second retry so token refresh doesn't kick user out
-      await new Promise((r) => setTimeout(r, 1200));
-      if (!mounted) return;
-      try {
-        const { data: retry2 } = await withTimeout(supabase.auth.getSession(), 5000, 'Auth listener getSession retry 2');
-        if (retry2?.session?.user && mounted) {
-          setSupabaseUser(retry2.session.user);
-          await fetchUserProfile(retry2.session.user);
-          setLoading(false);
-          return;
-        }
-      } catch { /* timeout — treat as no session */ }
-
-      // Only clear after both retries fail (real sign-out or expired session)
-      if (mounted) {
-        setUser(null);
-        setSupabaseUser(null);
-      }
+      if (mounted) { setUser(null); setSupabaseUser(null); }
       setLoading(false);
     });
 
-    return () => {
-      mounted = false;
-      clearTimeout(hardTimer);
-      subscription.unsubscribe();
-    };
+    return () => { mounted = false; clearTimeout(hardTimer); subscription.unsubscribe(); };
   }, []);
 
+  // ── Sign out ──────────────────────────────────────────────────────────
   const signOut = async () => {
-    // Clear demo mode first so auth listener doesn't treat as demo
     localStorage.removeItem('demo_authenticated');
     localStorage.removeItem('demo_user');
     setUser(null);
     setSupabaseUser(null);
-
-    try {
-      await supabaseSignOut();
-    } catch (e) {
-      console.error('SignOut error', e);
-    }
-
-    // Force redirect so UI always leaves the app and no stale state remains
+    try { await supabaseSignOut(); } catch (e) { console.error('SignOut error', e); }
     window.location.href = '/login';
   };
 
+  // ── Profile updates ───────────────────────────────────────────────────
   const updateProfile: AuthContextType['updateProfile'] = async (updates) => {
     const full_name = (updates.full_name ?? '').trim();
     if (!full_name) return;
-
-    if (!import.meta.env.PROD) {
-      const demoAuth = localStorage.getItem('demo_authenticated');
-      if (demoAuth === 'true') {
-        const raw = localStorage.getItem('demo_user');
-        const existing = raw ? (JSON.parse(raw) as User) : user;
-        if (!existing) return;
-        const next = { ...existing, full_name };
-        localStorage.setItem('demo_user', JSON.stringify(next));
-        setUser(next);
-        return;
-      }
+    if (!import.meta.env.PROD && localStorage.getItem('demo_authenticated') === 'true') {
+      const raw = localStorage.getItem('demo_user');
+      const existing = raw ? (JSON.parse(raw) as User) : user;
+      if (!existing) return;
+      const next = { ...existing, full_name };
+      localStorage.setItem('demo_user', JSON.stringify(next));
+      setUser(next);
+      return;
     }
-
-    if (!supabaseUser) {
-      throw new Error('No active session');
-    }
-
+    if (!supabaseUser) throw new Error('No active session');
     const { error } = await supabase.from('users').update({ full_name }).eq('id', supabaseUser.id);
     if (error) throw error;
     await refreshUser();
   };
 
   const updateCurrentUser: AuthContextType['updateCurrentUser'] = async (patch) => {
-    if (!import.meta.env.PROD) {
-      const demoAuth = localStorage.getItem('demo_authenticated');
-      if (demoAuth === 'true') {
-        const raw = localStorage.getItem('demo_user');
-        const existing = raw ? (JSON.parse(raw) as User) : user;
-        if (!existing) return;
-        const next: User = {
-          ...existing,
-          ...patch,
-          permissions: patch.permissions ? { ...(existing.permissions || {}), ...patch.permissions } : existing.permissions,
-        };
-        localStorage.setItem('demo_user', JSON.stringify(next));
-        setUser(next);
-        return;
-      }
+    if (!import.meta.env.PROD && localStorage.getItem('demo_authenticated') === 'true') {
+      const raw = localStorage.getItem('demo_user');
+      const existing = raw ? (JSON.parse(raw) as User) : user;
+      if (!existing) return;
+      const next: User = { ...existing, ...patch, permissions: patch.permissions ? { ...(existing.permissions || {}), ...patch.permissions } : existing.permissions };
+      localStorage.setItem('demo_user', JSON.stringify(next));
+      setUser(next);
+      return;
     }
-
-    // Production: role/permissions should be managed by backend + RLS.
     throw new Error('Permission edits require backend in production.');
   };
 
-  // Expose state for testing (development only)
   if (import.meta.env.DEV) {
     (window as any).__IMA_AUTH_STATE__ = { user, loading, supabaseUser };
   }
@@ -357,8 +238,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
+  if (context === undefined) throw new Error('useAuth must be used within an AuthProvider');
   return context;
 };
