@@ -47,6 +47,11 @@ const LoginPage: React.FC = () => {
       if (!emailTrim) {
         throw new Error('נא להזין דוא"ל');
       }
+      // Strict email validation – must be complete (user@domain.tld)
+      const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+      if (!emailRe.test(emailTrim)) {
+        throw new Error('נא להזין כתובת דוא"ל מלאה תקינה (לדוגמה: user@domain.com)');
+      }
 
       if (companyId.trim()) {
         localStorage.setItem('ima:last_company_id', companyId.trim());

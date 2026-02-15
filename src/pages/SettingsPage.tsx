@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Settings as SettingsIcon, User, Bell, Lock, Palette, Globe, Users as UsersIcon, Plug, Upload, KeyRound, ClipboardCheck } from 'lucide-react';
+import { Settings as SettingsIcon, User, Bell, Lock, Palette, Globe, Users as UsersIcon, Plug, Upload, KeyRound, ClipboardCheck, Download } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
@@ -32,8 +32,22 @@ import { queueSyncJob } from '@/lib/syncJobs';
 import { startGoogleOAuth } from '@/lib/googleOAuth';
 import { demoGetEvents, demoGetClients, demoGetArtists, isDemoMode } from '@/lib/demoStore';
 import { getFinanceExpenses } from '@/lib/financeStore';
+import jsPDF from 'jspdf';
 
 const APPROVAL_STORAGE_KEY = (agencyId: string) => `ima_approvals_${agencyId}`;
+
+const APPROVAL_ITEMS = [
+  { id: '1', title: 'בחירה מרובה ומחיקה', desc: 'טבלאות אירועים (דשבורד + אירועים) תומכות בסימון שורות ומחיקה מרובה.' },
+  { id: '2', title: 'סנכרון כספים–דשבורד', desc: 'הוצאות כספים מתעדכנות בדשבורד; KPIs כוללים "נגבה עד היום".' },
+  { id: '3', title: 'הוספת משתמש והרשאות', desc: 'הגדרות > ניהול משתמשים: הוספת משתמש, תפקיד ויכולות (כולל invite בפרודקשן).' },
+  { id: '4', title: 'לוגו ושם חברה', desc: 'לוגו: placeholder "NPC" ב-Sidebar; שם חברה ניתן לעריכה על ידי בעלים.' },
+  { id: '5', title: 'מחולל דוחות', desc: '"סוג דוח", "בחר/י דוח"; ביטול כפתור Collection.' },
+  { id: '6', title: 'דשבורד – נגבה ותובנות', desc: 'כרטיס "נגבה עד היום" ותובנות חיות.' },
+  { id: '7', title: 'סיכום תקופה', desc: 'ויזואליזציה וגודל שדות בסיכום תקופה (כספים, לקוח, אמן) עם גלילה.' },
+  { id: '8', title: 'קישור גיבוי', desc: 'הגדרות > גיבוי נתונים: שמירת קישור ופתיחה בטאב חדש.' },
+  { id: '9', title: 'אבטחה', desc: 'סעיף אבטחה מורחב עם פרטי חשבון והגדרות סטנדרטיות.' },
+  { id: '10', title: 'זרימות כלליות', desc: 'התחברות, CRUD אירועים/לקוחות/אמנים/מסמכים, דוחות, הגדרות – פועלים כמצופה.' },
+];
 
 function setApprovalChecked(agencyId: string, itemId: string, checked: boolean): void {
   try {
@@ -222,14 +236,17 @@ const SettingsPage: React.FC = () => {
   const [notifEvents, setNotifEvents] = useState(true);
   const [notifFinance, setNotifFinance] = useState(true);
 
+  const morningSandboxKey = String(import.meta.env.VITE_MORNING_SANDBOX_API_KEY || '');
+
   useEffect(() => {
     // Integrations: demo uses localStorage, production uses DB table `integrations` (owner-managed).
     if (isDemo()) {
       setGDriveConnected(isIntegrationConnected(agencyId, 'google_drive'));
       setGCalConnected(isIntegrationConnected(agencyId, 'google_calendar'));
       setMorningConnected(isIntegrationConnected(agencyId, 'morning'));
-      setMorningApiKeyState(getMorningApiKey(agencyId));
-      setMorningCompanyIdState(getMorningCompanyId(agencyId));
+      const stored = getMorningApiKey(agencyId);
+      setMorningApiKeyState(stored || morningSandboxKey);
+      setMorningCompanyIdState(getMorningCompanyId(agencyId) || (morningSandboxKey ? '123456' : ''));
     } else {
       // Best-effort: if DB/table not ready yet, fall back to local settings.
       (async () => {
@@ -513,9 +530,9 @@ const SettingsPage: React.FC = () => {
         if (error) throw error;
         inviteResult = data as { ok?: boolean; error?: string; hint?: string; magic_link?: string };
       } catch (fnErr: any) {
-        const errMsg = String(fnErr?.message || '');
-        // CORS / network error fallback: try inserting directly into users table
-        if (errMsg.includes('CORS') || errMsg.includes('Failed to fetch') || errMsg.includes('NetworkError')) {
+        const errMsg = String(fnErr?.message || '').toLowerCase();
+        // CORS / network / Edge Function error fallback: try inserting directly into users table
+        if (errMsg.includes('cors') || errMsg.includes('failed to fetch') || errMsg.includes('networkerror') || errMsg.includes('edge function') || errMsg.includes('functionsfetcherror')) {
           console.warn('[Settings] Edge Function CORS/network error, falling back to direct insert');
           const { error: insertErr } = await supabase.from('users').upsert({
             email: newUser.email.trim().toLowerCase(),
@@ -529,7 +546,7 @@ const SettingsPage: React.FC = () => {
           if (insertErr) {
             toast.error('הוספת משתמש נכשלה: ' + insertErr.message);
           } else {
-            toast.success('המשתמש נוסף לטבלה. שלח לו קישור כניסה בנפרד.');
+            toast.success('המשתמש נוסף. המייל לא נשלח (invite-user חסום). שלח קישור כניסה ידנית מ‑Supabase Auth.');
           }
           setNewUser({ full_name: '', email: '', role: 'producer', permissions: { finance: false, users: false, integrations: false, events_create: true, events_delete: false } });
           loadUsers();
@@ -1622,18 +1639,34 @@ const SettingsPage: React.FC = () => {
             </p>
           </CardHeader>
           <CardContent className="space-y-3">
-            {[
-              { id: '1', title: 'בחירה מרובה ומחיקה', desc: 'טבלאות אירועים (דשבורד + אירועים) תומכות בסימון שורות ומחיקה מרובה.' },
-              { id: '2', title: 'סנכרון כספים–דשבורד', desc: 'הוצאות כספים מתעדכנות בדשבורד; KPIs כוללים "נגבה עד היום".' },
-              { id: '3', title: 'הוספת משתמש והרשאות', desc: 'הגדרות > ניהול משתמשים: הוספת משתמש, תפקיד ויכולות (כולל invite בפרודקשן).' },
-              { id: '4', title: 'לוגו ושם חברה', desc: 'לוגו: placeholder "NPC" ב-Sidebar; שם חברה ניתן לעריכה על ידי בעלים.' },
-              { id: '5', title: 'מחולל דוחות', desc: '"סוג דוח", "בחר/י דוח"; ביטול כפתור Collection.' },
-              { id: '6', title: 'דשבורד – נגבה ותובנות', desc: 'כרטיס "נגבה עד היום" ותובנות חיות.' },
-              { id: '7', title: 'סיכום תקופה', desc: 'ויזואליזציה וגודל שדות בסיכום תקופה (כספים, לקוח, אמן) עם גלילה.' },
-              { id: '8', title: 'קישור גיבוי', desc: 'הגדרות > גיבוי נתונים: שמירת קישור ופתיחה בטאב חדש.' },
-              { id: '9', title: 'אבטחה', desc: 'סעיף אבטחה מורחב עם פרטי חשבון והגדרות סטנדרטיות.' },
-              { id: '10', title: 'זרימות כלליות', desc: 'התחברות, CRUD אירועים/לקוחות/אמנים/מסמכים, דוחות, הגדרות – פועלים כמצופה.' },
-            ].map((item) => (
+            <div className="flex justify-end mb-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => {
+                const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+                pdf.setFont('helvetica');
+                pdf.setFontSize(14);
+                pdf.text('NPC - רשימת אישורים', 14, 20);
+                pdf.setFontSize(10);
+                let y = 30;
+                APPROVAL_ITEMS.forEach((item, i) => {
+                  if (y > 270) { pdf.addPage(); y = 20; }
+                  pdf.text(`${i + 1}. ${item.title}`, 14, y);
+                  y += 6;
+                  const lines = pdf.splitTextToSize(item.desc, 180);
+                  lines.forEach((line: string) => {
+                    if (y > 270) { pdf.addPage(); y = 20; }
+                    pdf.text(line, 20, y);
+                    y += 5;
+                  });
+                  y += 4;
+                });
+                pdf.save(`npc-approval-list-${new Date().toISOString().slice(0, 10)}.pdf`);
+                toast.success('רשימת האישורים הורדה');
+              }}>
+                <Download className="w-4 h-4 mr-2" />
+                הורד רשימת אישורים (PDF)
+              </Button>
+            </div>
+            {APPROVAL_ITEMS.map((item) => (
               <ApprovalChecklistRow
                 key={item.id}
                 agencyId={agencyId}
@@ -1683,6 +1716,41 @@ const SettingsPage: React.FC = () => {
               </div>
 
               <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  className="btn-magenta"
+                  onClick={() => {
+                    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+                    pdf.setFont('helvetica');
+                    pdf.setFontSize(14);
+                    pdf.text('NPC - מדריך משתמש', 14, 20);
+                    pdf.setFontSize(10);
+                    const sections = [
+                      { h: 'מדריך לפי תפקיד', lines: ['בעלים: מיתוג, ניהול משתמשים, אינטגרציות, כספים.', 'מנהל: ניהול תפעולי, משתמשים, דוחות.', 'כספים: הוצאות, Morning, Excel/Sheets.', 'מפיק: אירועים, יומן, אמנים, לקוחות (ללא סכומים).'] },
+                      { h: 'חיבור אינטגרציות', lines: ['Google Calendar: סנכרון אירועים.', 'Morning: חשבוניות והוצאות.', 'הגדרות > אינטגרציות להתחברות.'] },
+                      { h: 'גיבוי ויצוא', lines: ['הגדרות > גיבוי נתונים.', 'ייצוא ל-Excel/Sheets מדף פיננסים.'] },
+                    ];
+                    let y = 30;
+                    sections.forEach(s => {
+                      if (y > 260) { pdf.addPage(); y = 20; }
+                      pdf.setFontSize(11);
+                      pdf.text(s.h, 14, y);
+                      y += 8;
+                      pdf.setFontSize(10);
+                      s.lines.forEach(l => {
+                        if (y > 270) { pdf.addPage(); y = 20; }
+                        pdf.text(l, 20, y);
+                        y += 6;
+                      });
+                      y += 6;
+                    });
+                    pdf.save(`npc-user-manual-${new Date().toISOString().slice(0, 10)}.pdf`);
+                    toast.success('מדריך המשתמש הורד');
+                  }}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  הורד מדריך משתמש (PDF)
+                </Button>
                 <Button type="button" variant="outline" onClick={resetTutorial}>
                   אפס והפעל הדרכה מחדש
                 </Button>

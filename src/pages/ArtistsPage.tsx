@@ -313,12 +313,18 @@ const ArtistsPage: React.FC = () => {
                         } />
                         <DetailItem icon={<CreditCard className="w-4 h-4" />} label="ח.פ / עוסק" value={artist.vat_id} />
                         <DetailItem icon={<CreditCard className="w-4 h-4" />} label="בנק" value={artist.bank_name ? `${artist.bank_name} סניף ${artist.bank_branch || '—'} חשבון ${artist.bank_account || '—'}` : undefined} />
-                        {artist.notes && (
-                          <div className="sm:col-span-2 lg:col-span-3">
-                            <p className="text-xs text-muted-foreground mb-0.5">הערות</p>
-                            <p className="text-sm text-foreground">{artist.notes}</p>
-                          </div>
-                        )}
+                        {artist.notes && (() => {
+                          // Hide raw IMA_PAYOUT_={...}__ metadata – show only human-readable notes
+                          const raw = String(artist.notes);
+                          const cleaned = raw.replace(/IMA_PAYOUT_=\{[^}]*\}__/g, '').replace(/IMA_PAYOUT_[^_]+__/g, '').trim();
+                          if (!cleaned) return null;
+                          return (
+                            <div className="sm:col-span-2 lg:col-span-3">
+                              <p className="text-xs text-muted-foreground mb-0.5">הערות</p>
+                              <p className="text-sm text-foreground">{cleaned}</p>
+                            </div>
+                          );
+                        })()}
                       </div>
                     </motion.div>
                   )}

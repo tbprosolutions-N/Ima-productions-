@@ -567,11 +567,11 @@ const DashboardPage: React.FC = () => {
                 transition={{ delay: index * 0.04 }}
               >
                 <Card className="h-full border-gray-100 dark:border-gray-200 shadow-sm hover:shadow-md transition-shadow">
-                  <CardContent className="p-4 flex flex-col gap-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium text-muted-foreground leading-tight">{card.title}</span>
-                      <div className={`w-8 h-8 rounded-lg ${card.bg} flex items-center justify-center shrink-0`}>
-                        <card.icon className={`w-4 h-4 ${card.color}`} />
+                  <CardContent className="p-5 pt-5 flex flex-col gap-3">
+                    <div className="flex items-center justify-between gap-3 min-h-[36px]">
+                      <span className="text-xs font-medium text-muted-foreground leading-tight flex-1">{card.title}</span>
+                      <div className={`w-9 h-9 rounded-lg ${card.bg} flex items-center justify-center shrink-0 mt-0.5`}>
+                        <card.icon className={`w-5 h-5 ${card.color}`} />
                       </div>
                     </div>
                     <p className="text-xl font-bold text-foreground leading-none">{card.value}</p>
