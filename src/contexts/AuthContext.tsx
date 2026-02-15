@@ -22,8 +22,8 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-/** 2026 standard: fail fast so user sees login or rescue quickly (no long loader) */
-const AUTH_RESCUE_TIMEOUT_MS = 5000;
+/** Must be longer than getSession timeout (12s) + magic-link hash retry (1.2s) so session can complete before showing "timed out" */
+const AUTH_RESCUE_TIMEOUT_MS = 18000;
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -171,7 +171,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         // Production: allow 12s for getSession (avoids timeout on slow networks). Localhost: 6s.
         const sessionTimeoutMs = typeof window !== 'undefined' && window.location?.hostname !== 'localhost' ? 12000 : 6000;
-        const { user: authUser } = await withTimeout(getSessionUserFast(), sessionTimeoutMs, 'Supabase getSession (fast)');
+        let { user: authUser } = await withTimeout(getSessionUserFast(), sessionTimeoutMs, 'Supabase getSession (fast)');
+        // Magic-link callback: tokens arrive in URL hash; Supabase may need a moment to process them.
+        const hash = typeof window !== 'undefined' ? window.location.hash : '';
+        if (mounted && !authUser && (hash.includes('access_token=') || hash.includes('refresh_token='))) {
+          await new Promise((r) => setTimeout(r, 1200));
+          const retry = await getSessionUserFast();
+          if (retry.user) authUser = retry.user;
+        }
         if (mounted) {
           if (authUser) {
             setSupabaseUser(authUser);

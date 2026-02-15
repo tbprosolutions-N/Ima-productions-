@@ -8,8 +8,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useAuth } from '@/contexts/AuthContext';
 import { signInWithMagicLink } from '@/lib/supabase';
 
+function hasMagicLinkHash(): boolean {
+  if (typeof window === 'undefined') return false;
+  const h = window.location.hash;
+  return h.includes('access_token=') || h.includes('refresh_token=') || h.includes('type=magiclink');
+}
+
 const LoginPage: React.FC = () => {
-  const { loading } = useAuth();
+  const { loading, user } = useAuth();
   const [showForm, setShowForm] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [email, setEmail] = useState('');
@@ -52,6 +58,9 @@ const LoginPage: React.FC = () => {
         const msg = String(otpError?.message || '');
         if (msg.includes('rate limit') || msg.includes('too many')) throw new Error('נסה שוב בעוד כמה דקות');
         if (msg.includes('network') || msg.includes('fetch')) throw new Error('שגיאת חיבור. בדוק את האינטרנט.');
+        if ((msg.toLowerCase().includes('sending') && msg.toLowerCase().includes('email')) || msg.includes('500')) {
+          throw new Error('שליחת המייל נכשלה. מנהל: Supabase → Authentication → SMTP (Host: smtp.gmail.com) ו־URL Configuration (הוסף npc-am.com ו־npc-am.com/login).');
+        }
         throw new Error(msg || 'שליחת הקישור נכשלה');
       }
 
@@ -85,8 +94,9 @@ const LoginPage: React.FC = () => {
     }
   };
 
-  // When auth is loading, show welcome state instead of form (avoids form flash for returning users)
-  if (loading) {
+  // When auth is loading, or we landed with magic-link hash (tokens in URL), show "signing in" until session is ready
+  const processingMagicLink = hasMagicLinkHash() && !user;
+  if (loading || processingMagicLink) {
     return (
       <div className="min-h-screen min-h-[100dvh] w-full max-w-[100vw] flex items-center justify-center bg-[#f8fafc] p-4 box-border">
         <motion.div
@@ -101,7 +111,9 @@ const LoginPage: React.FC = () => {
           <h1 className="text-2xl font-bold text-slate-900 mb-2">
             ברוך הבא ל-NPC AGENCY MANAGEMENT
           </h1>
-          <p className="text-slate-600 text-sm mb-6">בודק סשן...</p>
+          <p className="text-slate-600 text-sm mb-6">
+            {processingMagicLink ? 'מתחבר... נא להמתין' : 'בודק סשן...'}
+          </p>
           <div className="flex justify-center">
             <svg className="animate-spin h-8 w-8 text-slate-900" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
