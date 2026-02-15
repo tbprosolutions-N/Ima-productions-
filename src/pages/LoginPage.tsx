@@ -43,6 +43,9 @@ const LoginPage: React.FC = () => {
     setIsLoading(true);
 
     try {
+      // Clear any existing session before sending magic link — prevents premature redirect to dashboard
+      await supabase.auth.signOut();
+
       const emailTrim = email.trim().toLowerCase();
       if (!emailTrim) {
         throw new Error('נא להזין דוא"ל');
@@ -57,11 +60,11 @@ const LoginPage: React.FC = () => {
         localStorage.setItem('ima:last_company_id', companyId.trim());
       }
 
-      // ── Verify user exists in the system before sending magic link ──
+      // ── Verify user exists in the system before sending magic link (case-insensitive) ──
       const { data: existingUsers, error: lookupError } = await supabase
         .from('users')
         .select('id, email')
-        .eq('email', emailTrim)
+        .ilike('email', emailTrim)
         .limit(1);
 
       if (lookupError) {

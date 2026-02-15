@@ -547,6 +547,21 @@ const EventsPage: React.FC = () => {
         if (error) throw error;
         savedEventId = (inserted as any)?.id;
         success('אירוע נוסף בהצלחה! 🎉');
+
+        // Agreement engine: when artist & client emails present, send agreement + calendar invite
+        let clientEmail = (clients.find(c => c.id === clientId) || {} as Client).email?.trim();
+        let artistEmail = (artists.find(a => a.id === artistId) || {} as Artist).email?.trim();
+        if (!clientEmail && clientId) {
+          const { data: c } = await supabase.from('clients').select('email').eq('id', clientId).maybeSingle();
+          clientEmail = (c as { email?: string })?.email?.trim();
+        }
+        if (!artistEmail && artistId) {
+          const { data: a } = await supabase.from('artists').select('email').eq('id', artistId).maybeSingle();
+          artistEmail = (a as { email?: string })?.email?.trim();
+        }
+        const shouldSendAgreement = !!(clientEmail && artistEmail);
+        const sendInvites = shouldSendAgreement || formData.send_calendar_invite;
+
         await queueSyncJob({
           agencyId: currentAgency.id,
           provider: 'sheets',
@@ -558,13 +573,47 @@ const EventsPage: React.FC = () => {
           agencyId: currentAgency.id,
           provider: 'google',
           kind: 'calendar_upsert',
-          payload: { event_id: savedEventId, send_invites: formData.send_calendar_invite },
+          payload: { event_id: savedEventId, send_invites: sendInvites },
           createdBy: user?.id,
         });
+
+        if ((shouldSendAgreement || formData.send_agreement) && savedEventId) {
+          try {
+            const { data: ownerRow } = await supabase
+              .from('users')
+              .select('email')
+              .eq('agency_id', currentAgency.id)
+              .eq('role', 'owner')
+              .limit(1)
+              .maybeSingle();
+            const ownerEmail = (ownerRow as { email?: string })?.email?.trim() || undefined;
+            await agreementService.generateAgreement({
+              eventId: savedEventId,
+              sendEmail: shouldSendAgreement || formData.send_agreement,
+              ownerEmail,
+            });
+            success('הסכם הופעה נוצר ונשלח ✅');
+          } catch (err: any) {
+            console.error('Agreement send failed:', err);
+            showError(err?.message || 'שליחת הסכם נכשלה');
+          }
+        }
       }
-      if (formData.send_agreement && savedEventId) {
+      if (formData.send_agreement && savedEventId && editingEvent) {
         try {
-          await agreementService.generateAgreement({ eventId: savedEventId, sendEmail: true });
+          const { data: ownerRow } = await supabase
+            .from('users')
+            .select('email')
+            .eq('agency_id', currentAgency.id)
+            .eq('role', 'owner')
+            .limit(1)
+            .maybeSingle();
+          const ownerEmail = (ownerRow as { email?: string })?.email?.trim() || undefined;
+          await agreementService.generateAgreement({
+            eventId: savedEventId,
+            sendEmail: true,
+            ownerEmail,
+          });
           success('הסכם נוצר ונשלח ללקוח במייל ✅');
         } catch (err: any) {
           console.error('Agreement send failed:', err);

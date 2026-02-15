@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Settings as SettingsIcon, User, Bell, Lock, Palette, Globe, Users as UsersIcon, Plug, Upload, KeyRound, ClipboardCheck, Download } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
@@ -69,16 +70,16 @@ const ApprovalChecklistRow: React.FC<{
   checked: boolean;
   onToggle: (checked: boolean) => void;
 }> = ({ title, description, checked, onToggle }) => (
-  <label className="flex items-start gap-3 p-3 rounded-lg border border-primary/20 hover:bg-primary/5 cursor-pointer bg-white dark:bg-gray-800">
+  <label className="modu-icon-text items-start gap-3 p-4 rounded-[var(--modu-radius)] border border-primary/20 hover:bg-primary/5 cursor-pointer bg-card">
     <input
       type="checkbox"
       checked={checked}
       onChange={(e) => onToggle(e.target.checked)}
-      className="mt-1 h-4 w-4 rounded border-primary/40 text-primary focus:ring-primary"
+      className="mt-1 h-4 w-4 rounded border-primary/40 text-primary focus:ring-primary shrink-0"
     />
     <div className="flex-1 min-w-0">
-      <span className="font-medium text-foreground text-gray-900 dark:text-gray-100">{title}</span>
-      <p className="text-sm text-muted-foreground dark:text-gray-300 mt-0.5">{description}</p>
+      <span className="font-medium text-foreground">{title}</span>
+      <p className="text-sm text-muted-foreground mt-0.5">{description}</p>
     </div>
   </label>
 );
@@ -91,7 +92,19 @@ const SettingsPage: React.FC = () => {
   const toast = useToast();
   const [fullName, setFullName] = useState(user?.full_name || '');
   const [email, setEmail] = useState(user?.email || '');
-  const [tab, setTab] = useState<'general' | 'users' | 'integrations' | 'backup' | 'checklist' | 'training'>('general');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabFromUrl = (searchParams.get('tab') || 'general') as 'general' | 'users' | 'integrations' | 'backup' | 'checklist' | 'training';
+  const validTabs = ['general', 'users', 'integrations', 'backup', 'checklist', 'training'] as const;
+  const [tab, setTabState] = useState<typeof validTabs[number]>(validTabs.includes(tabFromUrl) ? tabFromUrl : 'general');
+
+  const setTab = useCallback((id: typeof validTabs[number]) => {
+    setTabState(id);
+    setSearchParams({ tab: id }, { replace: true });
+  }, [setSearchParams]);
+
+  useEffect(() => {
+    if (validTabs.includes(tabFromUrl) && tabFromUrl !== tab) setTabState(tabFromUrl);
+  }, [tabFromUrl]);
 
   const agencyId = currentAgency?.id ?? 'ima-productions-id';
 
@@ -532,7 +545,10 @@ const SettingsPage: React.FC = () => {
       } catch (fnErr: any) {
         const errMsg = String(fnErr?.message || '').toLowerCase();
         // CORS / network / Edge Function error fallback: try inserting directly into users table
-        if (errMsg.includes('cors') || errMsg.includes('failed to fetch') || errMsg.includes('networkerror') || errMsg.includes('edge function') || errMsg.includes('functionsfetcherror')) {
+        const isUnreachable = errMsg.includes('cors') || errMsg.includes('failed to fetch') || errMsg.includes('networkerror') || errMsg.includes('network error')
+          || errMsg.includes('edge function') || errMsg.includes('functionsfetcherror') || errMsg.includes('timeout')
+          || errMsg.includes('502') || errMsg.includes('503') || errMsg.includes('504');
+        if (isUnreachable) {
           console.warn('[Settings] Edge Function CORS/network error, falling back to direct insert');
           const { error: insertErr } = await supabase.from('users').upsert({
             email: newUser.email.trim().toLowerCase(),
@@ -768,10 +784,11 @@ const SettingsPage: React.FC = () => {
     <Button
       type="button"
       variant={tab === id ? 'default' : 'outline'}
-      className={tab === id ? 'btn-magenta' : 'border-primary/30'}
+      size="sm"
+      className={`modu-icon-text gap-2 ${tab === id ? 'btn-magenta' : 'border-primary/30'}`}
       onClick={() => setTab(id)}
     >
-      <Icon className="w-4 h-4 mr-2" />
+      <Icon className="w-4 h-4 shrink-0" />
       {label}
     </Button>
   );
@@ -819,30 +836,35 @@ const SettingsPage: React.FC = () => {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
+        className="modu-icon-text gap-2 mb-6"
       >
-        <h1 className="text-3xl font-bold text-foreground flex items-center gap-2">
-          <SettingsIcon className="w-8 h-8 text-primary animate-pulse" />
-          הגדרות
-        </h1>
-        <p className="text-muted-foreground mt-1">
-          נהל את העדפות החשבון והמערכת שלך
-        </p>
+        <div className="modu-icon-wrap w-10 h-10 [&>svg]:w-5 [&>svg]:h-5">
+          <SettingsIcon className="w-5 h-5 text-primary" />
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">הגדרות</h1>
+          <p className="text-muted-foreground text-sm mt-0.5">נהל את העדפות החשבון והמערכת שלך</p>
+        </div>
       </motion.div>
 
-      {/* Tabs */}
-      <div className="flex flex-wrap gap-2">
-        {tabButton('general', 'כללי', SettingsIcon)}
-        {canManageUsers ? tabButton('users', 'משתמשים', UsersIcon) : null}
-        {canManageIntegrations ? tabButton('integrations', 'אינטגרציות', Plug) : null}
-        {user?.role === 'owner' ? tabButton('backup', 'גיבוי נתונים', Globe) : null}
-        {tabButton('checklist', 'רשימת אישורים', ClipboardCheck)}
-        {tabButton('training', 'הדרכה ומידע', KeyRound)}
-      </div>
-
+      {/* Unified Sheet: Tabbed layout */}
+      <Card className="modu-elevation-2 overflow-hidden">
+        <div className="border-b border-border px-6 py-4">
+          <div className="flex flex-wrap gap-2">
+            {tabButton('general', 'כללי', SettingsIcon)}
+            {canManageUsers ? tabButton('users', 'משתמשים', UsersIcon) : null}
+            {canManageIntegrations ? tabButton('integrations', 'אינטגרציות', Plug) : null}
+            {user?.role === 'owner' ? tabButton('backup', 'גיבוי נתונים', Globe) : null}
+            {tabButton('checklist', 'רשימת אישורים', ClipboardCheck)}
+            {tabButton('training', 'הדרכה ומידע', KeyRound)}
+          </div>
+        </div>
+        <div className="p-6">
       {tab === 'general' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="modu-grid-12 grid-cols-1 lg:grid-cols-12">
           {/* Profile */}
-          <Card className="border-primary/20">
+          <div className="lg:col-span-6">
+          <Card className="border-border modu-elevation-1">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <User className="w-5 h-5 text-primary" />
@@ -894,9 +916,11 @@ const SettingsPage: React.FC = () => {
               <Button onClick={handleSaveProfile} className="w-full btn-magenta">שמור</Button>
             </CardContent>
           </Card>
+          </div>
 
           {/* Appearance */}
-          <Card className="border-primary/20">
+          <div className="lg:col-span-6">
+          <Card className="border-border modu-elevation-1">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Palette className="w-5 h-5 text-primary" />
@@ -950,9 +974,11 @@ const SettingsPage: React.FC = () => {
               {/* Language option removed — interface is Hebrew only */}
             </CardContent>
           </Card>
+          </div>
 
           {/* Branding — compact card to fit content only */}
-          <Card className="border-primary/20 w-full max-w-xl">
+          <div className="lg:col-span-6">
+          <Card className="border-border modu-elevation-1 w-full max-w-xl">
             <CardHeader className="pb-2">
               <CardTitle className="flex items-center gap-2 text-base">
                 <Upload className="w-5 h-5 text-primary" />
@@ -977,9 +1003,11 @@ const SettingsPage: React.FC = () => {
               </div>
             </CardContent>
           </Card>
+          </div>
 
           {/* Notifications + Security (kept) */}
-          <Card className="border-primary/20">
+          <div className="lg:col-span-6">
+          <Card className="border-border modu-elevation-1">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Bell className="w-5 h-5 text-primary" />
@@ -1235,12 +1263,13 @@ const SettingsPage: React.FC = () => {
               </div>
             </CardContent>
           </Card>
+          </div>
         </div>
       )}
 
       {tab === 'users' && (
         !canManageUsers ? (
-          <Card className="border-primary/20">
+          <Card className="border-border modu-elevation-1">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <UsersIcon className="w-5 h-5 text-primary" />
@@ -1253,9 +1282,9 @@ const SettingsPage: React.FC = () => {
           </Card>
         ) : (
         <div className="space-y-6">
-          <Card className="border-primary/20">
+          <Card className="border-border modu-elevation-1">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
+              <CardTitle className="modu-icon-text gap-2">
                 <UsersIcon className="w-5 h-5 text-primary" />
                 ניהול משתמשים
               </CardTitle>
@@ -1941,6 +1970,8 @@ const SettingsPage: React.FC = () => {
           </div>
         )
       )}
+        </div>
+      </Card>
     </div>
   );
 };

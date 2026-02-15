@@ -72,6 +72,10 @@ const ArtistsPage: React.FC = () => {
     (a.company_name || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  /** Strip IMA_PAYOUT metadata from notes for display/edit. */
+  const stripPayoutMetadata = (notes: string | null | undefined): string =>
+    (notes || '').replace(/IMA_PAYOUT_=\{[^}]*\}__/g, '').replace(/IMA_PAYOUT_[^_]+__/g, '').trim();
+
   const openDialog = (artist?: Artist) => {
     if (artist) {
       setEditingArtist(artist);
@@ -80,7 +84,7 @@ const ArtistsPage: React.FC = () => {
         phone: artist.phone || '',
         email: artist.email || '',
         company_name: artist.company_name || '',
-        notes: artist.notes || '',
+        notes: stripPayoutMetadata(artist.notes),
         color: artist.color || '#3B82F6',
         calendar_email: artist.calendar_email || '',
         google_calendar_id: artist.google_calendar_id || '',
@@ -109,12 +113,13 @@ const ArtistsPage: React.FC = () => {
     e.preventDefault();
     if (!currentAgency) return;
     try {
+      const cleanNotes = stripPayoutMetadata(formData.notes);
       const payload = {
-        name: formData.name,
-        phone: formData.phone || undefined,
-        email: formData.email || undefined,
-        company_name: formData.company_name || undefined,
-        notes: formData.notes || undefined,
+        name: formData.name.trim(),
+        phone: formData.phone?.trim() || undefined,
+        email: formData.email?.trim() || undefined,
+        company_name: formData.company_name?.trim() || undefined,
+        notes: cleanNotes || undefined,
         color: formData.color || undefined,
         calendar_email: formData.calendar_email || undefined,
         google_calendar_id: formData.google_calendar_id || undefined,

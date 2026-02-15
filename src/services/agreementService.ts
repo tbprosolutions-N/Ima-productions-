@@ -6,6 +6,8 @@ interface GenerateAgreementOptions {
   eventId: string;
   templateId?: string;
   sendEmail?: boolean;
+  /** Owner email to always receive a copy of the Appearance Agreement */
+  ownerEmail?: string;
 }
 
 class AgreementService {
@@ -111,6 +113,11 @@ class AgreementService {
       const clientEmail = client?.email ?? (event as { client_email?: string }).client_email;
       if (options.sendEmail && clientEmail) {
         await this.sendAgreementEmail(clientEmail, pdfBlob, event.business_name);
+      }
+
+      // Always send a copy to the owner when provided
+      if (options.ownerEmail) {
+        await this.sendAgreementEmail(options.ownerEmail, pdfBlob, event.business_name);
       }
 
       return pdfBlob;

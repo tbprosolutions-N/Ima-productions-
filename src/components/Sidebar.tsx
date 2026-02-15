@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
+import { prefetchRoute } from '@/lib/prefetch';
 import { useLocale } from '@/contexts/LocaleContext';
 import { useAgency } from '@/contexts/AgencyContext';
 import { getAgencyLogo, getCompanyName } from '@/lib/settingsStore';
@@ -164,7 +165,7 @@ const Sidebar: React.FC<SidebarProps> = ({ mobileOpen = false, onClose }) => {
             )}
           </div>
           <div className="min-w-0">
-            <div className="text-base font-bold text-foreground text-gray-900 dark:text-gray-100 leading-5 break-words" title={companyName}>
+            <div className="text-base font-bold text-foreground leading-5 break-words" title={companyName}>
               {companyName}
             </div>
             <div className="text-xs text-muted-foreground">ניהול הפקות</div>
@@ -180,17 +181,25 @@ const Sidebar: React.FC<SidebarProps> = ({ mobileOpen = false, onClose }) => {
             <NavLink
               key={item.to}
               to={item.to}
+              onMouseEnter={() => prefetchRoute(item.to)}
+              onFocus={() => prefetchRoute(item.to)}
               onClick={() => onClose?.()}
               className={({ isActive }) =>
-                `flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 min-h-[44px] ${item.to === '/events' ? 'events-link' : ''} ${
+                `modu-icon-text gap-3 px-4 py-3 rounded-[var(--modu-radius)] transition-all duration-200 min-h-[44px] ${item.to === '/events' ? 'events-link' : ''} ${
                   isActive
                     ? 'bg-primary text-primary-foreground shadow-lg'
-                    : 'text-muted-foreground dark:text-gray-300 hover:bg-accent hover:text-accent-foreground'
+                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
                 }`
               }
             >
-              {item.icon}
-              <span className="font-medium">{item.label}</span>
+              {({ isActive }) => (
+                <>
+                  <span className={`w-9 h-9 rounded-[var(--modu-radius)] flex items-center justify-center shrink-0 ${!isActive ? 'bg-primary/10 dark:bg-primary/20' : ''}`}>
+                    {item.icon}
+                  </span>
+                  <span className="font-medium">{item.label}</span>
+                </>
+              )}
             </NavLink>
           );
         })}
@@ -200,12 +209,12 @@ const Sidebar: React.FC<SidebarProps> = ({ mobileOpen = false, onClose }) => {
         <Button
           variant="ghost"
           onClick={toggleTheme}
-          className="w-full justify-start"
+          className="w-full justify-start modu-icon-text"
         >
           {theme === 'dark' ? (
-            <Sun className="w-5 h-5 mr-3" />
+            <Sun className="w-5 h-5 shrink-0" />
           ) : (
-            <Moon className="w-5 h-5 mr-3" />
+            <Moon className="w-5 h-5 shrink-0" />
           )}
           {theme === 'dark' ? 'מצב בהיר' : 'מצב כהה'}
         </Button>
@@ -214,9 +223,9 @@ const Sidebar: React.FC<SidebarProps> = ({ mobileOpen = false, onClose }) => {
           type="button"
           variant="ghost"
           onClick={() => void signOut()}
-          className="w-full justify-start text-red-500 hover:text-red-600 hover:bg-red-500/10"
+          className="w-full justify-start text-red-500 hover:text-red-600 hover:bg-red-500/10 modu-icon-text"
         >
-          <LogOut className="w-5 h-5 mr-3" />
+          <LogOut className="w-5 h-5 shrink-0" />
           {t('auth.logout')}
         </Button>
 
@@ -227,8 +236,8 @@ const Sidebar: React.FC<SidebarProps> = ({ mobileOpen = false, onClose }) => {
                 {user.full_name.charAt(0)}
               </div>
               <div className="flex-1 overflow-hidden">
-                <div className="font-medium text-sm truncate text-gray-900 dark:text-gray-100">{user.full_name}</div>
-                <div className="text-xs text-muted-foreground dark:text-gray-300 truncate">{user.email}</div>
+                <div className="font-medium text-sm truncate text-foreground">{user.full_name}</div>
+                <div className="text-xs text-muted-foreground truncate">{user.email}</div>
               </div>
             </div>
           </div>

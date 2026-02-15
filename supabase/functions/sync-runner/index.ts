@@ -913,6 +913,8 @@ function toSheetRow(e: any) {
   ];
 }
 
+const SHEETS_NAMES = ["Events", "Artists", "Clients", "Finance"] as const;
+
 async function ensureSpreadsheet(args: {
   supabaseAdmin: ReturnType<typeof createClient>;
   agencyId: string;
@@ -932,15 +934,15 @@ async function ensureSpreadsheet(args: {
   const existingId = (cfg as any)?.spreadsheet_id as string | undefined;
   if (existingId) return { spreadsheetId: existingId, sheetName };
 
-  // Create spreadsheet
+  // Create spreadsheet with all backup sheets (Events, Artists, Clients, Finance)
   const createRes = await googleApiFetch(
     args.accessToken,
     "https://sheets.googleapis.com/v4/spreadsheets",
     {
       method: "POST",
       body: JSON.stringify({
-        properties: { title: `NPC Events Backup (${args.agencyId})` },
-        sheets: [{ properties: { title: sheetName } }],
+        properties: { title: `NPC Full Backup (${args.agencyId})` },
+        sheets: SHEETS_NAMES.map((name) => ({ properties: { title: name } })),
       }),
     },
   );
@@ -975,31 +977,91 @@ async function ensureSpreadsheet(args: {
   return { spreadsheetId, sheetName };
 }
 
+function artistsColumnHeaders() {
+  return ["id", "name", "email", "phone", "company_name", "vat_id", "calendar_email", "color", "created_at"];
+}
+function toArtistsRow(a: any) {
+  return [
+    String(a.id || ""), String(a.name || ""), String(a.email || ""), String(a.phone || ""),
+    String(a.company_name || ""), String(a.vat_id || ""), String(a.calendar_email || ""), String(a.color || ""),
+    String(a.created_at || ""),
+  ];
+}
+function clientsColumnHeaders() {
+  return ["id", "name", "email", "phone", "vat_id", "address", "contact_person", "created_at"];
+}
+function toClientsRow(c: any) {
+  return [
+    String(c.id || ""), String(c.name || ""), String(c.email || ""), String(c.phone || ""),
+    String(c.vat_id || ""), String(c.address || ""), String(c.contact_person || ""), String(c.created_at || ""),
+  ];
+}
+function financeColumnHeaders() {
+  return ["id", "filename", "vendor", "amount", "filetype", "created_at", "agency_id"];
+}
+function toFinanceRow(f: any) {
+  return [
+    String(f.id || ""), String(f.filename || ""), String(f.vendor || ""), String(f.amount ?? ""),
+    String(f.filetype || ""), String(f.created_at || ""), String(f.agency_id || ""),
+  ];
+}
+
 async function sheetsFullSync(args: {
   supabaseAdmin: ReturnType<typeof createClient>;
   agencyId: string;
   accessToken: string;
 }) {
-  const { spreadsheetId, sheetName } = await ensureSpreadsheet(args);
+  const { spreadsheetId } = await ensureSpreadsheet(args);
 
-  // Fetch events
-  const { data: events, error } = await args.supabaseAdmin
-    .from("events")
-    .select("*")
-    .eq("agency_id", args.agencyId)
-    .order("event_date", { ascending: false });
-  if (error) throw error;
-  const list = (events as any[]) || [];
+  // Fetch all data in parallel
+  const [evRes, arRes, clRes, finRes] = await Promise.all([
+    args.supabaseAdmin.from("events").select("*").eq("agency_id", args.agencyId).order("event_date", { ascending: false }),
+    args.supabaseAdmin.from("artists").select("*").eq("agency_id", args.agencyId).order("name", { ascending: true }),
+    args.supabaseAdmin.from("clients").select("*").eq("agency_id", args.agencyId).order("name", { ascending: true }),
+    args.supabaseAdmin.from("finance_expenses").select("*").eq("agency_id", args.agencyId).order("created_at", { ascending: false }),
+  ]);
 
-  // Replace sheet contents (simple + deterministic)
-  const values = [sheetsColumnHeaders(), ...list.map(toSheetRow)];
+  if (evRes.error) throw evRes.error;
+  const events = (evRes.data || []) as any[];
+  const artists = (arRes.data || []) as any[];
+  const clients = (clRes.data || []) as any[];
+  const finance = (finRes.data || []) as any[];
+
+  const toDate = (v: any) => (v ? new Date(v).toISOString().slice(0, 10) : "");
+
+  // Write Events sheet
+  const evValues = [sheetsColumnHeaders(), ...events.map(toSheetRow)];
   await googleApiFetch(
     args.accessToken,
-    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(sheetName)}!A1?valueInputOption=RAW`,
-    { method: "PUT", body: JSON.stringify({ values }) },
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/Events!A1?valueInputOption=RAW`,
+    { method: "PUT", body: JSON.stringify({ values: evValues }) },
   );
 
-  return { spreadsheetId, sheetName, count: list.length };
+  // Write Artists sheet
+  const arValues = [artistsColumnHeaders(), ...artists.map(toArtistsRow)];
+  await googleApiFetch(
+    args.accessToken,
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/Artists!A1?valueInputOption=RAW`,
+    { method: "PUT", body: JSON.stringify({ values: arValues }) },
+  );
+
+  // Write Clients sheet
+  const clValues = [clientsColumnHeaders(), ...clients.map(toClientsRow)];
+  await googleApiFetch(
+    args.accessToken,
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/Clients!A1?valueInputOption=RAW`,
+    { method: "PUT", body: JSON.stringify({ values: clValues }) },
+  );
+
+  // Write Finance sheet (finance_expenses may not exist in all schemas)
+  const finValues = [financeColumnHeaders(), ...finance.map(toFinanceRow)];
+  await googleApiFetch(
+    args.accessToken,
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/Finance!A1?valueInputOption=RAW`,
+    { method: "PUT", body: JSON.stringify({ values: finValues }) },
+  ).catch(() => {}); // Non-fatal if finance_expenses table missing
+
+  return { spreadsheetId, sheetName: "Events", count: events.length, artists: artists.length, clients: clients.length, finance: finance.length };
 }
 
 async function sheetsUpsertEvent(args: {
