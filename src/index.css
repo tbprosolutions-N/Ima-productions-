@@ -28,27 +28,26 @@
   }
 
   .dark {
-    --background: 0 0% 6%;
-    --foreground: 0 0% 96%;
-    /* Slightly lighter cards for better readability in dark mode */
-    --card: 0 0% 11%;
-    --card-foreground: 0 0% 96%;
-    --popover: 0 0% 10%;
-    --popover-foreground: 0 0% 96%;
-    --primary: 0 0% 90%;
-    --primary-foreground: 0 0% 9%;
-    --secondary: 0 0% 18%;
-    --secondary-foreground: 0 0% 96%;
-    --muted: 0 0% 18%;
-    --muted-foreground: 0 0% 78%;
-    --accent: 0 0% 18%;
-    --accent-foreground: 0 0% 96%;
-    --destructive: 0 62.8% 30.6%;
+    /* #FAFAFA-based light-dark – professional, minimal, airy */
+    --background: 0 0% 98%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 222 47% 20%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 210 20% 94%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 210 20% 94%;
+    --muted-foreground: 215 16% 47%;
+    --accent: 210 20% 94%;
+    --accent-foreground: 222 47% 11%;
+    --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
-    /* Higher contrast borders/inputs for professional dark mode */
-    --border: 0 0% 26%;
-    --input: 0 0% 26%;
-    --ring: 0 0% 88%;
+    --border: 214 20% 88%;
+    --input: 214 20% 88%;
+    --ring: 222 47% 20%;
   }
 }
 
@@ -74,10 +73,11 @@
     background-color: #ffffff;
   }
   .dark body {
-    @apply text-gray-100;
+    @apply text-slate-900;
+    background-color: #FAFAFA;
   }
   .dark h1, .dark h2, .dark h3, .dark h4, .dark h5, .dark h6 {
-    @apply text-gray-100;
+    @apply text-slate-900;
   }
   .light h1, .light h2, .light h3, .light h4, .light h5, .light h6 {
     @apply text-slate-900;
@@ -91,7 +91,7 @@
 }
 
 .dark ::-webkit-scrollbar-track {
-  background: #0B0B0B;
+  background: #F0F0F0;
 }
 
 .dark ::-webkit-scrollbar-thumb {
@@ -278,9 +278,9 @@
 }
 
 .light .border-border { border-color: hsl(214 32% 91%); }
-.dark .border-border { border-color: hsl(220 13% 27%); }
+.dark .border-border { border-color: hsl(214 20% 88%); }
 
 /* Tables: readable text in dark mode */
-.dark thead th { @apply text-gray-200; }
-.dark tbody td { @apply text-gray-100; }
-.dark tbody td.text-muted-foreground { @apply text-gray-400; }
+.dark thead th { @apply text-slate-700; }
+.dark tbody td { @apply text-slate-800; }
+.dark tbody td.text-muted-foreground { @apply text-slate-500; }

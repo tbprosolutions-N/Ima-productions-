@@ -208,7 +208,7 @@ const FinancePageContent: React.FC = () => {
           .select('*')
           .eq('agency_id', currentAgency.id)
           .order('event_date', { ascending: false })
-          .limit(2000);
+          .limit(500);
         if (error) throw error;
         const all = (data as Event[]) || [];
         const filtered = all
@@ -244,7 +244,7 @@ const FinancePageContent: React.FC = () => {
             .select('*')
             .eq('agency_id', agencyId)
             .order('event_date', { ascending: false })
-            .limit(2000)
+            .limit(500)
             .then(({ data, error }) => {
               if (error) return;
               const all = (data as Event[]) || [];
@@ -1314,21 +1314,36 @@ const FinancePageContent: React.FC = () => {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="h-[280px] w-full">
+            <div className="h-[320px] w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={cashFlowData} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis dataKey="monthLabel" tick={{ fontSize: 12 }} className="text-muted-foreground" />
-                  <YAxis tick={{ fontSize: 12 }} tickFormatter={v => (canSeeMoney ? formatCurrency(v) : '***')} />
+                <BarChart data={cashFlowData} margin={{ top: 12, right: 16, left: 0, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis dataKey="monthLabel" tick={{ fontSize: 12, fill: '#6b7280' }} />
+                  <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} tickFormatter={v => (canSeeMoney ? `₪${(v / 1000).toFixed(0)}K` : '***')} />
                   <Tooltip
-                    formatter={(value: number) => (canSeeMoney ? formatCurrency(value) : '***')}
-                    labelFormatter={label => label}
+                    formatter={(value: number, name: string) => [canSeeMoney ? formatCurrency(value) : '***', name]}
+                    labelFormatter={label => `חודש: ${label}`}
+                    contentStyle={{ borderRadius: '8px', border: '1px solid #e5e7eb', fontSize: '13px' }}
                   />
-                  <Legend />
-                  <Bar dataKey="income" name="הכנסות" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="expenses" name="הוצאות" fill="hsl(var(--muted-foreground))" radius={[4, 4, 0, 0]} />
+                  <Legend wrapperStyle={{ fontSize: '13px' }} />
+                  <Bar dataKey="income" name="הכנסות" fill="#10B981" radius={[6, 6, 0, 0]} />
+                  <Bar dataKey="expenses" name="הוצאות" fill="#EF4444" radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
+            </div>
+            <div className="grid grid-cols-3 gap-3 mt-4 text-center">
+              <div className="rounded-lg bg-green-50 border border-green-200 p-3">
+                <p className="text-xs text-green-700 font-medium">סה"כ הכנסות</p>
+                <p className="text-lg font-bold text-green-600">{canSeeMoney ? formatCurrency(cashFlowData.reduce((s: number, d: any) => s + (d.income || 0), 0)) : '***'}</p>
+              </div>
+              <div className="rounded-lg bg-red-50 border border-red-200 p-3">
+                <p className="text-xs text-red-700 font-medium">סה"כ הוצאות</p>
+                <p className="text-lg font-bold text-red-600">{canSeeMoney ? formatCurrency(cashFlowData.reduce((s: number, d: any) => s + (d.expenses || 0), 0)) : '***'}</p>
+              </div>
+              <div className="rounded-lg bg-blue-50 border border-blue-200 p-3">
+                <p className="text-xs text-blue-700 font-medium">רווח נקי</p>
+                <p className="text-lg font-bold text-blue-600">{canSeeMoney ? formatCurrency(cashFlowData.reduce((s: number, d: any) => s + (d.income || 0) - (d.expenses || 0), 0)) : '***'}</p>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -1539,8 +1554,15 @@ const FinancePageContent: React.FC = () => {
                 onChange={(e) => addFiles(e.target.files || [])}
               />
 
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-2">
+                <p className="text-sm font-medium text-amber-800 mb-1">OCR בהשבתה זמנית</p>
+                <p className="text-xs text-amber-700">
+                  העלאת קבצים וחילוץ אוטומטי (OCR) בתחזוקה. ניתן להוסיף הוצאות ידנית ולייצא ל-Excel. קבצים שהועלו נשמרים בתיקיית "הקבצים שלי".
+                </p>
+              </div>
+
               <div
-                className="border-2 border-dashed border-primary/30 rounded-lg p-8 text-center hover:border-primary/50 hover:bg-primary/5 transition-all cursor-pointer"
+                className="border-2 border-dashed border-primary/30 rounded-lg p-6 text-center hover:border-primary/50 hover:bg-primary/5 transition-all cursor-pointer"
                 onClick={openFilePicker}
                 onDragOver={(e) => {
                   e.preventDefault();
@@ -1552,19 +1574,12 @@ const FinancePageContent: React.FC = () => {
                   addFiles(e.dataTransfer.files);
                 }}
               >
-                <Upload className="w-12 h-12 text-primary mx-auto mb-4" />
-                <p className="text-sm text-muted-foreground mb-2">
-                  גרור ושחרר קבלות או לחץ להעלאה
+                <Upload className="w-10 h-10 text-primary mx-auto mb-3" />
+                <p className="text-sm text-muted-foreground mb-1">
+                  גרור ושחרר קבצים להעלאה
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  OCR אוטומטי יחלץ את הנתונים
-                </p>
-              </div>
-
-              <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
-                <h4 className="text-sm font-semibold text-blue-400 mb-2">💡 טיפ:</h4>
-                <p className="text-xs text-muted-foreground">
-                  העלה תמונות של קבלות והמערכת תחלץ את הסכומים והפרטים באופן אוטומטי באמצעות OCR
+                  הקבצים יישמרו בתיקיית "הקבצים שלי"
                 </p>
               </div>
 

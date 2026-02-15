@@ -77,7 +77,7 @@ const SettingsPage: React.FC = () => {
   const toast = useToast();
   const [fullName, setFullName] = useState(user?.full_name || '');
   const [email, setEmail] = useState(user?.email || '');
-  const [tab, setTab] = useState<'general' | 'users' | 'integrations' | 'backup' | 'checklist'>('general');
+  const [tab, setTab] = useState<'general' | 'users' | 'integrations' | 'backup' | 'checklist' | 'training'>('general');
 
   const agencyId = currentAgency?.id ?? 'ima-productions-id';
 
@@ -498,31 +498,59 @@ const SettingsPage: React.FC = () => {
 
       if (!currentAgency?.id) throw new Error('אין סוכנות פעילה');
       // Production: call Edge Function so we don't replace the current session.
-      const { data, error } = await supabase.functions.invoke('invite-user', {
-        body: {
-          agencyId: currentAgency.id,
-          email: newUser.email.trim().toLowerCase(),
-          full_name: newUser.full_name.trim(),
-          role: newUser.role,
-          permissions: newUser.permissions,
-          redirectTo: `${window.location.origin}/login`,
-        },
-      });
-      if (error) throw error;
-      const res = data as { ok?: boolean; error?: string; hint?: string; magic_link?: string };
-      if (!res?.ok) {
-        toast.error(res?.error || 'Invite failed');
-        if (res?.hint) toast.info(res.hint);
+      let inviteResult: { ok?: boolean; error?: string; hint?: string; magic_link?: string } | null = null;
+      try {
+        const { data, error } = await supabase.functions.invoke('invite-user', {
+          body: {
+            agencyId: currentAgency.id,
+            email: newUser.email.trim().toLowerCase(),
+            full_name: newUser.full_name.trim(),
+            role: newUser.role,
+            permissions: newUser.permissions,
+            redirectTo: `${window.location.origin}/login`,
+          },
+        });
+        if (error) throw error;
+        inviteResult = data as { ok?: boolean; error?: string; hint?: string; magic_link?: string };
+      } catch (fnErr: any) {
+        const errMsg = String(fnErr?.message || '');
+        // CORS / network error fallback: try inserting directly into users table
+        if (errMsg.includes('CORS') || errMsg.includes('Failed to fetch') || errMsg.includes('NetworkError')) {
+          console.warn('[Settings] Edge Function CORS/network error, falling back to direct insert');
+          const { error: insertErr } = await supabase.from('users').upsert({
+            email: newUser.email.trim().toLowerCase(),
+            full_name: newUser.full_name.trim(),
+            role: newUser.role,
+            agency_id: currentAgency.id,
+            permissions: newUser.permissions,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'email' });
+          if (insertErr) {
+            toast.error('הוספת משתמש נכשלה: ' + insertErr.message);
+          } else {
+            toast.success('המשתמש נוסף לטבלה. שלח לו קישור כניסה בנפרד.');
+          }
+          setNewUser({ full_name: '', email: '', role: 'producer', permissions: { finance: false, users: false, integrations: false, events_create: true, events_delete: false } });
+          loadUsers();
+          return;
+        }
+        throw fnErr;
+      }
+
+      if (!inviteResult?.ok) {
+        toast.error(inviteResult?.error || 'Invite failed');
+        if (inviteResult?.hint) toast.info(inviteResult.hint);
         return;
       }
-      if (res.magic_link) {
-        setInviteMagicLink({ link: res.magic_link, email: newUser.email.trim().toLowerCase() });
+      if (inviteResult.magic_link) {
+        setInviteMagicLink({ link: inviteResult.magic_link, email: newUser.email.trim().toLowerCase() });
         toast.info('המייל לא נשלח אוטומטית. העתק את הקישור ושלח למשתמש.');
       } else {
-        toast.success('נשלחה הזמנה למייל ✅');
+        toast.success('נשלחה הזמנה למייל');
       }
-      const hint = res.hint || 'אם המייל לא הגיע תוך דקות ספורות: בדוק דואר זבל ו־Supabase Auth → Redirect URLs (הוסף את ' + (window.location.origin || '') + '/login).';
-      if (!res.magic_link) toast.info(hint);
+      const hint = inviteResult.hint || 'אם המייל לא הגיע תוך דקות ספורות: בדוק דואר זבל ו־Supabase Auth → Redirect URLs (הוסף את ' + (window.location.origin || '') + '/login).';
+      if (!inviteResult.magic_link) toast.info(hint);
       setNewUser({
         full_name: '',
         email: '',
@@ -791,6 +819,7 @@ const SettingsPage: React.FC = () => {
         {canManageIntegrations ? tabButton('integrations', 'אינטגרציות', Plug) : null}
         {user?.role === 'owner' ? tabButton('backup', 'גיבוי נתונים', Globe) : null}
         {tabButton('checklist', 'רשימת אישורים', ClipboardCheck)}
+        {tabButton('training', 'הדרכה ומידע', KeyRound)}
       </div>
 
       {tab === 'general' && (
@@ -1620,6 +1649,84 @@ const SettingsPage: React.FC = () => {
             ))}
           </CardContent>
         </Card>
+      )}
+
+      {tab === 'training' && (
+        <div className="space-y-6 max-w-4xl">
+          {/* Training Files & Guides */}
+          <Card className="border-primary/20">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <KeyRound className="w-5 h-5 text-primary" />
+                חומרי הדרכה ומסמכים
+              </CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                קבצים, מדריכים וחומרי לימוד למשתמשי המערכת.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {[
+                  { title: 'מדריך למשתמש חדש', desc: 'צעדים ראשונים במערכת: הגדרת פרופיל, יצירת אירוע ראשון, חיבור יומן.', action: 'הפעל הדרכה', onClick: () => { resetTutorial(); window.location.assign('/dashboard?tour=1'); } },
+                  { title: 'מדריך לפי תפקיד', desc: 'הרשאות ויכולות לפי תפקיד — בעלים, מנהל, כספים, מפיק.', action: 'קרא עוד', onClick: () => setTab('general') },
+                  { title: 'חיבור אינטגרציות', desc: 'מדריך לחיבור Google Calendar, Google Sheets, ו-Morning API.', action: 'הגדרות אינטגרציות', onClick: () => setTab('integrations') },
+                  { title: 'גיבוי ויצוא נתונים', desc: 'איך לגבות את כל הנתונים ולייצא דוחות ל-Excel.', action: 'גיבוי נתונים', onClick: () => setTab('backup') },
+                ].map((item) => (
+                  <div key={item.title} className="rounded-lg border border-border bg-card p-4 flex flex-col gap-2 hover:bg-primary/5 transition-colors">
+                    <div className="font-semibold text-foreground text-sm">{item.title}</div>
+                    <p className="text-xs text-muted-foreground flex-1">{item.desc}</p>
+                    <Button type="button" variant="outline" size="sm" className="self-start mt-1" onClick={item.onClick}>
+                      {item.action}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" onClick={resetTutorial}>
+                  אפס והפעל הדרכה מחדש
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* FAQ Section */}
+          <Card className="border-primary/20">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ClipboardCheck className="w-5 h-5 text-primary" />
+                שאלות ותשובות
+              </CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                שאלות נפוצות על השימוש במערכת NPC.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {[
+                { q: 'איך מוסיפים אירוע חדש?', a: 'לחצו על "אירוע חדש" בדשבורד (יפתח טופס מהיר) או עברו לדף אירועים ולחצו "אירוע חדש". מלאו את הפרטים ושמרו.' },
+                { q: 'איך מזמינים משתמש חדש למערכת?', a: 'הגדרות → משתמשים → הוספת משתמש. הזינו שם, אימייל ותפקיד. המערכת תשלח קישור התחברות למייל.' },
+                { q: 'איך מסנכרנים עם Google Calendar?', a: 'הגדרות → אינטגרציות → חברו את Google. לאחר חיבור, אירועים יסונכרנו אוטומטית ליומן שלכם.' },
+                { q: 'איך מייצאים דוח?', a: 'בדף פיננסים → לחצו "ייצוא". ניתן לייצא ל-Excel או ל-Google Sheets. בחרו טווח תאריכים ולחצו ייצא.' },
+                { q: 'מה ההבדל בין התפקידים?', a: 'בעלים: גישה מלאה. מנהל: גישה מלאה חוץ ממיתוג. כספים: כספים ומסמכים. מפיק: אירועים, יומן, אמנים ולקוחות (ללא סכומים).' },
+                { q: 'איך מחברים Morning API?', a: 'הגדרות → אינטגרציות → Morning. הזינו API Key ו-Company ID. המערכת תבדוק את החיבור ותאשר.' },
+                { q: 'למה אני לא רואה סכומים?', a: 'אם התפקיד שלך הוא מפיק (Producer), סכומים מוסתרים. בקשו מהבעלים לשנות את ההרשאות.' },
+                { q: 'איך מגבים את הנתונים?', a: 'הגדרות → גיבוי נתונים. אפשר להעתיק ללוח, להוריד JSON, או לסנכרן עם Google Sheets.' },
+                { q: 'איך ממלאים פרטי אמן מלאים?', a: 'אמנים → עריכת אמן. מלאו: Google Calendar Email (לסנכרון יומן), צבע ביומן, פרטי בנק, ח.פ.' },
+                { q: 'מה קורה אם שכחתי סיסמה?', a: 'המערכת משתמשת ב-Magic Link — אין סיסמה. קישור כניסה חד-פעמי נשלח למייל בכל התחברות.' },
+              ].map((item, i) => (
+                <details key={i} className="group rounded-lg border border-border bg-card">
+                  <summary className="cursor-pointer p-3 text-sm font-medium text-foreground hover:bg-primary/5 rounded-lg list-none flex items-center justify-between">
+                    <span>{item.q}</span>
+                    <span className="text-muted-foreground group-open:rotate-180 transition-transform">▼</span>
+                  </summary>
+                  <div className="px-3 pb-3 text-sm text-muted-foreground border-t border-border/60 pt-2">
+                    {item.a}
+                  </div>
+                </details>
+              ))}
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {tab === 'backup' && (

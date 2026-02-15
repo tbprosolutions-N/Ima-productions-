@@ -251,7 +251,7 @@ const ClientsPage: React.FC = () => {
           .eq('agency_id', currentAgency.id)
           .eq('client_id', folderClient.id)
           .order('event_date', { ascending: false })
-          .limit(2000);
+          .limit(200);
         if (error) throw error;
         setFolderEvents((data as Event[]) || []);
       } catch (e) {

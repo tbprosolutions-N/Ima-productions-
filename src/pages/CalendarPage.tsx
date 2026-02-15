@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Calendar as CalendarIcon, List, Grid, ChevronLeft, ChevronRight, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
@@ -98,20 +98,43 @@ const CalendarPage: React.FC = () => {
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
-  const artistForEvent = (event: Event): Artist | undefined => {
-    const byId = event.artist_id ? artists.find(a => a.id === event.artist_id) : undefined;
-    if (byId) return byId;
-    // Fallback by name (legacy/demo content)
-    const anyName = (event as any).artist_name as string | undefined;
-    if (!anyName) return undefined;
-    return artists.find(a => a.name === anyName || a.full_name === anyName);
-  };
+  // Pre-compute artist lookup map for O(1) access instead of O(n) per event
+  const artistMap = useMemo(() => {
+    const map = new Map<string, Artist>();
+    artists.forEach(a => {
+      map.set(a.id, a);
+      if (a.name) map.set(`name:${a.name}`, a);
+      if (a.full_name) map.set(`name:${a.full_name}`, a);
+    });
+    return map;
+  }, [artists]);
 
-  /** Daybook/calendar event color synced from artist profile (Artists page). */
-  const artistColorForEvent = (event: Event): string => {
+  const artistForEvent = useCallback((event: Event): Artist | undefined => {
+    if (event.artist_id) {
+      const byId = artistMap.get(event.artist_id);
+      if (byId) return byId;
+    }
+    const anyName = (event as any).artist_name as string | undefined;
+    if (anyName) return artistMap.get(`name:${anyName}`);
+    return undefined;
+  }, [artistMap]);
+
+  const artistColorForEvent = useCallback((event: Event): string => {
     const c = artistForEvent(event)?.color;
     return c && c.startsWith('#') ? c : 'hsl(var(--primary))';
-  };
+  }, [artistForEvent]);
+
+  // Pre-compute FullCalendar events array
+  const calendarEvents = useMemo(() => events.map(e => ({
+    id: e.id,
+    title: `${e.business_name}${artistForEvent(e)?.name ? ` · ${artistForEvent(e)?.name}` : ''}`,
+    start: e.event_date,
+    allDay: true,
+    backgroundColor: artistColorForEvent(e),
+    borderColor: artistColorForEvent(e),
+    textColor: '#ffffff',
+    extendedProps: { raw: e },
+  })), [events, artistForEvent, artistColorForEvent]);
 
   return (
     <div className="space-y-6">
@@ -321,16 +344,7 @@ const CalendarPage: React.FC = () => {
                 height="auto"
                 locale="he"
                 direction="rtl"
-                events={events.map(e => ({
-                  id: e.id,
-                  title: `${e.business_name}${artistForEvent(e)?.name ? ` · ${artistForEvent(e)?.name}` : ''}`,
-                  start: e.event_date,
-                  allDay: true,
-                  backgroundColor: artistColorForEvent(e),
-                  borderColor: artistColorForEvent(e),
-                  textColor: '#ffffff',
-                  extendedProps: { raw: e },
-                }))}
+                events={calendarEvents}
                 eventClick={(info) => {
                   const raw = (info.event.extendedProps as any)?.raw as Event | undefined;
                   if (!raw) return;

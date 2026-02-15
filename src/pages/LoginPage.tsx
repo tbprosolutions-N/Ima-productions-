@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { useAuth } from '@/contexts/AuthContext';
-import { signInWithMagicLink } from '@/lib/supabase';
+import { signInWithMagicLink, supabase } from '@/lib/supabase';
 
 function hasMagicLinkHash(): boolean {
   if (typeof window === 'undefined') return false;
@@ -43,13 +43,27 @@ const LoginPage: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const emailTrim = email.trim();
+      const emailTrim = email.trim().toLowerCase();
       if (!emailTrim) {
         throw new Error('נא להזין דוא"ל');
       }
 
       if (companyId.trim()) {
         localStorage.setItem('ima:last_company_id', companyId.trim());
+      }
+
+      // ── Verify user exists in the system before sending magic link ──
+      const { data: existingUsers, error: lookupError } = await supabase
+        .from('users')
+        .select('id, email')
+        .eq('email', emailTrim)
+        .limit(1);
+
+      if (lookupError) {
+        console.warn('[Login] User lookup failed, proceeding anyway:', lookupError.message);
+        // Don't block login if lookup fails – fall through to magic link
+      } else if (!existingUsers || existingUsers.length === 0) {
+        throw new Error('כתובת הדוא"ל לא נמצאה במערכת. פנה למנהל כדי לקבל גישה.');
       }
 
       const { error: otpError } = await signInWithMagicLink(emailTrim);
