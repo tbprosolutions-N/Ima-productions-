@@ -5,7 +5,8 @@ function key(agencyId: string, name: string) {
 }
 
 function demoSecretsAllowed(): boolean {
-  // Production rule: never store secrets in the browser.
+  // Production: never allow demo secrets.
+  if (import.meta.env.PROD) return false;
   const enabled =
     import.meta.env.DEV && String(import.meta.env.VITE_DEMO_BYPASS || '').toLowerCase() === 'true';
   if (!enabled) return false;

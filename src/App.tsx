@@ -1,6 +1,7 @@
 import React, { Suspense, lazy } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { getSupabaseEnvDiagnostic } from './lib/supabase';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { LocaleProvider } from './contexts/LocaleContext';
 import { AgencyProvider } from './contexts/AgencyContext';
@@ -22,8 +23,60 @@ const QATestPage = lazy(() => import('./pages/QATestPage'));
 const SyncMonitorPage = lazy(() => import('./pages/SyncMonitorPage'));
 const SystemHealthPage = lazy(() => import('./pages/SystemHealthPage'));
 
+const AuthRescueScreen: React.FC = () => {
+  const { retryConnection } = useAuth();
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://npc-am.com';
+  const diag = typeof window !== 'undefined' ? getSupabaseEnvDiagnostic() : null;
+  const wrongAnonKey = diag?.keySet && !diag?.anonKeyLooksLikeJwt;
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-white p-6">
+      <div className="max-w-md w-full text-center space-y-6">
+        <h1 className="text-xl font-semibold text-slate-900">חיבור נכשל</h1>
+        <p className="text-slate-600 text-sm">
+          לא הצלחנו להתחבר לשרת. נסה ללחוץ על &quot;נסה שוב&quot; או לעבור לדף ההתחברות ולהזין סיסמה.
+        </p>
+        {wrongAnonKey && (
+          <div className="text-right text-sm p-4 rounded-lg bg-amber-50 border border-amber-200 text-amber-900">
+            <p className="font-semibold mb-1">מפתח Supabase שגוי (Netlify)</p>
+            <p className="text-xs">
+              ב-Netlify הגדר את <code className="bg-amber-100 px-1 rounded">VITE_SUPABASE_ANON_KEY</code> למפתח ה-JWT מ-Supabase: Dashboard → Settings → API → &quot;anon&quot; &quot;public&quot; (מחרוזת ארוכה שמתחילה ב-eyJ). אל תשתמש ב-sb_publishable_...
+            </p>
+          </div>
+        )}
+        <p className="text-slate-500 text-xs">
+          בחלון פרטי/אינקוגניטו — לחץ &quot;מעבר לדף התחברות&quot; והתחבר עם אימייל וסיסמה.
+        </p>
+        <div className="flex flex-col gap-3">
+          <button
+            type="button"
+            onClick={retryConnection}
+            className="w-full py-3 px-6 rounded-lg bg-slate-900 text-white font-medium shadow-sm hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2"
+          >
+            נסה שוב להתחבר
+          </button>
+          <a
+            href="/login"
+            className="w-full py-3 px-6 rounded-lg border-2 border-slate-300 text-slate-900 font-medium hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2 inline-block"
+          >
+            מעבר לדף התחברות
+          </a>
+        </div>
+        <div className="text-right text-xs text-slate-500 border-t border-slate-200 pt-4 mt-4">
+          <p className="font-medium text-slate-700 mb-1">אם הבעיה נמשכת — Supabase URL Configuration:</p>
+          <p className="break-all">Site URL: {origin}</p>
+          <p className="break-all mt-1">Redirect URLs: {origin}, {origin}/login</p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, loading } = useAuth();
+  const { user, loading, authConnectionFailed } = useAuth();
+
+  if (authConnectionFailed && !user && !loading) {
+    return <AuthRescueScreen />;
+  }
 
   if (loading) {
     return <PageLoader label="טוען…" />;
@@ -42,9 +95,16 @@ const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 };
 
 const AppRoutes: React.FC = () => {
-  const { user, loading } = useAuth();
+  const { user, loading, authConnectionFailed } = useAuth();
+  const location = useLocation();
+  const isLoginPage = location.pathname === '/login';
 
-  if (loading) {
+  if (authConnectionFailed && !user && !loading && !isLoginPage) {
+    return <AuthRescueScreen />;
+  }
+
+  // 2026 standard: never block /login with full-screen loader — show login UI immediately for fast time-to-interactive
+  if (loading && !isLoginPage) {
     return <PageLoader label="טוען…" />;
   }
 

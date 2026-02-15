@@ -1,7 +1,9 @@
 import type { Agency, Artist, Client, Document, DocumentTemplateType, Event, EventStatus, DocumentType } from '@/types';
 
 export function isDemoMode(): boolean {
-  // In development: demo mode when user chose "Demo login" (demo_authenticated) or when VITE_DEMO_BYPASS is set
+  // Production: never enable demo. Ensures live site always uses real Supabase.
+  if (import.meta.env.PROD) return false;
+  // Development only: demo when user chose "Demo login" or VITE_DEMO_BYPASS=true (default: false)
   if (!import.meta.env.DEV) return false;
   if (localStorage.getItem('demo_authenticated') === 'true') return true;
   return String(import.meta.env.VITE_DEMO_BYPASS || '').toLowerCase() === 'true';

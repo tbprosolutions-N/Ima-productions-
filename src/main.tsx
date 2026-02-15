@@ -3,10 +3,25 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import ErrorBoundary from './components/ErrorBoundary';
 import EnvCheck from './components/EnvCheck';
+import { appName } from './lib/appConfig';
 import { registerServiceWorker } from './lib/pwa';
 import './index.css';
 
 registerServiceWorker();
+
+// Suppress uncaught AbortError from Supabase auth (internal fetch abort) so console stays clean
+if (typeof window !== 'undefined') {
+  window.addEventListener('unhandledrejection', (event) => {
+    const reason = event?.reason;
+    if (reason?.name === 'AbortError' || (reason instanceof DOMException && reason?.name === 'AbortError')) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  }, { capture: true });
+}
+
+// Use env-configured app name for document title (production readiness)
+document.title = appName;
 
 try {
   const rootElement = document.getElementById('root');

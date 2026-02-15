@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
+import { appName, appVersion } from '@/lib/appConfig';
 import { supabase } from '@/lib/supabase';
 import { withTimeout } from '@/lib/utils';
 
@@ -399,7 +400,7 @@ export default function SystemHealthPage() {
 
   const copyReport = async () => {
     const text = [
-      `NPC System Health Report (${new Date().toISOString()})`,
+      `${appName} System Health Report (${new Date().toISOString()})`,
       ...checks.map((c) => `- [${c.status.toUpperCase()}] ${c.name}${c.details ? ` — ${c.details}` : ''}`),
     ].join('\n');
     try {
@@ -425,6 +426,10 @@ export default function SystemHealthPage() {
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
+          <div className="text-xs text-muted-foreground">
+            App: <span className="text-foreground/80">{appName}</span>
+            {' '}· v<span className="text-foreground/80">{appVersion}</span>
+          </div>
           <div className="text-xs text-muted-foreground">
             Auto-run: <span className="text-foreground/80">ON</span>
             {lastRunAt ? (

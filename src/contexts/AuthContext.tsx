@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User as SupabaseUser } from '@supabase/supabase-js';
-import { supabase, getSessionUserFast, signOut as supabaseSignOut } from '@/lib/supabase';
+import { supabase, getSessionUserFast, getSupabaseEnvDiagnostic, signOut as supabaseSignOut } from '@/lib/supabase';
 import type { User } from '@/types';
 import { withTimeout } from '@/lib/utils';
 
@@ -8,6 +8,12 @@ interface AuthContextType {
   user: User | null;
   supabaseUser: SupabaseUser | null;
   loading: boolean;
+  /** True when initial auth check timed out (e.g. 10s) — show "Retry Connection" */
+  authConnectionFailed: boolean;
+  /** Call after authConnectionFailed to retry the connection */
+  retryConnection: () => void;
+  /** Set user from login response so we can navigate without full reload (no getSession timeout) */
+  setUserFromLogin: (profile: User, supabaseUser: SupabaseUser) => void;
   signOut: () => Promise<void>;
   refreshUser: () => Promise<void>;
   updateProfile: (updates: Partial<Pick<User, 'full_name'>>) => Promise<void>;
@@ -16,10 +22,14 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+/** 2026 standard: fail fast so user sees login or rescue quickly (no long loader) */
+const AUTH_RESCUE_TIMEOUT_MS = 5000;
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [supabaseUser, setSupabaseUser] = useState<SupabaseUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authConnectionFailed, setAuthConnectionFailed] = useState(false);
 
   const fetchUserProfile = async (authUser: SupabaseUser) => {
     const isProduction = typeof window !== 'undefined' && window.location?.hostname !== 'localhost';
@@ -95,25 +105,52 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const retryConnection = React.useCallback(() => {
+    setAuthConnectionFailed(false);
+    setLoading(true);
+    initAuthRef.current?.();
+  }, []);
+
+  const setUserFromLogin = React.useCallback((profile: User, supabaseUser: SupabaseUser) => {
+    setUser(profile);
+    setSupabaseUser(supabaseUser);
+    setLoading(false);
+    setAuthConnectionFailed(false);
+  }, []);
+
+  const initAuthRef = React.useRef<() => void>(() => {});
+
   useEffect(() => {
     let mounted = true;
 
+    if (import.meta.env.DEV) {
+      try {
+        const d = getSupabaseEnvDiagnostic();
+        let hint = !d.urlSet || !d.keySet
+          ? 'Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY at build time (Netlify env) and redeploy.'
+          : !d.anonKeyLooksLikeJwt
+            ? 'VITE_SUPABASE_ANON_KEY must be the JWT from Supabase → Settings → API → anon public (starts with eyJ). You may have set a wrong key (e.g. sb_publishable_...).'
+            : 'Env loaded. If auth times out, add Site URL and Redirect URLs in Supabase → Authentication → URL Configuration.';
+        console.log('[NPC Auth Diagnostic]', JSON.stringify({ ...d, hint }, null, 2));
+      } catch (e) {
+        console.warn('[NPC Auth Diagnostic]', e);
+      }
+    }
+
     const initAuth = async () => {
-        // Hard safety net: never keep the app stuck on "loading…" forever
+      setAuthConnectionFailed(false);
       const watchdog = setTimeout(() => {
         if (!mounted) return;
-        console.error('Auth initialization timed out (watchdog). If on production, add this site to Supabase Auth → Redirect URLs.');
+        console.warn('Auth initialization timed out. Add this site in Supabase → Authentication → URL Configuration (Site URL & Redirect URLs).');
+        setAuthConnectionFailed(true);
         setLoading(false);
-      }, typeof window !== 'undefined' && window.location?.hostname !== 'localhost' ? 14000 : 8000);
+      }, AUTH_RESCUE_TIMEOUT_MS);
 
       try {
-        const demoBypassEnabled =
-          import.meta.env.DEV && String(import.meta.env.VITE_DEMO_BYPASS || '').toLowerCase() === 'true';
-        // INSTANT DEMO MODE CHECK - NO SUPABASE DELAY
+        // Allow guest/demo auth when user entered via "Hello NPC user" screen (no email login).
         const demoAuth = localStorage.getItem('demo_authenticated');
         const demoUserData = localStorage.getItem('demo_user');
-        // In development, honor demo auth whenever it's set (e.g. "Demo login" button or invite link)
-        const useDemoAuth = import.meta.env.DEV && demoAuth === 'true' && demoUserData;
+        const useDemoAuth = demoAuth === 'true' && demoUserData;
         if (useDemoAuth) {
           console.log('⚡ DEMO MODE: INSTANT AUTH (no Supabase)');
           try {
@@ -126,15 +163,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (mounted) setLoading(false);
           }
           return; // EXIT - don't check Supabase
-        } else if (!demoBypassEnabled) {
+        } else if (false) {
           // Safety: ensure demo auth cannot “stick” in non-demo builds
           localStorage.removeItem('demo_authenticated');
           localStorage.removeItem('demo_user');
         }
 
-        // Fast boot: read local session (no network). This makes refresh instant.
-        // Note: token validation happens server-side on RLS protected queries anyway.
-        const { user: authUser } = await withTimeout(getSessionUserFast(), typeof window !== 'undefined' && window.location?.hostname !== 'localhost' ? 12000 : 10000, 'Supabase getSession (fast)');
+        // Fast boot: short timeout so we show login/rescue quickly (2026 standard). Valid sessions usually return in <2s.
+        const sessionTimeoutMs = typeof window !== 'undefined' && window.location?.hostname !== 'localhost' ? 4000 : 5000;
+        const { user: authUser } = await withTimeout(getSessionUserFast(), sessionTimeoutMs, 'Supabase getSession (fast)');
         if (mounted) {
           if (authUser) {
             setSupabaseUser(authUser);
@@ -142,8 +179,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
           setLoading(false);
         }
-      } catch (error) {
-        console.error('Auth initialization failed', error);
+      } catch (error: any) {
+        const isAbort = error?.name === 'AbortError' || (error instanceof DOMException && error.name === 'AbortError');
+        if (isAbort) {
+          console.warn('Auth: connection aborted or timed out. Check Supabase URL Configuration and network.');
+        } else {
+          console.error('Auth initialization failed', error);
+        }
         if (typeof window !== 'undefined' && window.location?.hostname !== 'localhost') {
           console.warn('Production: ensure Supabase Auth → Redirect URLs includes', window.location.origin, 'and', window.location.origin + '/login');
         }
@@ -155,14 +197,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     };
 
-    initAuth();
+    initAuthRef.current = () => initAuth();
+    initAuth().catch(() => {
+      if (mounted) setLoading(false);
+    });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (!mounted) return;
 
-      // Skip auth changes if in demo mode (dev: demo login button or VITE_DEMO_BYPASS)
       const demoAuth = localStorage.getItem('demo_authenticated');
-      const inDemoMode = import.meta.env.DEV && demoAuth === 'true';
+      const inDemoMode = demoAuth === 'true';
       if (inDemoMode) {
         console.log('⚡ DEMO MODE: Ignoring Supabase auth changes');
         return;
@@ -230,15 +274,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const full_name = (updates.full_name ?? '').trim();
     if (!full_name) return;
 
-    const demoAuth = localStorage.getItem('demo_authenticated');
-    if (demoAuth === 'true') {
-      const raw = localStorage.getItem('demo_user');
-      const existing = raw ? (JSON.parse(raw) as User) : user;
-      if (!existing) return;
-      const next = { ...existing, full_name };
-      localStorage.setItem('demo_user', JSON.stringify(next));
-      setUser(next);
-      return;
+    if (!import.meta.env.PROD) {
+      const demoAuth = localStorage.getItem('demo_authenticated');
+      if (demoAuth === 'true') {
+        const raw = localStorage.getItem('demo_user');
+        const existing = raw ? (JSON.parse(raw) as User) : user;
+        if (!existing) return;
+        const next = { ...existing, full_name };
+        localStorage.setItem('demo_user', JSON.stringify(next));
+        setUser(next);
+        return;
+      }
     }
 
     if (!supabaseUser) {
@@ -251,19 +297,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const updateCurrentUser: AuthContextType['updateCurrentUser'] = async (patch) => {
-    const demoAuth = localStorage.getItem('demo_authenticated');
-    if (demoAuth === 'true') {
-      const raw = localStorage.getItem('demo_user');
-      const existing = raw ? (JSON.parse(raw) as User) : user;
-      if (!existing) return;
-      const next: User = {
-        ...existing,
-        ...patch,
-        permissions: patch.permissions ? { ...(existing.permissions || {}), ...patch.permissions } : existing.permissions,
-      };
-      localStorage.setItem('demo_user', JSON.stringify(next));
-      setUser(next);
-      return;
+    if (!import.meta.env.PROD) {
+      const demoAuth = localStorage.getItem('demo_authenticated');
+      if (demoAuth === 'true') {
+        const raw = localStorage.getItem('demo_user');
+        const existing = raw ? (JSON.parse(raw) as User) : user;
+        if (!existing) return;
+        const next: User = {
+          ...existing,
+          ...patch,
+          permissions: patch.permissions ? { ...(existing.permissions || {}), ...patch.permissions } : existing.permissions,
+        };
+        localStorage.setItem('demo_user', JSON.stringify(next));
+        setUser(next);
+        return;
+      }
     }
 
     // Production: role/permissions should be managed by backend + RLS.
@@ -276,7 +324,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }
 
   return (
-    <AuthContext.Provider value={{ user, supabaseUser, loading, signOut, refreshUser, updateProfile, updateCurrentUser }}>
+    <AuthContext.Provider value={{ user, supabaseUser, loading, authConnectionFailed, retryConnection, setUserFromLogin, signOut, refreshUser, updateProfile, updateCurrentUser }}>
       {children}
     </AuthContext.Provider>
   );

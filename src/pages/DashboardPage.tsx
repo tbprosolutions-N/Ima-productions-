@@ -158,7 +158,7 @@ const DashboardPage: React.FC = () => {
         <div className="flex flex-col gap-1">
           <h1 className="text-3xl font-bold text-foreground flex items-center gap-2">
             <Sparkles className="w-8 h-8 text-primary" />
-            שלום, {displayName}
+            {displayName ? `ברוך הבא ${displayName} ל-NPC AGENCY MANAGEMENT` : 'ברוך הבא ל-NPC AGENCY MANAGEMENT'}
           </h1>
           <p className="text-muted-foreground">
             {currentAgency?.name || 'NPC'} — ניהול הפקות

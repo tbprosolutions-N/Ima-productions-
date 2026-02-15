@@ -153,6 +153,8 @@ const EventsPage: React.FC = () => {
     if (currentAgency) {
       fetchEvents();
       fetchReferences();
+    } else {
+      setLoading(false);
     }
   }, [currentAgency]);
 

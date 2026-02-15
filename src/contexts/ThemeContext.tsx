@@ -12,9 +12,10 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  // Production default: Light Mode. No system preference — explicit light unless user toggled.
   const [theme, setThemeState] = useState<Theme>(() => {
-    const stored = localStorage.getItem('theme') as Theme;
-    return stored || 'dark';
+    const stored = localStorage.getItem('theme') as Theme | null;
+    return (stored === 'dark' || stored === 'light') ? stored : 'light';
   });
 
   useEffect(() => {

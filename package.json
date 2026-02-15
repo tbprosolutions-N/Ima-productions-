@@ -16,7 +16,11 @@
     "deploy": "npm run build && node scripts/deploy-netlify.js",
     "deploy:invoice-vision": "npx supabase functions deploy extract-invoice-vision",
     "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui"
+    "test:e2e:ui": "playwright test --ui",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest",
+    "test:all": "npm run test:unit && npm run test:e2e",
+    "test:backend": "node tests/backend/integration.example.mjs"
   },
   "dependencies": {
     "@fullcalendar/core": "^6.1.10",
@@ -54,6 +58,8 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.58.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/react": "^18.3.1",
     "@types/react-dom": "^18.3.0",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
@@ -63,10 +69,12 @@
     "eslint": "^8.56.0",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.5",
+    "jsdom": "^28.0.0",
     "pg": "^8.18.0",
     "postcss": "^8.4.35",
     "tailwindcss": "^3.4.1",
     "typescript": "^5.3.3",
-    "vite": "^5.1.0"
+    "vite": "^5.1.0",
+    "vitest": "^4.0.18"
   }
 }

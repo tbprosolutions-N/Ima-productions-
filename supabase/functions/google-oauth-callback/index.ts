@@ -1,5 +1,7 @@
 // Supabase Edge Function: google-oauth-callback
 // Exchanges OAuth code for tokens and stores a server-only token record.
+// After successful connection, automatically creates a Calendar API "watch" that
+// points to google-calendar-webhook (push notifications).
 //
 // Required secrets:
 // - GOOGLE_OAUTH_CLIENT_ID
@@ -7,6 +9,13 @@
 // - GOOGLE_OAUTH_REDIRECT_URI (must match the start function)
 // - SUPABASE_URL
 // - SUPABASE_SERVICE_ROLE_KEY
+//
+// For Calendar webhook (google-calendar-watch function) set:
+// - GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET
+// - GOOGLE_CALENDAR_WEBHOOK_URL = https://<project>.supabase.co/functions/v1/google-calendar-webhook
+//
+// Optional: SYNC_RUNNER_SECRET — when set, triggers sync-runner once after OAuth so the user
+// sees calendar data immediately without waiting for the next pg_cron cycle.
 //
 // NOTE: This function writes:
 // - public.integration_tokens (server-only)
@@ -156,6 +165,67 @@ serve(async (req) => {
 
   if (connErr) {
     return html(`<h3>Failed updating integration</h3><pre>${connErr.message}</pre>`, 500);
+  }
+
+  // Create Calendar watch (webhook) pointing to google-calendar-webhook
+  const hasCalendarScope =
+    (tokens.scope || "").toLowerCase().includes("calendar") ||
+    (state.requested?.calendar !== false);
+  if (hasCalendarScope) {
+    try {
+      const functionsBase = SUPABASE_URL.replace(/\/$/, "") + "/functions/v1";
+      const watchRes = await fetch(`${functionsBase}/google-calendar-watch`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${SERVICE_ROLE}`,
+        },
+        body: JSON.stringify({ agencyId: state.agencyId, calendarId: "primary" }),
+      });
+      if (!watchRes.ok) {
+        console.error(
+          "[google-oauth-callback] Calendar watch creation failed:",
+          await watchRes.text()
+        );
+      } else {
+        // Queue an immediate calendar_pull so user sees data without waiting for cron
+        const { data: watches } = await admin
+          .from("google_calendar_watches")
+          .select("id")
+          .eq("agency_id", state.agencyId)
+          .limit(1);
+        const watchId = (watches as { id: string }[])?.[0]?.id;
+        if (watchId) {
+          await admin.from("sync_jobs").insert([
+            {
+              agency_id: state.agencyId,
+              provider: "google",
+              kind: "calendar_pull",
+              status: "pending",
+              payload: { watch_id: watchId, source: "oauth_callback", requested_at: new Date().toISOString() },
+            },
+          ] as any);
+        }
+        // Trigger sync-runner once so the new job runs immediately
+        const syncRunnerSecret = Deno.env.get("SYNC_RUNNER_SECRET") || "";
+        if (syncRunnerSecret) {
+          try {
+            await fetch(`${functionsBase}/sync-runner`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "x-sync-secret": syncRunnerSecret,
+              },
+              body: JSON.stringify({ limit: 10 }),
+            });
+          } catch (e) {
+            console.error("[google-oauth-callback] sync-runner invoke error:", e);
+          }
+        }
+      }
+    } catch (e) {
+      console.error("[google-oauth-callback] Calendar watch invoke error:", e);
+    }
   }
 
   const returnTo = (state.returnTo || "").trim();

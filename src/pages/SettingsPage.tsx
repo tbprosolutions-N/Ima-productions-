@@ -1366,10 +1366,16 @@ const SettingsPage: React.FC = () => {
                 סנכרון מסמכים לתיקיית Drive, כולל העלאה אוטומטית של מסמכים שנשלחו.
               </div>
               <div className="flex items-center justify-between">
-                <div className="text-sm">
-                  סטטוס: <span className={gDriveConnected ? 'text-green-500 font-semibold' : 'text-muted-foreground'}>{gDriveConnected ? 'מחובר' : 'לא מחובר'}</span>
-                  {gDriveConnected && googleConnectedEmail && (
-                    <span className="text-muted-foreground mr-2"> · מחובר כ־{googleConnectedEmail}</span>
+                <div className="text-sm flex flex-wrap items-center gap-2">
+                  <span>סטטוס:</span>
+                  {gDriveConnected ? (
+                    <>
+                      <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/12 px-2 py-0.5 text-emerald-700 dark:text-emerald-400 font-medium">מחובר</span>
+                      {googleConnectedEmail && <span className="text-muted-foreground">מחובר כ־{googleConnectedEmail}</span>}
+                      <span className="text-muted-foreground text-xs font-normal">סנכרון אוטומטי פעיל</span>
+                    </>
+                  ) : (
+                    <span className="text-muted-foreground">לא מחובר</span>
                   )}
                 </div>
                 {gDriveConnected ? (
@@ -1378,9 +1384,6 @@ const SettingsPage: React.FC = () => {
                   <Button type="button" className="btn-magenta" disabled={!canEditIntegrations} title={!canEditIntegrations ? 'רק Owner יכול לערוך אינטגרציות בפרודקשן' : undefined} onClick={() => connectIntegration('google_drive')}>התחבר</Button>
                 )}
               </div>
-              <Button type="button" variant="outline" onClick={() => toast.info('Sync Now - בקרוב (דמו)')}>
-                Sync Now
-              </Button>
               <Button
                 type="button"
                 variant="outline"
@@ -1438,10 +1441,16 @@ const SettingsPage: React.FC = () => {
                 סנכרון אירועים עם Google Calendar (ייבוא/ייצוא). כרגע קיים “Add to Google Calendar” בדייבוק.
               </div>
               <div className="flex items-center justify-between">
-                <div className="text-sm">
-                  סטטוס: <span className={gCalConnected ? 'text-green-500 font-semibold' : 'text-muted-foreground'}>{gCalConnected ? 'מחובר' : 'לא מחובר'}</span>
-                  {gCalConnected && googleConnectedEmail && (
-                    <span className="text-muted-foreground mr-2"> · מחובר כ־{googleConnectedEmail}</span>
+                <div className="text-sm flex flex-wrap items-center gap-2">
+                  <span>סטטוס:</span>
+                  {gCalConnected ? (
+                    <>
+                      <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/12 px-2 py-0.5 text-emerald-700 dark:text-emerald-400 font-medium">מחובר</span>
+                      {googleConnectedEmail && <span className="text-muted-foreground">מחובר כ־{googleConnectedEmail}</span>}
+                      <span className="text-muted-foreground text-xs font-normal">סנכרון אוטומטי פעיל</span>
+                    </>
+                  ) : (
+                    <span className="text-muted-foreground">לא מחובר</span>
                   )}
                 </div>
                 {gCalConnected ? (
@@ -1450,9 +1459,6 @@ const SettingsPage: React.FC = () => {
                   <Button type="button" className="btn-magenta" disabled={!canEditIntegrations} title={!canEditIntegrations ? 'רק Owner יכול לערוך אינטגרציות בפרודקשן' : undefined} onClick={() => connectIntegration('google_calendar')}>התחבר</Button>
                 )}
               </div>
-              <Button type="button" variant="outline" onClick={() => toast.info('Sync Now - בקרוב (דמו)')}>
-                Sync Now
-              </Button>
             </CardContent>
           </Card>
 
@@ -1467,8 +1473,16 @@ const SettingsPage: React.FC = () => {
               <div className="text-sm text-muted-foreground">
                 שליחת הזמנות לאירועים והסכמים מהמייל של חשבון ה‑Admin (Owner). דורש OAuth + Backend.
               </div>
-              <div className="text-sm">
-                סטטוס: <span className={(gCalConnected || gDriveConnected) ? 'text-green-500 font-semibold' : 'text-muted-foreground'}>{(gCalConnected || gDriveConnected) ? 'מוכן (Google מחובר)' : 'לא מחובר'}</span>
+              <div className="text-sm flex flex-wrap items-center gap-2">
+                <span>סטטוס:</span>
+                {(gCalConnected || gDriveConnected) ? (
+                  <>
+                    <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/12 px-2 py-0.5 text-emerald-700 dark:text-emerald-400 font-medium">מוכן (Google מחובר)</span>
+                    <span className="text-muted-foreground text-xs font-normal">סנכרון אוטומטי פעיל</span>
+                  </>
+                ) : (
+                  <span className="text-muted-foreground">לא מחובר</span>
+                )}
               </div>
               <div className="text-xs text-muted-foreground">
                 בשלב הבא נוסיף OAuth אמיתי + שליחת מיילים “המקורית של Google”.
@@ -1544,11 +1558,16 @@ const SettingsPage: React.FC = () => {
                 />
               </div>
               <div className="flex items-center justify-between">
-                <div className="text-sm">
-                  סטטוס:{' '}
-                  <span className={morningConnected ? 'text-green-500 font-semibold' : 'text-muted-foreground'}>
-                    {morningConnected ? 'מחובר' : 'לא מחובר'}
-                  </span>
+                <div className="text-sm flex flex-wrap items-center gap-2">
+                  <span>סטטוס:</span>
+                  {morningConnected ? (
+                    <>
+                      <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/12 px-2 py-0.5 text-emerald-700 dark:text-emerald-400 font-medium">מחובר</span>
+                      <span className="text-muted-foreground text-xs font-normal">סנכרון אוטומטי פעיל</span>
+                    </>
+                  ) : (
+                    <span className="text-muted-foreground">לא מחובר</span>
+                  )}
                 </div>
                 {morningConnected ? (
                   <Button type="button" variant="outline" disabled={!canEditIntegrations} title={!canEditIntegrations ? 'רק Owner יכול לערוך אינטגרציות בפרודקשן' : undefined} onClick={disconnectMorning}>נתק</Button>
@@ -1556,9 +1575,6 @@ const SettingsPage: React.FC = () => {
                   <Button type="button" className="btn-magenta" disabled={!canEditIntegrations} title={!canEditIntegrations ? 'רק Owner יכול לערוך אינטגרציות בפרודקשן' : undefined} onClick={connectMorning}>התחבר</Button>
                 )}
               </div>
-              <Button type="button" variant="outline" onClick={() => toast.info('בדיקת חיבור Morning - בקרוב (דמו)')}>
-                בדוק חיבור
-              </Button>
             </CardContent>
           </Card>
         </div>
