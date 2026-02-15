@@ -13,6 +13,7 @@ import { withTimeout } from '@/lib/utils';
 const LoginPage: React.FC = () => {
   const { t } = useLocale();
   const { setUserFromLogin, loading } = useAuth();
+  const [showForm, setShowForm] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -161,6 +162,53 @@ const LoginPage: React.FC = () => {
     );
   }
 
+  // Welcome-first: show welcome message, form appears only when user clicks "כניסה"
+  if (!showForm) {
+    return (
+      <div className="min-h-screen min-h-[100dvh] w-full max-w-[100vw] flex items-center justify-center bg-[#f8fafc] p-4 box-border">
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.25 }}
+          className="w-full max-w-md flex-shrink-0 text-center"
+        >
+          <div className="mx-auto w-20 h-20 bg-slate-900 rounded-2xl flex items-center justify-center shadow-lg shadow-slate-200/50 mb-8">
+            <Building2 className="w-10 h-10 text-white" />
+          </div>
+          <h1 className="text-3xl font-bold text-slate-900 mb-3 leading-tight">
+            ברוך הבא ל-NPC AGENCY MANAGEMENT
+          </h1>
+          <p className="text-slate-600 text-base mb-8">
+            מערכת ניהול אירועים מתקדמת לשנת 2026
+          </p>
+          <Button
+            type="button"
+            onClick={() => setShowForm(true)}
+            className="py-4 px-10 rounded-xl bg-slate-900 text-white font-semibold text-lg hover:bg-slate-800 shadow-md"
+          >
+            כניסה
+          </Button>
+          {isDev && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleGuestEnter}
+              className="mt-4 w-full py-2 rounded-lg border-slate-300 text-slate-700 hover:bg-slate-50"
+            >
+              כניסה בדמו (פיתוח)
+            </Button>
+          )}
+          <p className="text-xs text-slate-500 mt-8">
+            לקבלת גישה — מנהל המערכת יכול לשלוח קישור כניסה מהגדרות → משתמשים
+          </p>
+          <p className="text-center text-slate-500 text-sm mt-6">
+            © 2026 {companyName}. All rights reserved.
+          </p>
+        </motion.div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen min-h-[100dvh] w-full max-w-[100vw] flex items-center justify-center bg-[#f8fafc] p-4 box-border">
       <motion.div
@@ -175,11 +223,18 @@ const LoginPage: React.FC = () => {
               <Building2 className="w-8 h-8 text-white" />
             </div>
             <CardTitle className="text-2xl font-bold text-slate-900">
-              ברוך הבא ל-NPC AGENCY MANAGEMENT
+              כניסה ל-NPC AGENCY MANAGEMENT
             </CardTitle>
             <CardDescription className="text-slate-600 text-sm">
-              מערכת ניהול אירועים מתקדמת לשנת 2026
+              הזן פרטי התחברות
             </CardDescription>
+            <button
+              type="button"
+              onClick={() => setShowForm(false)}
+              className="text-sm text-slate-500 hover:text-slate-700 underline mt-2"
+            >
+              ← חזור
+            </button>
           </CardHeader>
 
           <CardContent className="p-6 pt-2">
