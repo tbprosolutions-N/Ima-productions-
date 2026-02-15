@@ -331,6 +331,17 @@ events → artists (many-to-one)
 
 ## 🧪 Testing
 
+### Automated Tests
+
+| Command | Purpose |
+|---------|---------|
+| `npm run test:unit` | Vitest unit tests (utils, validation) |
+| `npm run test:e2e` | Playwright E2E (auth, navigation, events, finance, etc.) |
+| `npm run test:all` | Unit + E2E |
+| `npm run test:backend` | Backend integration (requires `netlify dev`) |
+
+See [docs/QA_DEEP_TEST_PLAN.md](docs/QA_DEEP_TEST_PLAN.md) for the full QA test plan.
+
 ### Manual Testing Checklist
 ```
 □ Login with email/password

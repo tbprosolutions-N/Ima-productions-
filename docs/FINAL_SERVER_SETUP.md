@@ -44,7 +44,46 @@ After running, verify in **Storage** that the `expenses` bucket exists and is **
 
 ---
 
-## 2. Netlify environment variables
+## 2. Supabase Dashboard — URL Configuration (Auth connectivity)
+
+**This step fixes "Auth Timeout" and connection failures in production.**
+
+In **Supabase Dashboard** go to: **Authentication → URL Configuration**.
+
+Set these **exact** values for production (npc-am.com):
+
+| Field | Value |
+|-------|--------|
+| **Site URL** | `https://npc-am.com` |
+| **Redirect URLs** (one per line or comma-separated, depending on UI) | See list below |
+
+**Redirect URLs to add (include all of these):**
+
+```
+https://npc-am.com
+https://npc-am.com/
+https://npc-am.com/login
+https://npc-am.com/dashboard
+https://npc-am.com/reset-password
+https://npc-am.com/** 
+```
+
+- Some Supabase UIs allow a wildcard: add `https://npc-am.com/**` if available.
+- If wildcards are not supported, add at least:  
+  `https://npc-am.com`, `https://npc-am.com/`, `https://npc-am.com/login`, `https://npc-am.com/dashboard`, `https://npc-am.com/reset-password`.
+
+**Checklist:**
+
+- [ ] **Site URL** = `https://npc-am.com`
+- [ ] **Redirect URLs** include `https://npc-am.com` and `https://npc-am.com/login`
+- [ ] Save changes and wait a minute for propagation
+- [ ] Clear browser cache / try incognito if login still times out
+
+Without these, Supabase Auth may reject or hang on redirects and the app will show "Auth Timeout" or a frozen loading screen. The app uses a **10-second rescue**: if the connection does not complete in 10 seconds, a **"נסה שוב להתחבר" (Retry Connection)** button appears; you can also go to the login page and sign in with email/password.
+
+---
+
+## 3. Netlify environment variables
 
 In **Netlify → Site → Site configuration → Environment variables**, set these for **Production** (and optionally for other environments):
 
@@ -73,9 +112,11 @@ In **Netlify → Site → Site configuration → Environment variables**, set th
 
 Redeploy the site after changing environment variables.
 
+**Build note:** Netlify runs `npm install` then `npm run build`. If the build fails with "tsc not found", ensure **Build command** is `npm run build` (which uses the project’s TypeScript from `node_modules`). You can set **NODE_VERSION** to `18` or `20` in Netlify → Environment variables if you need a specific Node version.
+
 ---
 
-## 3. Post-setup
+## 4. Post-setup
 
 - Confirm login (email + magic link or password) works against production Supabase.
 - Open Finance → upload an expense file and confirm it appears (bucket + RLS working).

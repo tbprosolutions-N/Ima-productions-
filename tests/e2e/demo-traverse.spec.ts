@@ -1,22 +1,9 @@
+/**
+ * Smoke test: quick traverse of core flows.
+ * Uses shared fixtures; runs as part of deep QA suite.
+ */
 import { test, expect } from '@playwright/test';
-
-const LOGIN = {
-  companyId: 'IMA001',
-  email: 'modu.general@gmail.com',
-  password: 'demo',
-};
-
-async function loginDemo(page: any) {
-  await page.goto('/login', { waitUntil: 'domcontentloaded' });
-
-  // Hebrew labels are present on the form; use regex for robustness.
-  await page.getByLabel(/מזהה חברה/i).fill(LOGIN.companyId);
-  await page.getByLabel(/דוא/i).fill(LOGIN.email);
-  await page.getByLabel(/סיסמה/i).fill(LOGIN.password);
-
-  await page.locator('button[type="submit"]').click();
-  await page.waitForURL(/\/dashboard/, { timeout: 15_000 });
-}
+import { loginDemo, dismissTourIfVisible } from './fixtures';
 
 test.beforeEach(async ({ page }) => {
   // Fail fast on console errors (common cause of “buttons don’t work”).
@@ -65,7 +52,7 @@ test('finance: period summary and checklist', async ({ page }) => {
   await loginDemo(page);
   await page.goto('/finance', { waitUntil: 'networkidle' });
   await expect(page.getByText(/פיננסים|סיכום תקופה|רשימת משימות/i).first()).toBeVisible({ timeout: 8000 });
-  const reportBtn = page.getByRole('button', { name: /ייצא דוח חודשי/i });
+  const reportBtn = page.getByRole('button', { name: /ייצא דוח חודשי/i }).first();
   await reportBtn.click();
   await expect(page.getByRole('dialog').filter({ hasText: /דוח תקופה/i })).toBeVisible({ timeout: 5000 });
   await page.keyboard.press('Escape');
