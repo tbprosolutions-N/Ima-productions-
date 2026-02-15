@@ -22,9 +22,6 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-/** Must be longer than getSession timeout (12s) + magic-link hash retry (1.2s) so session can complete before showing "timed out" */
-const AUTH_RESCUE_TIMEOUT_MS = 18000;
-
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [supabaseUser, setSupabaseUser] = useState<SupabaseUser | null>(null);
@@ -139,12 +136,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const initAuth = async () => {
       setAuthConnectionFailed(false);
-      const watchdog = setTimeout(() => {
-        if (!mounted) return;
-        console.warn('Auth initialization timed out. Add this site in Supabase → Authentication → URL Configuration (Site URL & Redirect URLs).');
-        setAuthConnectionFailed(true);
-        setLoading(false);
-      }, AUTH_RESCUE_TIMEOUT_MS);
 
       try {
         // Allow guest/demo auth when user entered via "Hello NPC user" screen (no email login).
@@ -169,16 +160,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           localStorage.removeItem('demo_user');
         }
 
-        // Production: allow 12s for getSession (avoids timeout on slow networks). Localhost: 6s.
-        const sessionTimeoutMs = typeof window !== 'undefined' && window.location?.hostname !== 'localhost' ? 12000 : 6000;
-        let { user: authUser } = await withTimeout(getSessionUserFast(), sessionTimeoutMs, 'Supabase getSession (fast)');
-        // Magic-link callback: tokens arrive in URL hash; Supabase may need a moment to process them.
+        // Soft timeout: race getSession vs delay. On timeout show login (no throw, no rescue screen).
+        const sessionMaxWaitMs = typeof window !== 'undefined' && window.location?.hostname !== 'localhost' ? 15000 : 8000;
+        const softTimeout = new Promise<{ user: any }>((resolve) => {
+          setTimeout(() => resolve({ user: null }), sessionMaxWaitMs);
+        });
+        let result: { user: any } = await Promise.race([
+          getSessionUserFast().then((r) => ({ user: r.user })),
+          softTimeout,
+        ]);
+        let authUser = result.user;
+
+        // Magic-link callback: tokens in URL hash; Supabase may need a moment to process them.
         const hash = typeof window !== 'undefined' ? window.location.hash : '';
         if (mounted && !authUser && (hash.includes('access_token=') || hash.includes('refresh_token='))) {
-          await new Promise((r) => setTimeout(r, 1200));
+          await new Promise((r) => setTimeout(r, 1500));
           const retry = await getSessionUserFast();
           if (retry.user) authUser = retry.user;
         }
+
         if (mounted) {
           if (authUser) {
             setSupabaseUser(authUser);
@@ -187,12 +187,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setLoading(false);
         }
       } catch (error: any) {
-        const isAbort = error?.name === 'AbortError' || (error instanceof DOMException && error.name === 'AbortError');
-        if (isAbort) {
-          console.warn('Auth: connection aborted or timed out. Check Supabase URL Configuration and network.');
-        } else {
-          console.error('Auth initialization failed', error);
-        }
+        console.error('Auth initialization failed', error);
         if (typeof window !== 'undefined' && window.location?.hostname !== 'localhost') {
           const origin = window.location.origin;
           console.warn(
@@ -204,8 +199,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (mounted) {
           setLoading(false);
         }
-      } finally {
-        clearTimeout(watchdog);
       }
     };
 
