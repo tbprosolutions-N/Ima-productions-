@@ -2,6 +2,37 @@
 @tailwind components;
 @tailwind utilities;
 
+/* MODU Design System: 8px-based grid + 12-column layout */
+:root {
+  --modu-space-1: 8px;
+  --modu-space-2: 16px;
+  --modu-space-3: 24px;
+  --modu-space-4: 32px;
+  --modu-space-5: 40px;
+  --modu-space-6: 48px;
+  --modu-control-height: 40px;
+  --modu-control-height-lg: 44px;
+  --modu-radius: 8px;
+  --modu-radius-lg: 12px;
+}
+
+/* 12-column grid container */
+.modu-grid-12 {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: var(--modu-space-3);
+}
+
+/* Dark mode elevation layers */
+.dark .modu-elevation-1 {
+  background: hsl(var(--card));
+  box-shadow: 0 1px 3px hsl(0 0% 0% / 0.2);
+}
+.dark .modu-elevation-2 {
+  background: hsl(var(--card));
+  box-shadow: 0 4px 12px hsl(0 0% 0% / 0.25);
+}
+
 @layer base {
   :root,
   .light {
@@ -24,30 +55,30 @@
     --border: 214 32% 91%;
     --input: 214 32% 91%;
     --ring: 222 47% 11%;
-    --radius: 0.5rem;
+    --radius: var(--modu-radius);
   }
 
+  /* MODU Dark Mode: Surface hierarchy (no pure black), WCAG AA contrast */
   .dark {
-    /* #FAFAFA-based light-dark – professional, minimal, airy */
-    --background: 0 0% 98%;
-    --foreground: 222 47% 11%;
-    --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-    --primary: 222 47% 20%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 210 20% 94%;
-    --secondary-foreground: 222 47% 11%;
-    --muted: 210 20% 94%;
-    --muted-foreground: 215 16% 47%;
-    --accent: 210 20% 94%;
-    --accent-foreground: 222 47% 11%;
-    --destructive: 0 84.2% 60.2%;
+    --background: 222 32% 8%;
+    --foreground: 210 20% 96%;
+    --card: 222 28% 11%;
+    --card-foreground: 210 20% 96%;
+    --popover: 222 28% 12%;
+    --popover-foreground: 210 20% 96%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 222 47% 6%;
+    --secondary: 222 24% 16%;
+    --secondary-foreground: 210 20% 96%;
+    --muted: 222 24% 18%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 222 24% 20%;
+    --accent-foreground: 210 20% 96%;
+    --destructive: 0 63% 55%;
     --destructive-foreground: 0 0% 98%;
-    --border: 214 20% 88%;
-    --input: 214 20% 88%;
-    --ring: 222 47% 20%;
+    --border: 222 20% 22%;
+    --input: 222 20% 22%;
+    --ring: 217 91% 60%;
   }
 }
 
@@ -73,15 +104,44 @@
     background-color: #ffffff;
   }
   .dark body {
-    @apply text-slate-900;
-    background-color: #FAFAFA;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
   }
   .dark h1, .dark h2, .dark h3, .dark h4, .dark h5, .dark h6 {
-    @apply text-slate-900;
+    color: hsl(var(--foreground));
   }
   .light h1, .light h2, .light h3, .light h4, .light h5, .light h6 {
     @apply text-slate-900;
   }
+}
+
+/* MODU: Icon + text alignment (perfect vertical centering) */
+.modu-icon-text {
+  display: flex;
+  align-items: center;
+  gap: var(--modu-space-1);
+}
+.modu-icon-text .modu-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* MODU: Icon with subtle background (circle/square, low-opacity primary) */
+.modu-icon-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--modu-radius);
+  background: hsl(var(--primary) / 0.12);
+  color: hsl(var(--primary));
+}
+.dark .modu-icon-wrap {
+  background: hsl(var(--primary) / 0.2);
+  color: hsl(var(--primary));
 }
 
 /* Custom scrollbar for dark theme */
@@ -91,16 +151,16 @@
 }
 
 .dark ::-webkit-scrollbar-track {
-  background: #F0F0F0;
+  background: hsl(var(--card));
 }
 
 .dark ::-webkit-scrollbar-thumb {
-  background: hsl(var(--primary));
+  background: hsl(var(--border));
   border-radius: 5px;
 }
 
 .dark ::-webkit-scrollbar-thumb:hover {
-  filter: brightness(1.15);
+  background: hsl(var(--muted-foreground) / 0.4);
 }
 
 /* RTL Support */
@@ -280,7 +340,35 @@
 .light .border-border { border-color: hsl(214 32% 91%); }
 .dark .border-border { border-color: hsl(214 20% 88%); }
 
+/* MODU Tables: vertical padding, header distinction */
+.modu-table,
+.modu-table table {
+  width: 100%;
+}
+.modu-table thead th {
+  padding: var(--modu-space-2) var(--modu-space-2);
+  text-align: right;
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+  color: hsl(var(--muted-foreground));
+  background: hsl(var(--muted) / 0.6);
+  border-bottom: 1px solid hsl(var(--border));
+}
+.modu-table tbody td {
+  padding: var(--modu-space-2) var(--modu-space-2);
+  vertical-align: middle;
+  border-bottom: 1px solid hsl(var(--border));
+}
+.modu-table tbody tr:hover {
+  background: hsl(var(--accent) / 0.5);
+}
+.modu-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
 /* Tables: readable text in dark mode */
-.dark thead th { @apply text-slate-700; }
-.dark tbody td { @apply text-slate-800; }
-.dark tbody td.text-muted-foreground { @apply text-slate-500; }
+.dark thead th { color: hsl(var(--muted-foreground)); }
+.dark tbody td { color: hsl(var(--foreground)); }
+.dark tbody td.text-muted-foreground { color: hsl(var(--muted-foreground)); }

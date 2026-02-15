@@ -10,10 +10,19 @@
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 
+const CORS_HEADERS = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-headers": "authorization, x-client-info, apikey, content-type",
+  "access-control-allow-methods": "POST, OPTIONS",
+};
+
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "content-type": "application/json; charset=utf-8" },
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      ...CORS_HEADERS,
+    },
   });
 }
 
@@ -30,6 +39,7 @@ type Body = {
 };
 
 serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS_HEADERS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
   const CLIENT_ID = Deno.env.get("GOOGLE_OAUTH_CLIENT_ID") || "";

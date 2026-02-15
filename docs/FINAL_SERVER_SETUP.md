@@ -116,7 +116,13 @@ Redeploy the site after changing environment variables.
 
 ---
 
-## 4. Post-setup
+## 4. Google Integration (optional)
+
+See **docs/GOOGLE_INTEGRATION_SETUP.md** for OAuth setup, redirect URIs, scopes, and CORS.
+
+---
+
+## 5. Post-setup
 
 - Confirm login (email + magic link or password) works against production Supabase.
 - Open Finance → upload an expense file and confirm it appears (bucket + RLS working).

@@ -36,7 +36,7 @@ const MainLayout: React.FC = () => {
 
       {/* Main: on mobile full width (sidebar is fixed overlay); on desktop flex-1 fills remaining space */}
       <main className="flex-1 min-w-0 w-full overflow-x-hidden overflow-y-auto">
-        <div className="w-full min-w-0 p-4 md:p-6 lg:p-8 pt-14 md:pt-6 lg:pt-8 box-border 2xl:max-w-[1800px] 2xl:mx-auto">
+        <div className="w-full min-w-0 p-6 md:p-8 lg:p-10 pt-16 md:pt-8 lg:pt-10 box-border 2xl:max-w-[1800px] 2xl:mx-auto">
           {showInstallBanner && (
             <div className="mb-4 rounded-lg border border-primary/30 bg-card/90 backdrop-blur p-3 flex items-center justify-between gap-3">
               <span className="text-sm text-foreground text-gray-900 dark:text-gray-100">התקן את {appName} כאפליקציה</span>

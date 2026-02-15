@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, memo } from 'react';
 import { motion } from 'framer-motion';
 import { Calendar as CalendarIcon, List, Grid, ChevronLeft, ChevronRight, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
@@ -16,6 +16,32 @@ import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
 import interactionPlugin from '@fullcalendar/interaction';
+
+/** Memoized FullCalendar wrapper to prevent re-renders when parent state changes */
+const MemoizedFullCalendar = memo(function MemoizedFullCalendar({
+  events,
+  onEventClick,
+}: {
+  events: { id: string; title: string; start: string; allDay: boolean; backgroundColor: string; borderColor: string; textColor: string; extendedProps: { raw: Event } }[];
+  onEventClick: (info: { event: { extendedProps: { raw?: Event } } }) => void;
+}) {
+  return (
+    <FullCalendar
+      plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+      initialView="dayGridMonth"
+      headerToolbar={{
+        left: 'prev,next today',
+        center: 'title',
+        right: 'dayGridMonth,timeGridWeek,timeGridDay',
+      }}
+      height="auto"
+      locale="he"
+      direction="rtl"
+      events={events}
+      eventClick={onEventClick}
+    />
+  );
+});
 
 const CalendarPage: React.FC = () => {
   const { currentAgency } = useAgency();
@@ -88,7 +114,7 @@ const CalendarPage: React.FC = () => {
 
   const monthName = currentMonth.toLocaleDateString('he-IL', { month: 'long', year: 'numeric' });
 
-  const openGoogleCalendar = (event: Event) => {
+  const openGoogleCalendar = useCallback((event: Event) => {
     const start = new Date(event.event_date);
     const url = buildGoogleCalendarUrl({
       title: `${event.business_name}${event.invoice_name ? ` - ${event.invoice_name}` : ''}`,
@@ -96,7 +122,13 @@ const CalendarPage: React.FC = () => {
       details: `${companyName}\nסכום: ${formatCurrency(event.amount)}\nסטטוס: ${event.status}`,
     });
     window.open(url, '_blank', 'noopener,noreferrer');
-  };
+  }, [companyName]);
+
+  const handleCalendarEventClick = useCallback((info: { event: { extendedProps: { raw?: Event } } }) => {
+    const raw = (info.event.extendedProps as any)?.raw as Event | undefined;
+    if (!raw) return;
+    openGoogleCalendar(raw);
+  }, [openGoogleCalendar]);
 
   // Pre-compute artist lookup map for O(1) access instead of O(n) per event
   const artistMap = useMemo(() => {
@@ -333,23 +365,9 @@ const CalendarPage: React.FC = () => {
                 )}
               </div>
 
-              <FullCalendar
-                plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
-                initialView="dayGridMonth"
-                headerToolbar={{
-                  left: 'prev,next today',
-                  center: 'title',
-                  right: 'dayGridMonth,timeGridWeek,timeGridDay',
-                }}
-                height="auto"
-                locale="he"
-                direction="rtl"
+              <MemoizedFullCalendar
                 events={calendarEvents}
-                eventClick={(info) => {
-                  const raw = (info.event.extendedProps as any)?.raw as Event | undefined;
-                  if (!raw) return;
-                  openGoogleCalendar(raw);
-                }}
+                onEventClick={handleCalendarEventClick}
               />
             </div>
           )}

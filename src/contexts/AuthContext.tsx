@@ -86,8 +86,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     let mounted = true;
 
-    // Hard safety: ABSOLUTE cap — 6s prod, 5s dev. No matter what, stop loading.
-    const hardMs = IS_PROD ? 6000 : 5000;
+    // Hard safety: ABSOLUTE cap — 3s prod, 3s dev. No matter what, stop loading.
+    const hardMs = 3000;
     const hardTimer = setTimeout(() => {
       if (mounted && loading) {
         console.warn(`[NPC Auth] Hard safety (${hardMs}ms) — forcing loading=false`);

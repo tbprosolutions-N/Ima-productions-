@@ -26,6 +26,7 @@ function useDashboardStats(agencyId: string | undefined) {
   const [clients, setClients] = useState<Client[]>([]);
   const [clientsCount, setClientsCount] = useState(0);
   const [expensesTotal, setExpensesTotal] = useState(0);
+  const [activityLog, setActivityLog] = useState<ActivityEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -46,6 +47,7 @@ function useDashboardStats(agencyId: string | undefined) {
         setArtists(ar);
         setClientsCount(cl.length);
         setExpensesTotal(expenses.reduce((s, x) => s + (Number(x.amount) || 0), 0));
+        setActivityLog(getActivity(agencyId));
       }
       setLoading(false);
       return;
@@ -53,11 +55,12 @@ function useDashboardStats(agencyId: string | undefined) {
 
     (async () => {
       try {
-        const [evRes, clientsRes, artistsRes, expRes] = await Promise.all([
+        const [evRes, clientsRes, artistsRes, expRes, auditRes] = await Promise.all([
           supabase.from('events').select('*').eq('agency_id', agencyId).order('event_date', { ascending: false }).limit(500),
           supabase.from('clients').select('*').eq('agency_id', agencyId).order('name', { ascending: true }),
           supabase.from('artists').select('*').eq('agency_id', agencyId).order('name', { ascending: true }),
           supabase.from('finance_expenses').select('amount').eq('agency_id', agencyId),
+          supabase.from('audit_logs').select('*').eq('agency_id', agencyId).order('created_at', { ascending: false }).limit(20),
         ]);
 
         if (cancelled) return;
@@ -70,6 +73,17 @@ function useDashboardStats(agencyId: string | undefined) {
         setClientsCount(clList.length);
         const expTotal = ((expRes.data || []) as { amount: number }[]).reduce((s, x) => s + (Number(x?.amount) || 0), 0);
         setExpensesTotal(expTotal);
+        const auditData = (auditRes.data || []).map((r: any) => ({
+          id: r.id,
+          agency_id: r.agency_id,
+          created_at: r.created_at,
+          actor_name: r.actor_name || 'מערכת',
+          actor_email: r.actor_email,
+          action: r.action,
+          message: r.message || r.action,
+          meta: r.meta,
+        }));
+        setActivityLog(auditData);
       } catch {
         if (!cancelled) setEvents([]);
       } finally {
@@ -117,7 +131,7 @@ function useDashboardStats(agencyId: string | undefined) {
     };
   }, [events, expensesTotal, clientsCount]);
 
-  return { stats, events, artists, clients, loading };
+  return { stats, events, artists, clients, activityLog, loading };
 }
 
 /* ─── Notification Generator ─── */
@@ -332,62 +346,7 @@ const QuickNewEventDialog: React.FC<{
 };
 
 /* ─── Activity Log Section ─── */
-const ActivityLogSection: React.FC<{ agencyId: string }> = ({ agencyId }) => {
-  const [activityLog, setActivityLog] = useState<ActivityEntry[]>([]);
-  const [loadingLog, setLoadingLog] = useState(true);
-
-  useEffect(() => {
-    if (!agencyId) return;
-    let cancelled = false;
-
-    const load = async () => {
-      if (isDemoMode()) {
-        setActivityLog(getActivity(agencyId));
-        setLoadingLog(false);
-        return;
-      }
-      try {
-        const { data, error } = await supabase
-          .from('audit_logs')
-          .select('*')
-          .eq('agency_id', agencyId)
-          .order('created_at', { ascending: false })
-          .limit(20);
-        if (!cancelled) {
-          if (error) {
-            console.warn('Activity log load error:', error.message);
-            setActivityLog([]);
-          } else {
-            setActivityLog((data || []).map((r: any) => ({
-              id: r.id,
-              agency_id: r.agency_id,
-              created_at: r.created_at,
-              actor_name: r.actor_name || 'מערכת',
-              actor_email: r.actor_email,
-              action: r.action,
-              message: r.message || r.action,
-              meta: r.meta,
-            })));
-          }
-        }
-      } catch {
-        if (!cancelled) setActivityLog([]);
-      } finally {
-        if (!cancelled) setLoadingLog(false);
-      }
-    };
-
-    load();
-
-    // Listen for new activity
-    const handler = () => load();
-    window.addEventListener('ima:activity', handler);
-    return () => {
-      cancelled = true;
-      window.removeEventListener('ima:activity', handler);
-    };
-  }, [agencyId]);
-
+const ActivityLogSection = React.memo(({ activityLog, loadingLog }: { activityLog: ActivityEntry[]; loadingLog: boolean }) => {
   const actionLabels: Record<string, string> = {
     logo_updated: 'עדכון לוגו',
     company_name_updated: 'עדכון שם חברה',
@@ -404,7 +363,7 @@ const ActivityLogSection: React.FC<{ agencyId: string }> = ({ agencyId }) => {
   };
 
   return (
-    <Card className="border-gray-100 dark:border-gray-200 shadow-sm">
+    <Card className="border-border shadow-sm">
       <CardHeader className="pb-3">
         <CardTitle className="text-base font-semibold flex items-center gap-2">
           <Activity className="w-5 h-5 text-primary" />
@@ -438,14 +397,14 @@ const ActivityLogSection: React.FC<{ agencyId: string }> = ({ agencyId }) => {
       </CardContent>
     </Card>
   );
-};
+});
 
 /* ─── Main Dashboard ─── */
 const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { currentAgency } = useAgency();
-  const { stats, events, artists, clients, loading } = useDashboardStats(currentAgency?.id);
+  const { stats, events, artists, clients, activityLog, loading } = useDashboardStats(currentAgency?.id);
   const displayName = user?.full_name || user?.email?.split('@')[0] || 'משתמש';
   const canSeeMoney = user?.role !== 'producer';
   const [quickEventOpen, setQuickEventOpen] = useState(false);
@@ -461,54 +420,12 @@ const DashboardPage: React.FC = () => {
   };
 
   const kpiCards = useMemo(() => [
-    {
-      title: 'אירועים בחודש הבא',
-      value: canSeeMoney ? fmt(stats.eventsNextMonthIncome) : '•••',
-      count: `${stats.eventsNextMonthCount} אירועים`,
-      icon: Calendar,
-      color: 'text-blue-600',
-      bg: 'bg-blue-50',
-    },
-    {
-      title: 'אירועים פעילים',
-      value: canSeeMoney ? fmt(stats.activeEventsTotal) : '•••',
-      count: `${stats.activeEventsCount} פעילים`,
-      icon: Sparkles,
-      color: 'text-purple-600',
-      bg: 'bg-purple-50',
-    },
-    {
-      title: 'סה"כ הוצאות',
-      value: canSeeMoney ? fmt(stats.expensesTotal) : '•••',
-      count: 'החודש',
-      icon: DollarSign,
-      color: 'text-red-600',
-      bg: 'bg-red-50',
-    },
-    {
-      title: 'חשבוניות ממתינות',
-      value: canSeeMoney ? fmt(stats.pendingTotal) : '•••',
-      count: `${stats.pendingCount} ממתינות`,
-      icon: FileText,
-      color: 'text-amber-600',
-      bg: 'bg-amber-50',
-    },
-    {
-      title: 'סה"כ גבייה',
-      value: canSeeMoney ? fmt(stats.collectedTotal) : '•••',
-      count: 'כל הזמנים',
-      icon: TrendingUp,
-      color: 'text-green-600',
-      bg: 'bg-green-50',
-    },
-    {
-      title: 'הכנסה צפויה',
-      value: canSeeMoney ? fmt(stats.expectedIncome) : '•••',
-      count: 'לא כולל מבוטלים',
-      icon: ClipboardList,
-      color: 'text-indigo-600',
-      bg: 'bg-indigo-50',
-    },
+    { title: 'אירועים בחודש הבא', value: canSeeMoney ? fmt(stats.eventsNextMonthIncome) : '•••', count: `${stats.eventsNextMonthCount} אירועים`, icon: Calendar, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-500/15' },
+    { title: 'אירועים פעילים', value: canSeeMoney ? fmt(stats.activeEventsTotal) : '•••', count: `${stats.activeEventsCount} פעילים`, icon: Sparkles, color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-50 dark:bg-purple-500/15' },
+    { title: 'סה"כ הוצאות', value: canSeeMoney ? fmt(stats.expensesTotal) : '•••', count: 'החודש', icon: DollarSign, color: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-500/15' },
+    { title: 'חשבוניות ממתינות', value: canSeeMoney ? fmt(stats.pendingTotal) : '•••', count: `${stats.pendingCount} ממתינות`, icon: FileText, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-500/15' },
+    { title: 'סה"כ גבייה', value: canSeeMoney ? fmt(stats.collectedTotal) : '•••', count: 'כל הזמנים', icon: TrendingUp, color: 'text-green-600 dark:text-green-400', bg: 'bg-green-50 dark:bg-green-500/15' },
+    { title: 'הכנסה צפויה', value: canSeeMoney ? fmt(stats.expectedIncome) : '•••', count: 'לא כולל מבוטלים', icon: ClipboardList, color: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-50 dark:bg-indigo-500/15' },
   ], [stats, canSeeMoney]);
 
   const handleQuickEventCreated = useCallback(() => {
@@ -566,11 +483,11 @@ const DashboardPage: React.FC = () => {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.04 }}
               >
-                <Card className="h-full border-gray-100 dark:border-gray-200 shadow-sm hover:shadow-md transition-shadow">
-                  <CardContent className="p-5 pt-5 flex flex-col gap-3">
-                    <div className="flex items-center justify-between gap-3 min-h-[36px]">
+                <Card className="h-full border-border shadow-sm hover:shadow-md transition-shadow">
+                  <CardContent className="p-6 pt-6 flex flex-col gap-3">
+                    <div className="modu-icon-text justify-between gap-3 min-h-[36px]">
                       <span className="text-xs font-medium text-muted-foreground leading-tight flex-1">{card.title}</span>
-                      <div className={`w-9 h-9 rounded-lg ${card.bg} flex items-center justify-center shrink-0 mt-0.5`}>
+                      <div className={`w-9 h-9 rounded-[var(--modu-radius)] ${card.bg} flex items-center justify-center shrink-0`}>
                         <card.icon className={`w-5 h-5 ${card.color}`} />
                       </div>
                     </div>
@@ -585,7 +502,7 @@ const DashboardPage: React.FC = () => {
           {/* Notifications + Activity Log Row */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Notifications */}
-            <Card className="border-gray-100 dark:border-gray-200 shadow-sm">
+            <Card className="border-border shadow-sm">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base font-semibold flex items-center gap-2">
                   <Bell className="w-5 h-5 text-primary" />
@@ -617,11 +534,11 @@ const DashboardPage: React.FC = () => {
             </Card>
 
             {/* Activity Log */}
-            <ActivityLogSection agencyId={agencyId} />
+            <ActivityLogSection activityLog={activityLog} loadingLog={loading} />
           </div>
 
           {/* Upcoming Events Table */}
-          <Card className="border-gray-100 dark:border-gray-200 shadow-sm">
+          <Card className="border-border shadow-sm">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base font-semibold flex items-center gap-2">
@@ -644,15 +561,15 @@ const DashboardPage: React.FC = () => {
               {upcomingEvents.length === 0 ? (
                 <p className="text-muted-foreground text-sm text-center py-6">אין אירועים קרובים</p>
               ) : (
-                <div className="overflow-x-auto rounded-lg border border-gray-100 dark:border-gray-200">
+                <div className="overflow-x-auto rounded-[var(--modu-radius)] border border-border modu-table">
                   <table className="w-full text-sm">
-                    <thead className="border-b border-gray-100 dark:border-gray-200 bg-muted/30">
+                    <thead>
                       <tr>
-                        <th className="h-9 px-3 text-right font-medium text-muted-foreground text-xs">תאריך</th>
-                        <th className="h-9 px-3 text-right font-medium text-muted-foreground text-xs">שם</th>
-                        <th className="h-9 px-3 text-right font-medium text-muted-foreground text-xs">אמן</th>
-                        <th className="h-9 px-3 text-right font-medium text-muted-foreground text-xs">סטטוס</th>
-                        {canSeeMoney && <th className="h-9 px-3 text-right font-medium text-muted-foreground text-xs">סכום</th>}
+                        <th>תאריך</th>
+                        <th>שם</th>
+                        <th>אמן</th>
+                        <th>סטטוס</th>
+                        {canSeeMoney && <th>סכום</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -673,16 +590,16 @@ const DashboardPage: React.FC = () => {
                           cancelled: 'bg-red-100 text-red-700',
                         };
                         return (
-                          <tr key={ev.id} className="border-b border-gray-50 dark:border-gray-100 hover:bg-muted/20 transition-colors cursor-pointer" onClick={() => navigate(`/events?edit=${ev.id}`)}>
-                            <td className="p-3 text-xs whitespace-nowrap">{new Date(ev.event_date).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' })}</td>
-                            <td className="p-3 font-medium text-sm">{ev.business_name}</td>
-                            <td className="p-3 text-muted-foreground text-xs">{artist?.name || '—'}</td>
-                            <td className="p-3">
+                          <tr key={ev.id} className="cursor-pointer transition-colors" onClick={() => navigate(`/events?edit=${ev.id}`)}>
+                            <td className="text-xs whitespace-nowrap">{new Date(ev.event_date).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' })}</td>
+                            <td className="font-medium text-sm">{ev.business_name}</td>
+                            <td className="text-muted-foreground text-xs">{artist?.name || '—'}</td>
+                            <td>
                               <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[ev.status] || 'bg-gray-100'}`}>
                                 {statusLabels[ev.status] || ev.status}
                               </span>
                             </td>
-                            {canSeeMoney && <td className="p-3 text-sm font-medium">{fmt(Number(ev.amount) || 0)}</td>}
+                            {canSeeMoney && <td className="text-sm font-medium">{fmt(Number(ev.amount) || 0)}</td>}
                           </tr>
                         );
                       })}
@@ -705,7 +622,7 @@ const DashboardPage: React.FC = () => {
                 key={item.path}
                 type="button"
                 variant="outline"
-                className="h-12 gap-2 border-gray-200 dark:border-gray-200 hover:bg-muted/50"
+                className="h-12 gap-2 border-border hover:bg-muted/50"
                 onClick={() => navigate(item.path)}
               >
                 <item.icon className="w-4 h-4" />
