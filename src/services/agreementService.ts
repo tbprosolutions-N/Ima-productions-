@@ -109,15 +109,16 @@ class AgreementService {
       // Generate blob
       const pdfBlob = pdf.output('blob');
 
-      // Send email if requested
-      const clientEmail = client?.email ?? (event as { client_email?: string }).client_email;
-      if (options.sendEmail && clientEmail) {
-        await this.sendAgreementEmail(clientEmail, pdfBlob, event.business_name);
-      }
+      // Collect all recipients (client, artist, owner) — no null/empty
+      const rawEmails = [
+        client?.email ?? (event as { client_email?: string }).client_email,
+        artist?.email,
+        options.ownerEmail,
+      ].filter((e): e is string => typeof e === 'string' && e.trim().length > 0);
+      const to = [...new Set(rawEmails.map((e) => e.trim().toLowerCase()))];
 
-      // Always send a copy to the owner when provided
-      if (options.ownerEmail) {
-        await this.sendAgreementEmail(options.ownerEmail, pdfBlob, event.business_name);
+      if ((options.sendEmail || options.ownerEmail) && to.length > 0) {
+        await this.sendAgreementEmail(to, pdfBlob, event.business_name);
       }
 
       return pdfBlob;
@@ -127,28 +128,49 @@ class AgreementService {
     }
   }
 
-  async sendAgreementEmail(email: string, pdfBlob: Blob, businessName: string): Promise<void> {
+  async sendAgreementEmail(to: string[], pdfBlob: Blob, businessName: string): Promise<void> {
+    const recipients = to.filter((e) => typeof e === 'string' && e.trim().length > 0).map((e) => e.trim().toLowerCase());
+    if (recipients.length === 0) return;
+
     try {
-      // Convert blob to base64
-      const reader = new FileReader();
-      const base64Promise = new Promise<string>((resolve) => {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
         reader.onloadend = () => {
-          const base64 = reader.result as string;
-          resolve(base64.split(',')[1]);
+          const result = reader.result as string;
+          const b64 = result?.split(',')[1];
+          if (b64) resolve(b64);
+          else reject(new Error('Failed to encode PDF to base64'));
         };
+        reader.onerror = () => reject(reader.error);
         reader.readAsDataURL(pdfBlob);
       });
 
-      await base64Promise; // base64 PDF ready for future send-email Edge Function
+      const subject = `הסכם הופעה — ${businessName}`;
+      const html = `
+        <div dir="rtl" style="font-family: 'Segoe UI', Tahoma, sans-serif; max-width: 600px; margin: 0 auto; color: #1a1a1a; line-height: 1.6;">
+          <p style="font-size: 16px; margin-bottom: 16px;">שלום,</p>
+          <p style="font-size: 15px; margin-bottom: 16px;">במצורף הסכם ההופעה עבור <strong>${businessName}</strong>.</p>
+          <p style="font-size: 15px; margin-bottom: 16px;">המסמך מוכן לחתימה ומכיל את כל הפרטים שנקבעו. נשמח לסייע בשאלות נוספות.</p>
+          <p style="font-size: 15px; margin-top: 24px; color: #555;">בברכה,<br/><strong>NPC — ניהול הפקות ואירועים</strong></p>
+        </div>
+      `;
 
-      // TODO: Implement email sending via Supabase Edge Function or external service
-      if (import.meta.env.DEV) {
-        console.log(`Sending agreement to ${email} for ${businessName}`);
+      const { error } = await supabase.functions.invoke('send-email', {
+        body: {
+          to: recipients,
+          subject,
+          html,
+          attachments: [{ content: base64, filename: 'agreement.pdf' }],
+        },
+      });
+
+      if (error) {
+        console.error('Agreement email failed (send-email):', error);
+        // Do not throw — resilient; UI flow continues
       }
-
-    } catch (error) {
-      console.error('Error sending agreement email:', error);
-      throw error;
+    } catch (err) {
+      console.error('Error sending agreement email:', err);
+      // Do not throw — resilient; UI flow continues
     }
   }
 

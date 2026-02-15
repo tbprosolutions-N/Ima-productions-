@@ -60,17 +60,14 @@ const LoginPage: React.FC = () => {
         localStorage.setItem('ima:last_company_id', companyId.trim());
       }
 
-      // ── Verify user exists in the system before sending magic link (case-insensitive) ──
-      const { data: existingUsers, error: lookupError } = await supabase
-        .from('users')
-        .select('id, email')
-        .ilike('email', emailTrim)
-        .limit(1);
+      // ── Verify user exists before sending magic link (uses RPC to bypass RLS for anon) ──
+      const { data: exists, error: lookupError } = await supabase
+        .rpc('check_email_exists_for_login', { p_email: emailTrim });
 
       if (lookupError) {
         console.warn('[Login] User lookup failed, proceeding anyway:', lookupError.message);
         // Don't block login if lookup fails – fall through to magic link
-      } else if (!existingUsers || existingUsers.length === 0) {
+      } else if (!exists) {
         throw new Error('כתובת הדוא"ל לא נמצאה במערכת. פנה למנהל כדי לקבל גישה.');
       }
 

@@ -90,7 +90,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const hardMs = 3000;
     const hardTimer = setTimeout(() => {
       if (mounted && loading) {
-        console.warn(`[NPC Auth] Hard safety (${hardMs}ms) — forcing loading=false`);
+        if (import.meta.env.DEV) console.debug(`[NPC Auth] Hard safety (${hardMs}ms) — forcing loading=false`);
         setLoading(false);
       }
     }, hardMs);
