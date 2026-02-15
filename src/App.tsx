@@ -99,12 +99,24 @@ const AppRoutes: React.FC = () => {
   const location = useLocation();
   const isLoginPage = location.pathname === '/login';
 
+  // SAFETY: absolute hard-cap on the loading spinner at the route level.
+  // If AuthContext's loading=true sticks beyond 25s, redirect to login.
+  const [forceReady, setForceReady] = React.useState(false);
+  React.useEffect(() => {
+    if (!loading) return;
+    const t = setTimeout(() => {
+      console.warn('[NPC AppRoutes] Loading exceeded 25s — forcing ready state');
+      setForceReady(true);
+    }, 25000);
+    return () => clearTimeout(t);
+  }, [loading]);
+
   if (authConnectionFailed && !user && !loading && !isLoginPage) {
     return <AuthRescueScreen />;
   }
 
   // 2026 standard: never block /login with full-screen loader — show login UI immediately for fast time-to-interactive
-  if (loading && !isLoginPage) {
+  if (loading && !forceReady && !isLoginPage) {
     return <PageLoader label="טוען…" />;
   }
 

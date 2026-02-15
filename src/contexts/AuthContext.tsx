@@ -85,8 +85,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error('Auth: Failed to fetch profile', error);
       // Don't clear user on transient profile fetch failure when we already have a session:
       // avoids "logout" after actions (e.g. adding expense) that trigger a refresh.
-      const { data: sessionCheck } = await supabase.auth.getSession();
-      if (!sessionCheck?.session?.user) setUser(null);
+      try {
+        const { data: sessionCheck } = await withTimeout(supabase.auth.getSession(), 5000, 'Session check after profile failure');
+        if (!sessionCheck?.session?.user) setUser(null);
+      } catch {
+        // getSession timed out — keep current user state to avoid false logouts
+      }
     }
   };
 
@@ -134,6 +138,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
+    // HARD SAFETY TIMEOUT: Absolute maximum time loading can stay true.
+    // Prevents infinite loading spinner if any auth path hangs (Supabase down, paused project, network hung, etc.)
+    const isProduction = typeof window !== 'undefined' && window.location?.hostname !== 'localhost';
+    const hardTimeoutMs = isProduction ? 20000 : 12000;
+    const hardTimer = setTimeout(() => {
+      if (mounted) {
+        console.warn(`[NPC Auth] Hard safety timeout (${hardTimeoutMs}ms) — forcing loading=false`);
+        setLoading(false);
+      }
+    }, hardTimeoutMs);
+
     const initAuth = async () => {
       setAuthConnectionFailed(false);
 
@@ -161,7 +176,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         // Soft timeout: race getSession vs delay. On timeout show login (no throw, no rescue screen).
-        const sessionMaxWaitMs = typeof window !== 'undefined' && window.location?.hostname !== 'localhost' ? 15000 : 8000;
+        const sessionMaxWaitMs = isProduction ? 15000 : 8000;
         const softTimeout = new Promise<{ user: any }>((resolve) => {
           setTimeout(() => resolve({ user: null }), sessionMaxWaitMs);
         });
@@ -188,7 +203,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       } catch (error: any) {
         console.error('Auth initialization failed', error);
-        if (typeof window !== 'undefined' && window.location?.hostname !== 'localhost') {
+        if (isProduction) {
           const origin = window.location.origin;
           console.warn(
             'Auth: add these in Supabase Dashboard → Authentication → URL Configuration → Redirect URLs:',
@@ -225,24 +240,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       // Session null: retry immediately, then again after a short delay (token refresh race)
-      const { data: retry } = await supabase.auth.getSession();
-      if (retry?.session?.user && mounted) {
-        setSupabaseUser(retry.session.user);
-        await fetchUserProfile(retry.session.user);
-        setLoading(false);
-        return;
-      }
+      try {
+        const { data: retry } = await withTimeout(supabase.auth.getSession(), 5000, 'Auth listener getSession retry 1');
+        if (retry?.session?.user && mounted) {
+          setSupabaseUser(retry.session.user);
+          await fetchUserProfile(retry.session.user);
+          setLoading(false);
+          return;
+        }
+      } catch { /* timeout — continue to retry 2 */ }
 
       // Delayed second retry so token refresh doesn't kick user out
       await new Promise((r) => setTimeout(r, 1200));
       if (!mounted) return;
-      const { data: retry2 } = await supabase.auth.getSession();
-      if (retry2?.session?.user && mounted) {
-        setSupabaseUser(retry2.session.user);
-        await fetchUserProfile(retry2.session.user);
-        setLoading(false);
-        return;
-      }
+      try {
+        const { data: retry2 } = await withTimeout(supabase.auth.getSession(), 5000, 'Auth listener getSession retry 2');
+        if (retry2?.session?.user && mounted) {
+          setSupabaseUser(retry2.session.user);
+          await fetchUserProfile(retry2.session.user);
+          setLoading(false);
+          return;
+        }
+      } catch { /* timeout — treat as no session */ }
 
       // Only clear after both retries fail (real sign-out or expired session)
       if (mounted) {
@@ -254,6 +273,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return () => {
       mounted = false;
+      clearTimeout(hardTimer);
       subscription.unsubscribe();
     };
   }, []);
