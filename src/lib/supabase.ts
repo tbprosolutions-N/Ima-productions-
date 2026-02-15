@@ -118,7 +118,8 @@ export const signIn = async (email: string, password: string) => {
 };
 
 export const signInWithMagicLink = async (email: string) => {
-  const redirectTo = typeof window !== 'undefined' ? window.location.origin : '';
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const redirectTo = `${origin}/login`;
   const { data, error } = await supabase.auth.signInWithOtp({
     email,
     options: {

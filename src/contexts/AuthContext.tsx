@@ -169,8 +169,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           localStorage.removeItem('demo_user');
         }
 
-        // Fast boot: short timeout so we show login/rescue quickly (2026 standard). Valid sessions usually return in <2s.
-        const sessionTimeoutMs = typeof window !== 'undefined' && window.location?.hostname !== 'localhost' ? 4000 : 5000;
+        // Production: allow 12s for getSession (avoids timeout on slow networks). Localhost: 6s.
+        const sessionTimeoutMs = typeof window !== 'undefined' && window.location?.hostname !== 'localhost' ? 12000 : 6000;
         const { user: authUser } = await withTimeout(getSessionUserFast(), sessionTimeoutMs, 'Supabase getSession (fast)');
         if (mounted) {
           if (authUser) {
@@ -187,7 +187,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           console.error('Auth initialization failed', error);
         }
         if (typeof window !== 'undefined' && window.location?.hostname !== 'localhost') {
-          console.warn('Production: ensure Supabase Auth → Redirect URLs includes', window.location.origin, 'and', window.location.origin + '/login');
+          const origin = window.location.origin;
+          console.warn(
+            'Auth: add these in Supabase Dashboard → Authentication → URL Configuration → Redirect URLs:',
+            origin,
+            origin + '/login'
+          );
         }
         if (mounted) {
           setLoading(false);

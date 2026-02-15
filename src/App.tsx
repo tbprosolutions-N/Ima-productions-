@@ -33,7 +33,7 @@ const AuthRescueScreen: React.FC = () => {
       <div className="max-w-md w-full text-center space-y-6">
         <h1 className="text-xl font-semibold text-slate-900">חיבור נכשל</h1>
         <p className="text-slate-600 text-sm">
-          לא הצלחנו להתחבר לשרת. נסה ללחוץ על &quot;נסה שוב&quot; או לעבור לדף ההתחברות ולהזין סיסמה.
+          לא הצלחנו להתחבר לשרת. נסה &quot;נסה שוב&quot; או מעבר לדף ההתחברות ושליחת קישור כניסה למייל.
         </p>
         {wrongAnonKey && (
           <div className="text-right text-sm p-4 rounded-lg bg-amber-50 border border-amber-200 text-amber-900">
@@ -44,7 +44,7 @@ const AuthRescueScreen: React.FC = () => {
           </div>
         )}
         <p className="text-slate-500 text-xs">
-          בחלון פרטי/אינקוגניטו — לחץ &quot;מעבר לדף התחברות&quot; והתחבר עם אימייל וסיסמה.
+          בחלון פרטי/אינקוגניטו — לחץ &quot;מעבר לדף התחברות&quot; והזן דוא&quot;ל לקבלת קישור כניסה.
         </p>
         <div className="flex flex-col gap-3">
           <button
