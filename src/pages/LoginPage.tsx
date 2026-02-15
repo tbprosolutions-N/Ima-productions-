@@ -43,14 +43,10 @@ const LoginPage: React.FC = () => {
     setIsLoading(true);
 
     try {
-      // Clear any existing session before sending magic link — prevents premature redirect to dashboard
-      await supabase.auth.signOut();
-
       const emailTrim = email.trim().toLowerCase();
       if (!emailTrim) {
         throw new Error('נא להזין דוא"ל');
       }
-      // Strict email validation – must be complete (user@domain.tld)
       const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
       if (!emailRe.test(emailTrim)) {
         throw new Error('נא להזין כתובת דוא"ל מלאה תקינה (לדוגמה: user@domain.com)');
@@ -60,12 +56,13 @@ const LoginPage: React.FC = () => {
         localStorage.setItem('ima:last_company_id', companyId.trim());
       }
 
-      // ── Verify user exists before sending magic link (uses RPC to bypass RLS for anon) ──
-      const { data: exists, error: lookupError } = await supabase
-        .rpc('check_email_exists_for_login', { p_email: emailTrim });
+      // Run signOut and email check in parallel for faster UX
+      const [_, { data: exists, error: lookupError }] = await Promise.all([
+        supabase.auth.signOut(),
+        supabase.rpc('check_email_exists_for_login', { p_email: emailTrim }),
+      ]);
 
       if (lookupError) {
-        console.warn('[Login] User lookup failed, proceeding anyway:', lookupError.message);
         // Don't block login if lookup fails – fall through to magic link
       } else if (!exists) {
         throw new Error('כתובת הדוא"ל לא נמצאה במערכת. פנה למנהל כדי לקבל גישה.');
@@ -91,31 +88,26 @@ const LoginPage: React.FC = () => {
     }
   };
 
-  const isDev = import.meta.env.DEV;
-  const handleGuestEnter = () => {
-    setIsLoading(true);
-    try {
-      localStorage.setItem('demo_authenticated', 'true');
-      localStorage.setItem('demo_user', JSON.stringify({
-        id: 'npc-guest-user',
-        email: 'user@npc.local',
-        full_name: 'NPC User',
-        role: 'owner',
-        agency_id: 'ima-productions-id',
-        onboarded: true,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        permissions: { finance: true, users: true, integrations: true, events_create: true, events_delete: true },
-      }));
-      window.location.assign('/dashboard');
-    } catch {
-      setIsLoading(false);
-    }
-  };
-
   // When auth is loading, or we landed with magic-link hash (tokens in URL), show "signing in" until session is ready
   const processingMagicLink = hasMagicLinkHash() && !user;
-  if (loading || processingMagicLink) {
+
+  // Escape hatch: if stuck on magic-link processing >15s, clear hash and show error
+  const [magicLinkTimeout, setMagicLinkTimeout] = useState(false);
+  useEffect(() => {
+    if (!processingMagicLink) return;
+    const t = setTimeout(() => {
+      setMagicLinkTimeout(true);
+      if (typeof window !== 'undefined' && window.history.replaceState) {
+        window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      }
+    }, 15000);
+    return () => clearTimeout(t);
+  }, [processingMagicLink]);
+  useEffect(() => {
+    if (!processingMagicLink) setMagicLinkTimeout(false);
+  }, [processingMagicLink]);
+
+  if ((loading || processingMagicLink) && !magicLinkTimeout) {
     return (
       <div className="min-h-screen min-h-[100dvh] w-full max-w-[100vw] flex items-center justify-center bg-[#f8fafc] p-4 box-border">
         <motion.div
@@ -139,6 +131,30 @@ const LoginPage: React.FC = () => {
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
             </svg>
           </div>
+        </motion.div>
+      </div>
+    );
+  }
+
+  // Escape hatch: was stuck on magic-link processing — show error and allow retry
+  if (magicLinkTimeout) {
+    return (
+      <div className="min-h-screen min-h-[100dvh] w-full max-w-[100vw] flex items-center justify-center bg-[#f8fafc] p-4 box-border">
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="w-full max-w-md text-center space-y-4"
+        >
+          <div className="mx-auto w-16 h-16 bg-amber-100 rounded-2xl flex items-center justify-center mb-4">
+            <Building2 className="w-8 h-8 text-amber-700" />
+          </div>
+          <h1 className="text-xl font-bold text-slate-900">התחברות נכשלה</h1>
+          <p className="text-slate-600 text-sm">
+            לא הצלחנו להשלים את החיבור. ייתכן שהפרופיל חסר במערכת. פנה למנהל ונסה שוב.
+          </p>
+          <Button onClick={() => { setMagicLinkTimeout(false); setShowForm(true); }} className="mt-4">
+            נסה שוב
+          </Button>
         </motion.div>
       </div>
     );
@@ -170,16 +186,6 @@ const LoginPage: React.FC = () => {
           >
             כניסה
           </Button>
-          {isDev && (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleGuestEnter}
-              className="mt-4 w-full py-2 rounded-lg border-slate-300 text-slate-700 hover:bg-slate-50"
-            >
-              כניסה בדמו (פיתוח)
-            </Button>
-          )}
           <p className="text-xs text-slate-500 mt-8">
             לקבלת גישה — מנהל המערכת יכול לשלוח קישור כניסה מהגדרות → משתמשים
           </p>
@@ -300,17 +306,6 @@ const LoginPage: React.FC = () => {
                   )}
                 </Button>
 
-                {isDev && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={handleGuestEnter}
-                    disabled={isLoading}
-                    className="w-full py-2 rounded-lg border-slate-300 text-slate-700 hover:bg-slate-50"
-                  >
-                    כניסה בדמו (פיתוח)
-                  </Button>
-                )}
               </form>
             )}
 

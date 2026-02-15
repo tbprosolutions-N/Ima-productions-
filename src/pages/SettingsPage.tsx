@@ -35,55 +35,6 @@ import { demoGetEvents, demoGetClients, demoGetArtists, isDemoMode } from '@/lib
 import { getFinanceExpenses } from '@/lib/financeStore';
 import jsPDF from 'jspdf';
 
-const APPROVAL_STORAGE_KEY = (agencyId: string) => `ima_approvals_${agencyId}`;
-
-const APPROVAL_ITEMS = [
-  { id: '1', title: 'בחירה מרובה ומחיקה', desc: 'טבלאות אירועים (דשבורד + אירועים) תומכות בסימון שורות ומחיקה מרובה.' },
-  { id: '2', title: 'סנכרון כספים–דשבורד', desc: 'הוצאות כספים מתעדכנות בדשבורד; KPIs כוללים "נגבה עד היום".' },
-  { id: '3', title: 'הוספת משתמש והרשאות', desc: 'הגדרות > ניהול משתמשים: הוספת משתמש, תפקיד ויכולות (כולל invite בפרודקשן).' },
-  { id: '4', title: 'לוגו ושם חברה', desc: 'לוגו: placeholder "NPC" ב-Sidebar; שם חברה ניתן לעריכה על ידי בעלים.' },
-  { id: '5', title: 'מחולל דוחות', desc: '"סוג דוח", "בחר/י דוח"; ביטול כפתור Collection.' },
-  { id: '6', title: 'דשבורד – נגבה ותובנות', desc: 'כרטיס "נגבה עד היום" ותובנות חיות.' },
-  { id: '7', title: 'סיכום תקופה', desc: 'ויזואליזציה וגודל שדות בסיכום תקופה (כספים, לקוח, אמן) עם גלילה.' },
-  { id: '8', title: 'קישור גיבוי', desc: 'הגדרות > גיבוי נתונים: שמירת קישור ופתיחה בטאב חדש.' },
-  { id: '9', title: 'אבטחה', desc: 'סעיף אבטחה מורחב עם פרטי חשבון והגדרות סטנדרטיות.' },
-  { id: '10', title: 'זרימות כלליות', desc: 'התחברות, CRUD אירועים/לקוחות/אמנים/מסמכים, דוחות, הגדרות – פועלים כמצופה.' },
-];
-
-function setApprovalChecked(agencyId: string, itemId: string, checked: boolean): void {
-  try {
-    const key = APPROVAL_STORAGE_KEY(agencyId);
-    const raw = localStorage.getItem(key);
-    const obj = raw ? (JSON.parse(raw) as Record<string, boolean>) : {};
-    obj[itemId] = checked;
-    localStorage.setItem(key, JSON.stringify(obj));
-  } catch {
-    // ignore
-  }
-}
-
-const ApprovalChecklistRow: React.FC<{
-  agencyId: string;
-  itemId: string;
-  title: string;
-  description: string;
-  checked: boolean;
-  onToggle: (checked: boolean) => void;
-}> = ({ title, description, checked, onToggle }) => (
-  <label className="modu-icon-text items-start gap-3 p-4 rounded-[var(--modu-radius)] border border-primary/20 hover:bg-primary/5 cursor-pointer bg-card">
-    <input
-      type="checkbox"
-      checked={checked}
-      onChange={(e) => onToggle(e.target.checked)}
-      className="mt-1 h-4 w-4 rounded border-primary/40 text-primary focus:ring-primary shrink-0"
-    />
-    <div className="flex-1 min-w-0">
-      <span className="font-medium text-foreground">{title}</span>
-      <p className="text-sm text-muted-foreground mt-0.5">{description}</p>
-    </div>
-  </label>
-);
-
 const SettingsPage: React.FC = () => {
   const { user, updateProfile, updateCurrentUser } = useAuth();
   const { currentAgency } = useAgency();
@@ -93,8 +44,8 @@ const SettingsPage: React.FC = () => {
   const [fullName, setFullName] = useState(user?.full_name || '');
   const [email, setEmail] = useState(user?.email || '');
   const [searchParams, setSearchParams] = useSearchParams();
-  const tabFromUrl = (searchParams.get('tab') || 'general') as 'general' | 'users' | 'integrations' | 'backup' | 'checklist' | 'training';
-  const validTabs = ['general', 'users', 'integrations', 'backup', 'checklist', 'training'] as const;
+  const tabFromUrl = (searchParams.get('tab') || 'general') as 'general' | 'users' | 'integrations' | 'backup' | 'training';
+  const validTabs = ['general', 'users', 'integrations', 'backup', 'training'] as const;
   const [tab, setTabState] = useState<typeof validTabs[number]>(validTabs.includes(tabFromUrl) ? tabFromUrl : 'general');
 
   const setTab = useCallback((id: typeof validTabs[number]) => {
@@ -219,9 +170,6 @@ const SettingsPage: React.FC = () => {
 
   // Data backup link (e.g., Google Drive / Sheets)
   const [backupUrl, setBackupUrl] = useState('');
-
-  // Approvals checklist (from SYSTEM_APPROVALS_CHECKLIST) – persisted per agency
-  const [approvalChecks, setApprovalChecks] = useState<Record<string, boolean>>({});
 
   // Color palette (accent) – like Chrome theme; explicit Save
   const [pendingAccentPalette, setPendingAccentPalette] = useState<string>(() => localStorage.getItem('ima_palette') || 'bw');
@@ -543,31 +491,6 @@ const SettingsPage: React.FC = () => {
         if (error) throw error;
         inviteResult = data as { ok?: boolean; error?: string; hint?: string; magic_link?: string };
       } catch (fnErr: any) {
-        const errMsg = String(fnErr?.message || '').toLowerCase();
-        // CORS / network / Edge Function error fallback: try inserting directly into users table
-        const isUnreachable = errMsg.includes('cors') || errMsg.includes('failed to fetch') || errMsg.includes('networkerror') || errMsg.includes('network error')
-          || errMsg.includes('edge function') || errMsg.includes('functionsfetcherror') || errMsg.includes('timeout')
-          || errMsg.includes('502') || errMsg.includes('503') || errMsg.includes('504');
-        if (isUnreachable) {
-          console.warn('[Settings] Edge Function CORS/network error, falling back to direct insert');
-          const { error: insertErr } = await supabase.from('users').upsert({
-            email: newUser.email.trim().toLowerCase(),
-            full_name: newUser.full_name.trim(),
-            role: newUser.role,
-            agency_id: currentAgency.id,
-            permissions: newUser.permissions,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          }, { onConflict: 'email' });
-          if (insertErr) {
-            toast.error('הוספת משתמש נכשלה: ' + insertErr.message);
-          } else {
-            toast.success('המשתמש נוסף. המייל לא נשלח (invite-user חסום). שלח קישור כניסה ידנית מ‑Supabase Auth.');
-          }
-          setNewUser({ full_name: '', email: '', role: 'producer', permissions: { finance: false, users: false, integrations: false, events_create: true, events_delete: false } });
-          loadUsers();
-          return;
-        }
         throw fnErr;
       }
 
@@ -582,8 +505,7 @@ const SettingsPage: React.FC = () => {
       } else {
         toast.success('נשלחה הזמנה למייל');
       }
-      const hint = inviteResult.hint || 'אם המייל לא הגיע תוך דקות ספורות: בדוק דואר זבל ו־Supabase Auth → Redirect URLs (הוסף את ' + (window.location.origin || '') + '/login).';
-      if (!inviteResult.magic_link) toast.info(hint);
+      if (!inviteResult.magic_link) toast.info(inviteResult.hint || 'בדוק דואר זבל אם המייל לא הגיע.');
       setNewUser({
         full_name: '',
         email: '',
@@ -594,14 +516,12 @@ const SettingsPage: React.FC = () => {
     } catch (e: any) {
       console.error(e);
       const msg = String(e?.message || '');
-      if (msg.toLowerCase().includes('redirect')) {
-        toast.error('שליחת מייל נכשלה: הוסף ב‑Supabase Auth → URL Configuration את: ' + (window.location.origin || '') + '/login');
-      } else if (msg.toLowerCase().includes('smtp') || msg.toLowerCase().includes('email')) {
-        toast.error('שליחת מייל נכשלה: הגדר SMTP ב‑Supabase (Authentication → SMTP) או השתמש ב־Default. בדוק דואר זבל.');
-      } else if (msg.toLowerCase().includes('missing backend') || msg.toLowerCase().includes('invite-user')) {
-        toast.error('חסר Backend להזמנת משתמשים. פרוס את Edge Function invite-user והגדר SUPABASE_SERVICE_ROLE_KEY.');
+      if (msg.toLowerCase().includes('redirect') || msg.toLowerCase().includes('url')) {
+        toast.error('שליחת מייל נכשלה. וודא ש־' + (window.location.origin || '') + '/login מופיע ב־Supabase Auth → Redirect URLs.');
+      } else if (msg.toLowerCase().includes('fetch') || msg.toLowerCase().includes('network') || msg.toLowerCase().includes('cors') || msg.toLowerCase().includes('502') || msg.toLowerCase().includes('503')) {
+        toast.error('לא ניתן לגשת לשרת. וודא ש־invite-user פרוס בפרויקט Supabase.');
       } else {
-        toast.error(msg || 'שליחת Magic Link נכשלה. בדוק Supabase Auth → Logs ו־URL Configuration.');
+        toast.error(msg || 'הוספת משתמש נכשלה.');
       }
     }
   };
@@ -855,7 +775,6 @@ const SettingsPage: React.FC = () => {
             {canManageUsers ? tabButton('users', 'משתמשים', UsersIcon) : null}
             {canManageIntegrations ? tabButton('integrations', 'אינטגרציות', Plug) : null}
             {user?.role === 'owner' ? tabButton('backup', 'גיבוי נתונים', Globe) : null}
-            {tabButton('checklist', 'רשימת אישורים', ClipboardCheck)}
             {tabButton('training', 'הדרכה ומידע', KeyRound)}
           </div>
         </div>
@@ -1654,63 +1573,6 @@ const SettingsPage: React.FC = () => {
           </Card>
         </div>
         )
-      )}
-
-      {tab === 'checklist' && (
-        <Card className="border-primary/20">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <ClipboardCheck className="w-5 h-5 text-primary" />
-              רשימת אישורים – מה לאשר
-            </CardTitle>
-            <p className="text-sm text-muted-foreground mt-1">
-              סמן/י לאחר בדיקה ידנית. הרשימה מתעדכנת מהמערכת.
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex justify-end mb-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => {
-                const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-                pdf.setFont('helvetica');
-                pdf.setFontSize(14);
-                pdf.text('NPC - רשימת אישורים', 14, 20);
-                pdf.setFontSize(10);
-                let y = 30;
-                APPROVAL_ITEMS.forEach((item, i) => {
-                  if (y > 270) { pdf.addPage(); y = 20; }
-                  pdf.text(`${i + 1}. ${item.title}`, 14, y);
-                  y += 6;
-                  const lines = pdf.splitTextToSize(item.desc, 180);
-                  lines.forEach((line: string) => {
-                    if (y > 270) { pdf.addPage(); y = 20; }
-                    pdf.text(line, 20, y);
-                    y += 5;
-                  });
-                  y += 4;
-                });
-                pdf.save(`npc-approval-list-${new Date().toISOString().slice(0, 10)}.pdf`);
-                toast.success('רשימת האישורים הורדה');
-              }}>
-                <Download className="w-4 h-4 mr-2" />
-                הורד רשימת אישורים (PDF)
-              </Button>
-            </div>
-            {APPROVAL_ITEMS.map((item) => (
-              <ApprovalChecklistRow
-                key={item.id}
-                agencyId={agencyId}
-                itemId={item.id}
-                title={item.title}
-                description={item.desc}
-                checked={!!approvalChecks[item.id]}
-                onToggle={(checked) => {
-                  setApprovalChecked(agencyId, item.id, checked);
-                  setApprovalChecks((prev) => ({ ...prev, [item.id]: checked }));
-                }}
-              />
-            ))}
-          </CardContent>
-        </Card>
       )}
 
       {tab === 'training' && (

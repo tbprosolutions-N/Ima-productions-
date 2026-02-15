@@ -117,7 +117,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           authUser = null; // timeout → treat as no session
         }
 
-        // Magic-link callback: tokens in URL hash
+        // Magic-link callback: tokens in URL hash — give Supabase time to process
         const hash = typeof window !== 'undefined' ? window.location.hash : '';
         if (!authUser && (hash.includes('access_token=') || hash.includes('refresh_token='))) {
           await new Promise((r) => setTimeout(r, 1500));
@@ -125,6 +125,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const r2 = await withTimeout(getSessionUserFast(), 3000, 'getSession (magic-link)');
             if (r2.user) authUser = r2.user;
           } catch { /* ignore */ }
+          // Clear hash so LoginPage doesn't spin forever if profile fails
+          if (typeof window !== 'undefined' && window.history.replaceState) {
+            window.history.replaceState(null, '', window.location.pathname + window.location.search);
+          }
         }
 
         if (!mounted) return;
@@ -154,11 +158,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initAuth().catch(() => { if (mounted) setLoading(false); });
 
     // Auth state listener (for magic-link completion, sign-out, etc.)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!mounted) return;
       if (localStorage.getItem('demo_authenticated') === 'true') return;
 
       if (session?.user) {
+        // Clear magic-link hash so LoginPage doesn't spin indefinitely
+        if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && typeof window !== 'undefined' && window.history.replaceState) {
+          const h = window.location.hash || '';
+          if (h.includes('access_token=') || h.includes('refresh_token=')) {
+            window.history.replaceState(null, '', window.location.pathname + window.location.search);
+          }
+        }
         setSupabaseUser(session.user);
         await fetchUserProfile(session.user);
         setLoading(false);

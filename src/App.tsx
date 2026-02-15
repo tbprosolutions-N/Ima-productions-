@@ -1,7 +1,6 @@
 import React, { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { getSupabaseEnvDiagnostic } from './lib/supabase';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { LocaleProvider } from './contexts/LocaleContext';
 import { AgencyProvider } from './contexts/AgencyContext';
@@ -19,15 +18,11 @@ const FinancePage = lazy(() => import('./pages/FinancePage'));
 const CalendarPage = lazy(() => import('./pages/CalendarPage'));
 const DocumentsPage = lazy(() => import('./pages/DocumentsPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
-const QATestPage = lazy(() => import('./pages/QATestPage'));
 const SyncMonitorPage = lazy(() => import('./pages/SyncMonitorPage'));
 const SystemHealthPage = lazy(() => import('./pages/SystemHealthPage'));
 
 const AuthRescueScreen: React.FC = () => {
   const { retryConnection } = useAuth();
-  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://npc-am.com';
-  const diag = typeof window !== 'undefined' ? getSupabaseEnvDiagnostic() : null;
-  const wrongAnonKey = diag?.keySet && !diag?.anonKeyLooksLikeJwt;
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-white p-6">
       <div className="max-w-md w-full text-center space-y-6">
@@ -35,14 +30,6 @@ const AuthRescueScreen: React.FC = () => {
         <p className="text-slate-600 text-sm">
           לא הצלחנו להתחבר לשרת. נסה &quot;נסה שוב&quot; או מעבר לדף ההתחברות ושליחת קישור כניסה למייל.
         </p>
-        {wrongAnonKey && (
-          <div className="text-right text-sm p-4 rounded-lg bg-amber-50 border border-amber-200 text-amber-900">
-            <p className="font-semibold mb-1">מפתח Supabase שגוי (Netlify)</p>
-            <p className="text-xs">
-              ב-Netlify הגדר את <code className="bg-amber-100 px-1 rounded">VITE_SUPABASE_ANON_KEY</code> למפתח ה-JWT מ-Supabase: Dashboard → Settings → API → &quot;anon&quot; &quot;public&quot; (מחרוזת ארוכה שמתחילה ב-eyJ). אל תשתמש ב-sb_publishable_...
-            </p>
-          </div>
-        )}
         <p className="text-slate-500 text-xs">
           בחלון פרטי/אינקוגניטו — לחץ &quot;מעבר לדף התחברות&quot; והזן דוא&quot;ל לקבלת קישור כניסה.
         </p>
@@ -60,11 +47,6 @@ const AuthRescueScreen: React.FC = () => {
           >
             מעבר לדף התחברות
           </a>
-        </div>
-        <div className="text-right text-xs text-slate-500 border-t border-slate-200 pt-4 mt-4">
-          <p className="font-medium text-slate-700 mb-1">אם הבעיה נמשכת — Supabase URL Configuration:</p>
-          <p className="break-all">Site URL: {origin}</p>
-          <p className="break-all mt-1">Redirect URLs: {origin}, {origin}/login</p>
         </div>
       </div>
     </div>
@@ -223,18 +205,6 @@ const AppRoutes: React.FC = () => {
             <Suspense fallback={<PageLoader label="טוען הגדרות…" />}>
               <SettingsPage />
             </Suspense>
-          }
-        />
-        <Route
-          path="qa"
-          element={
-            import.meta.env.DEV ? (
-              <Suspense fallback={<PageLoader label="טוען QA…" />}>
-                <QATestPage />
-              </Suspense>
-            ) : (
-              <Navigate to="/dashboard" replace />
-            )
           }
         />
         <Route
