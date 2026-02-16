@@ -2,11 +2,12 @@
 [build]
   command = "npm run build"
   publish = "dist"
+  functions = "netlify/functions"
 
 [dev]
   targetPort = 5173
 
-# SPA routing (React Router)
+# SPA routing (React Router) — functions are excluded automatically by Netlify
 [[redirects]]
   from = "/*"
   to = "/index.html"

@@ -8,7 +8,7 @@ import { spawn } from 'child_process';
 
 const siteId = process.env.NETLIFY_SITE_ID;
 const auth = process.env.NETLIFY_AUTH_TOKEN;
-const args = ['deploy', '--prod', '--dir=dist'];
+const args = ['deploy', '--prod', '--dir=dist', '--functions=netlify/functions'];
 if (siteId) args.push('--site', siteId);
 if (auth) args.push('--auth', auth);
 
