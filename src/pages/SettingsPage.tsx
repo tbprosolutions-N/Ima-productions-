@@ -24,7 +24,7 @@ import { updateFaviconForPalette } from '@/lib/favicon';
 import type { IntegrationConnection } from '@/types';
 import { demoGetEvents, demoGetClients, demoGetArtists, isDemoMode } from '@/lib/demoStore';
 import { getFinanceExpenses } from '@/lib/financeStore';
-import { createSheetAndSync, resyncSheet, hasGoogleToken } from '@/services/sheetsSyncService';
+import { createSheetAndSyncClient, resyncSheetClient, hasGoogleToken } from '@/services/sheetsSyncClient';
 import jsPDF from 'jspdf';
 
 const SettingsPage: React.FC = () => {
@@ -316,6 +316,30 @@ const SettingsPage: React.FC = () => {
 
   const persistNotif = (next: { email: boolean; events: boolean; finance: boolean }) => {
     localStorage.setItem(notifKey, JSON.stringify(next));
+  };
+
+  const fetchSyncData = async (): Promise<{ events: any[]; clients: any[]; artists: any[]; expenses: any[] }> => {
+    if (!currentAgency?.id) return { events: [], clients: [], artists: [], expenses: [] };
+    if (isDemo()) {
+      return {
+        events: demoGetEvents(currentAgency.id),
+        clients: demoGetClients(currentAgency.id),
+        artists: demoGetArtists(currentAgency.id),
+        expenses: getFinanceExpenses(currentAgency.id),
+      };
+    }
+    const [eventsRes, clientsRes, artistsRes, expensesRes] = await Promise.all([
+      supabase.from('events').select('*').eq('agency_id', currentAgency.id).order('event_date', { ascending: false }),
+      supabase.from('clients').select('*').eq('agency_id', currentAgency.id).order('name'),
+      supabase.from('artists').select('*').eq('agency_id', currentAgency.id).order('name'),
+      supabase.from('finance_expenses').select('*').eq('agency_id', currentAgency.id).order('created_at', { ascending: false }),
+    ]);
+    return {
+      events: (eventsRes.data || []) as any[],
+      clients: (clientsRes.data || []) as any[],
+      artists: (artistsRes.data || []) as any[],
+      expenses: (expensesRes.data || []) as any[],
+    };
   };
 
   const saveBackupUrl = () => {
@@ -1214,14 +1238,15 @@ const SettingsPage: React.FC = () => {
                           if (!currentAgency?.id || !sheetsSpreadsheetId) return;
                           setSheetsSyncing(true);
                           try {
-                            const result = await resyncSheet(currentAgency.id, sheetsSpreadsheetId);
+                            const data = await fetchSyncData();
+                            const result = await resyncSheetClient(currentAgency.id, sheetsSpreadsheetId, data);
                             if (result.ok) {
                               toast.success(`סנכרון הושלם: ${result.counts.events} אירועים, ${result.counts.clients} לקוחות, ${result.counts.artists} אמנים, ${result.counts.expenses} הוצאות`);
                             } else {
                               if ('code' in result && (result.code === 'TOKEN_EXPIRED' || result.code === 'NO_TOKEN')) {
                                 toast.error('טוקן Google פג תוקף. התנתק/י והתחבר/י מחדש עם Google.');
                               } else {
-                                toast.error(result.error + (result.detail ? ` — ${result.detail}` : ''));
+                                toast.error(result.error);
                               }
                             }
                           } catch (e: any) {
@@ -1267,23 +1292,22 @@ const SettingsPage: React.FC = () => {
                         const url = backupUrl.trim();
                         if (!url) { toast.error('נא להזין קישור לתיקיית Drive'); return; }
                         const folderMatch = url.match(/folders\/([a-zA-Z0-9_-]+)/);
-                        if (!folderMatch) { toast.error('הקישור אינו קישור תיקיית Google Drive תקין'); return; }
-                        const folderId = folderMatch[1];
+                        const folderId = folderMatch ? folderMatch[1] : (/^[a-zA-Z0-9_-]{20,}$/.test(url) ? url : null);
+                        if (!folderId) { toast.error('הקישור אינו קישור תיקיית Google Drive תקין. הזן קישור מלא או מזהה תיקייה.'); return; }
                         if (!currentAgency?.id) { toast.error('אין סוכנות פעילה'); return; }
                         saveBackupUrl();
                         setSheetsSyncing(true);
                         try {
-                          const result = await createSheetAndSync(currentAgency.id, folderId);
+                          const data = await fetchSyncData();
+                          const result = await createSheetAndSyncClient(currentAgency.id, folderId, data);
                           if (result.ok) {
                             setSheetsSpreadsheetId(result.spreadsheetId);
                             toast.success(`גיליון נוצר וסונכרן: ${result.counts.events} אירועים, ${result.counts.clients} לקוחות, ${result.counts.artists} אמנים, ${result.counts.expenses} הוצאות`);
-                            
                           } else {
-                            if (result.spreadsheetId) setSheetsSpreadsheetId(result.spreadsheetId);
                             if ('code' in result && (result.code === 'TOKEN_EXPIRED' || result.code === 'NO_TOKEN')) {
                               toast.error('טוקן Google פג תוקף. התנתק/י והתחבר/י מחדש עם Google.');
                             } else {
-                              toast.error(result.error + (result.detail ? ` — ${result.detail}` : ''));
+                              toast.error(result.error);
                             }
                           }
                         } catch (e: any) {
