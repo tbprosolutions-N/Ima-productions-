@@ -23,7 +23,7 @@ function base64UrlEncode(buf: Buffer): string {
   return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-/** Get Google access token using Service Account credentials (JWT grant). */
+/** Get Google access token using Service Account credentials (JWT grant). Uses GOOGLE_SA_CLIENT_EMAIL and GOOGLE_SA_PRIVATE_KEY from Netlify env. */
 async function getServiceAccountAccessToken(): Promise<string> {
   const clientEmail = process.env.GOOGLE_SA_CLIENT_EMAIL?.trim();
   const privateKeyRaw = process.env.GOOGLE_SA_PRIVATE_KEY?.trim();

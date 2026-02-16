@@ -2,6 +2,7 @@ import React, { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { useRole } from './hooks/useRole';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { LocaleProvider } from './contexts/LocaleContext';
 import { AgencyProvider } from './contexts/AgencyContext';
@@ -90,6 +91,8 @@ const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 
 const AppRoutes: React.FC = () => {
   const { user, loading, authConnectionFailed } = useAuth();
+  const { role: dbRole } = useRole();
+  const effectiveRole = dbRole ?? user?.role;
   const location = useLocation();
   const isLoginPage = location.pathname === '/login';
 
@@ -171,7 +174,7 @@ const AppRoutes: React.FC = () => {
             user ? (
               user.permissions?.finance === false ? (
                 <Navigate to="/dashboard" replace />
-              ) : user.permissions?.finance === true || ['finance', 'manager', 'owner'].includes(user.role) ? (
+              ) : user.permissions?.finance === true || (effectiveRole && ['finance', 'manager', 'owner'].includes(effectiveRole)) ? (
                 <Suspense fallback={<PageLoader label="טוען פיננסים…" />}>
                   <FinancePage />
                 </Suspense>
@@ -210,7 +213,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="sync"
           element={
-            user?.role === 'owner' ? (
+            effectiveRole === 'owner' ? (
               <Suspense fallback={<PageLoader label="טוען סנכרונים…" />}>
                 <SyncMonitorPage />
               </Suspense>

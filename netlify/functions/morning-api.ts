@@ -87,7 +87,7 @@ export const handler = async (event: { httpMethod: string; body?: string | null 
   const { createClient } = await import('@supabase/supabase-js');
   const supabase = createClient(supabaseUrl, supabaseServiceKey, { auth: { persistSession: false } });
 
-  // Fetch Morning credentials from DB (integration_secrets); fallback to env
+  // Prioritize credentials from integration_secrets table; fallback to MORNING_API_KEY / MORNING_API_SECRET env
   let apiKey: string | undefined;
   let apiSecret: string | undefined;
   let baseUrl = (process.env.MORNING_BASE_URL || DEFAULT_BASE_URL).trim();

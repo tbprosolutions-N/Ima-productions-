@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Building2 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { useAuth } from '@/contexts/AuthContext';
@@ -88,8 +87,8 @@ const LoginPage: React.FC = () => {
           transition={{ duration: 0.25 }}
           className="w-full max-w-md flex-shrink-0 text-center"
         >
-          <div className="mx-auto w-16 h-16 bg-slate-900 rounded-2xl flex items-center justify-center shadow-md mb-6">
-            <Building2 className="w-8 h-8 text-white" />
+          <div className="mx-auto w-16 h-16 bg-slate-900 rounded-2xl flex items-center justify-center shadow-md mb-6 p-2">
+            <img src="/logo.svg?v=2" alt="NPC" className="w-full h-full object-contain" />
           </div>
           <h1 className="text-2xl font-bold text-slate-900 mb-2">ברוך הבא ל-NPC AGENCY MANAGEMENT</h1>
           <p className="text-slate-600 text-sm mb-6">{processingAuth ? 'מתחבר... נא להמתין' : 'בודק סשן...'}</p>
@@ -108,8 +107,8 @@ const LoginPage: React.FC = () => {
     return (
       <div className="min-h-screen min-h-[100dvh] w-full max-w-[100vw] flex items-center justify-center bg-[#f8fafc] p-4 box-border">
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md text-center space-y-4">
-          <div className="mx-auto w-16 h-16 bg-amber-100 rounded-2xl flex items-center justify-center mb-4">
-            <Building2 className="w-8 h-8 text-amber-700" />
+          <div className="mx-auto w-16 h-16 bg-amber-100 rounded-2xl flex items-center justify-center mb-4 p-2">
+            <img src="/logo.svg?v=2" alt="NPC" className="w-full h-full object-contain opacity-80" />
           </div>
           <h1 className="text-xl font-bold text-slate-900">התחברות נכשלה</h1>
           <p className="text-slate-600 text-sm">
@@ -131,8 +130,8 @@ const LoginPage: React.FC = () => {
       >
         <Card className="border border-slate-200 bg-white text-slate-900 shadow-lg shadow-slate-200/50 rounded-xl overflow-hidden">
           <CardHeader className="space-y-3 text-center p-6 pb-4">
-            <div className="mx-auto w-16 h-16 bg-slate-900 rounded-2xl flex items-center justify-center shadow-md">
-              <Building2 className="w-8 h-8 text-white" />
+            <div className="mx-auto w-16 h-16 bg-slate-900 rounded-2xl flex items-center justify-center shadow-md p-2">
+              <img src="/logo.svg?v=2" alt="NPC" className="w-full h-full object-contain" />
             </div>
             <CardTitle className="text-2xl font-bold text-slate-900">
               כניסה ל-NPC AGENCY MANAGEMENT

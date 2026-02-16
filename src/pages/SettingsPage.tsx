@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select';
 import { useAuth } from '@/contexts/AuthContext';
+import { useRole } from '@/hooks/useRole';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLocale } from '@/contexts/LocaleContext';
 import { useToast } from '@/contexts/ToastContext';
@@ -173,10 +174,12 @@ const SettingsPage: React.FC = () => {
   };
 
   const isDemo = () => isDemoMode();
-  const canManageUsers = user?.role === 'owner' || user?.role === 'manager';
-  const canEditPermissionLevels = user?.role === 'owner';
-  const canEditDeleteUsers = user?.role === 'owner' || (user?.email?.toLowerCase() === 'tb.prosolutions@gmail.com');
-  const canCreateBackupSheets = user?.role === 'owner' && (user?.email?.toLowerCase() === 'npcollectivebooking@gmail.com');
+  const { role: dbRole } = useRole();
+  const effectiveRole = dbRole ?? user?.role;
+  const canManageUsers = effectiveRole === 'owner' || effectiveRole === 'manager';
+  const canEditPermissionLevels = effectiveRole === 'owner';
+  const canEditDeleteUsers = effectiveRole === 'owner';
+  const canCreateBackupSheets = effectiveRole === 'owner';
 
   // Tutorial (per-user)
   const tourDisabledKey = user?.id ? `ima_tour_disabled_${user.id}` : '';
@@ -1412,7 +1415,7 @@ const SettingsPage: React.FC = () => {
                 </CardTitle>
                 {!canCreateBackupSheets && (
                   <p className="text-sm text-amber-600 dark:text-amber-400 mt-1">
-                    יצירת גיליון גיבוי זמינה רק לחשבון npcollectivebooking@gmail.com
+                    יצירת גיליון גיבוי זמינה רק לבעלים
                   </p>
                 )}
                 <p className="text-sm text-muted-foreground mt-1">

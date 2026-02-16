@@ -1,5 +1,4 @@
--- RPCs for owner/super-admin to edit and delete agency users.
--- Restricted to: role = 'owner' OR email = 'tb.prosolutions@gmail.com'
+-- RPCs for owner to edit and delete agency users. Access granted to any user with role = 'owner'.
 
 CREATE OR REPLACE FUNCTION public.update_agency_user_role(p_user_id uuid, p_role text)
 RETURNS jsonb
@@ -10,7 +9,6 @@ AS $$
 DECLARE
   v_caller_id uuid := auth.uid();
   v_caller_role text;
-  v_caller_email text;
   v_target_agency uuid;
   v_caller_agency uuid;
 BEGIN
@@ -18,15 +16,15 @@ BEGIN
     RETURN jsonb_build_object('ok', false, 'error', 'Unauthorized');
   END IF;
 
-  SELECT role, email INTO v_caller_role, v_caller_email
+  SELECT role INTO v_caller_role
   FROM public.users WHERE id = v_caller_id;
 
   IF v_caller_role IS NULL THEN
     RETURN jsonb_build_object('ok', false, 'error', 'User not found');
   END IF;
 
-  IF v_caller_role != 'owner' AND LOWER(COALESCE(v_caller_email, '')) != 'tb.prosolutions@gmail.com' THEN
-    RETURN jsonb_build_object('ok', false, 'error', 'Only owner or admin can update user roles');
+  IF v_caller_role != 'owner' THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'Only owner can update user roles');
   END IF;
 
   SELECT agency_id INTO v_target_agency FROM public.users WHERE id = p_user_id;
@@ -57,7 +55,6 @@ AS $$
 DECLARE
   v_caller_id uuid := auth.uid();
   v_caller_role text;
-  v_caller_email text;
   v_target_agency uuid;
   v_caller_agency uuid;
 BEGIN
@@ -69,15 +66,15 @@ BEGIN
     RETURN jsonb_build_object('ok', false, 'error', 'Cannot remove yourself');
   END IF;
 
-  SELECT role, email INTO v_caller_role, v_caller_email
+  SELECT role INTO v_caller_role
   FROM public.users WHERE id = v_caller_id;
 
   IF v_caller_role IS NULL THEN
     RETURN jsonb_build_object('ok', false, 'error', 'User not found');
   END IF;
 
-  IF v_caller_role != 'owner' AND LOWER(COALESCE(v_caller_email, '')) != 'tb.prosolutions@gmail.com' THEN
-    RETURN jsonb_build_object('ok', false, 'error', 'Only owner or admin can remove users');
+  IF v_caller_role != 'owner' THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'Only owner can remove users');
   END IF;
 
   SELECT agency_id INTO v_target_agency FROM public.users WHERE id = p_user_id;

@@ -226,6 +226,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => { mounted = false; clearTimeout(guardTimer); subscription.unsubscribe(); };
   }, []);
 
+  // Refetch profile (including role) on window focus so UI reflects DB after role changes
+  const refreshUserRef = React.useRef(refreshUser);
+  refreshUserRef.current = refreshUser;
+  useEffect(() => {
+    const onFocus = () => {
+      if (localStorage.getItem('demo_authenticated') === 'true') return;
+      refreshUserRef.current();
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, []);
+
   // ── Sign out ──────────────────────────────────────────────────────────
   const signOut = async () => {
     localStorage.removeItem('demo_authenticated');

@@ -15,6 +15,7 @@ import {
   Sun,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useRole } from '@/hooks/useRole';
 import { useTheme } from '@/contexts/ThemeContext';
 import { prefetchRoute } from '@/lib/prefetch';
 import { useLocale } from '@/contexts/LocaleContext';
@@ -38,6 +39,7 @@ const SIDEBAR_WIDTH = 280;
 
 const Sidebar: React.FC<SidebarProps> = ({ mobileOpen = false, onClose }) => {
   const { user, signOut } = useAuth();
+  const { role } = useRole(); // Role from DB so owner always sees Settings, Finance, Sync
   const { theme, toggleTheme } = useTheme();
   const { t } = useLocale();
   const { currentAgency } = useAgency();
@@ -129,14 +131,15 @@ const Sidebar: React.FC<SidebarProps> = ({ mobileOpen = false, onClose }) => {
 
   const canAccessRoute = (roles?: string[]) => {
     if (!roles || !user) return true;
+    // Use role from DB (useRole) so owner always sees admin nav
+    const effectiveRole = role ?? user.role;
+    if (!effectiveRole) return true;
 
-    // Fine-grained permissions (demo-first)
     if (roles.includes('finance')) {
       if (user.permissions?.finance === true) return true;
       if (user.permissions?.finance === false) return false;
     }
-
-    return roles.includes(user.role);
+    return roles.includes(effectiveRole);
   };
 
   return (
@@ -159,9 +162,7 @@ const Sidebar: React.FC<SidebarProps> = ({ mobileOpen = false, onClose }) => {
                 className="w-full h-full object-cover"
               />
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-white font-extrabold tracking-wide">
-                NPC
-              </div>
+              <img src="/logo.svg?v=2" alt="NPC" className="w-full h-full object-contain p-1.5" />
             )}
           </div>
           <div className="min-w-0">
