@@ -822,7 +822,7 @@ const EventsPage: React.FC = () => {
                   const apiKey = getMorningApiKey(currentAgency.id);
                   const companyId = getMorningCompanyId(currentAgency.id);
                   if (!connected || !apiKey || !companyId) {
-                    showError('חיבור Morning חסר. עבור להגדרות → אינטגרציות והזן API Key + Company ID');
+                    showError('חיבור Morning חסר. בדמו — הפעל Sandbox credentials בהגדרות סביבה.');
                     return;
                   }
                   // Demo: simulate sync (mock)

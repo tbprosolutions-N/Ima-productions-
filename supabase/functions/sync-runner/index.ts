@@ -88,11 +88,10 @@ function greeninvoiceDocType(docType: string): number {
   return 320;
 }
 
-async function morningSyncEventDocument(args: {
+async function resolveMorningCredentials(args: {
   supabaseAdmin: ReturnType<typeof createClient>;
   agencyId: string;
-  eventId: string;
-}) {
+}): Promise<{ baseUrl: string; id: string; apiSecret: string }> {
   const { data: sec, error: secErr } = await args.supabaseAdmin
     .from("integration_secrets")
     .select("secret")
@@ -101,10 +100,25 @@ async function morningSyncEventDocument(args: {
     .maybeSingle();
   if (secErr) throw secErr;
   const secret = (sec as any)?.secret || {};
-  const baseUrl = String(secret.base_url || "https://api.greeninvoice.co.il/api/v1");
-  const id = String(secret.id || "");
-  const apiSecret = String(secret.secret || "");
-  if (!id || !apiSecret) throw new Error("Morning credentials missing (connect Morning first)");
+  let baseUrl = String(secret.base_url || "").trim();
+  let id = String(secret.id || "").trim();
+  let apiSecret = String(secret.secret || "").trim();
+  if (!id || !apiSecret) {
+    id = String(Deno.env.get("MORNING_SANDBOX_ID") || Deno.env.get("MORNING_API_KEY") || "").trim();
+    apiSecret = String(Deno.env.get("MORNING_SANDBOX_SECRET") || Deno.env.get("MORNING_API_SECRET") || "").trim();
+    baseUrl = baseUrl || String(Deno.env.get("MORNING_BASE_URL") || "https://api.greeninvoice.co.il/api/v1").trim();
+  }
+  if (!id || !apiSecret) throw new Error("Morning credentials missing (set integration_secrets or MORNING_SANDBOX_ID/MORNING_SANDBOX_SECRET)");
+  if (!baseUrl) baseUrl = "https://api.greeninvoice.co.il/api/v1";
+  return { baseUrl, id, apiSecret };
+}
+
+async function morningSyncEventDocument(args: {
+  supabaseAdmin: ReturnType<typeof createClient>;
+  agencyId: string;
+  eventId: string;
+}) {
+  const { baseUrl, id, apiSecret } = await resolveMorningCredentials(args);
 
   const jwt = await greeninvoiceGetJwt({ baseUrl, id, secret: apiSecret });
 
@@ -206,19 +220,7 @@ async function morningSyncExpenses(args: {
   supabaseAdmin: ReturnType<typeof createClient>;
   agencyId: string;
 }) {
-  const { data: sec, error: secErr } = await args.supabaseAdmin
-    .from("integration_secrets")
-    .select("secret")
-    .eq("agency_id", args.agencyId)
-    .eq("provider", "morning")
-    .maybeSingle();
-  if (secErr) throw secErr;
-  const secret = (sec as any)?.secret || {};
-  const baseUrl = String(secret.base_url || "https://api.greeninvoice.co.il/api/v1");
-  const id = String(secret.id || "");
-  const apiSecret = String(secret.secret || "");
-  if (!id || !apiSecret) throw new Error("Morning credentials missing (connect Morning first)");
-
+  const { baseUrl, id, apiSecret } = await resolveMorningCredentials(args);
   const jwt = await greeninvoiceGetJwt({ baseUrl, id, secret: apiSecret });
 
   const { data: rows, error: listErr } = await args.supabaseAdmin

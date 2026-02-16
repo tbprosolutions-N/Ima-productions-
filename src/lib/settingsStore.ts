@@ -52,6 +52,9 @@ export function clearAgencyLogo(agencyId: string) {
 }
 
 export function isIntegrationConnected(agencyId: string, integration: IntegrationKey): boolean {
+  if (integration === 'morning' && String(import.meta.env.VITE_MORNING_SANDBOX_ENABLED || '').toLowerCase() === 'true') {
+    return true;
+  }
   return localStorage.getItem(key(agencyId, `integration_${integration}`)) === 'true';
 }
 
@@ -60,6 +63,10 @@ export function setIntegrationConnected(agencyId: string, integration: Integrati
 }
 
 export function getMorningApiKey(agencyId: string): string {
+  const sandboxKey = String(import.meta.env.VITE_MORNING_SANDBOX_API_KEY || '').trim();
+  if (sandboxKey && String(import.meta.env.VITE_MORNING_SANDBOX_ENABLED || '').toLowerCase() === 'true') {
+    return sandboxKey;
+  }
   if (!demoSecretsAllowed()) return '';
   return localStorage.getItem(key(agencyId, 'morning_api_key')) || '';
 }
@@ -70,6 +77,10 @@ export function setMorningApiKey(agencyId: string, apiKey: string) {
 }
 
 export function getMorningCompanyId(agencyId: string): string {
+  const sandboxKey = String(import.meta.env.VITE_MORNING_SANDBOX_API_KEY || '').trim();
+  if (sandboxKey && String(import.meta.env.VITE_MORNING_SANDBOX_ENABLED || '').toLowerCase() === 'true') {
+    return sandboxKey;
+  }
   if (!demoSecretsAllowed()) return '';
   return localStorage.getItem(key(agencyId, 'morning_company_id')) || '';
 }
