@@ -28,10 +28,10 @@ const AuthRescueScreen: React.FC = () => {
       <div className="max-w-md w-full text-center space-y-6">
         <h1 className="text-xl font-semibold text-slate-900">חיבור נכשל</h1>
         <p className="text-slate-600 text-sm">
-          לא הצלחנו להתחבר לשרת. נסה &quot;נסה שוב&quot; או מעבר לדף ההתחברות ושליחת קישור כניסה למייל.
+          לא הצלחנו להתחבר לשרת. נסה &quot;נסה שוב&quot; או מעבר לדף ההתחברות.
         </p>
         <p className="text-slate-500 text-xs">
-          בחלון פרטי/אינקוגניטו — לחץ &quot;מעבר לדף התחברות&quot; והזן דוא&quot;ל לקבלת קישור כניסה.
+          בחלון פרטי/אינקוגניטו — לחץ &quot;מעבר לדף התחברות&quot; והתחבר באמצעות Google.
         </p>
         <div className="flex flex-col gap-3">
           <button
@@ -81,24 +81,12 @@ const AppRoutes: React.FC = () => {
   const location = useLocation();
   const isLoginPage = location.pathname === '/login';
 
-  // SAFETY: absolute hard-cap on the loading spinner at the route level.
-  // If AuthContext's loading=true sticks beyond 8s, force-render routes.
-  const [forceReady, setForceReady] = React.useState(false);
-  React.useEffect(() => {
-    if (!loading) return;
-    const t = setTimeout(() => {
-      console.warn('[NPC AppRoutes] Loading exceeded 8s — forcing ready state');
-      setForceReady(true);
-    }, 8000);
-    return () => clearTimeout(t);
-  }, [loading]);
-
   if (authConnectionFailed && !user && !loading && !isLoginPage) {
     return <AuthRescueScreen />;
   }
 
-  // 2026 standard: never block /login with full-screen loader — show login UI immediately for fast time-to-interactive
-  if (loading && !forceReady && !isLoginPage) {
+  // Await AuthContext's getSession() before rendering — no band-aid forceReady
+  if (loading && !isLoginPage) {
     return <PageLoader label="טוען…" />;
   }
 

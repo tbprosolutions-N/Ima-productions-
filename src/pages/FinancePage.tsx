@@ -1704,21 +1704,7 @@ const FinancePageContent: React.FC = () => {
                           type="button"
                           size="sm"
                           variant="ghost"
-                          onClick={async () => {
-                            try {
-                              const stored = await getFinanceExpenseFile({ agencyId, expenseId: e.id });
-                              const blob = stored?.blob;
-                              if (blob) {
-                                const url = URL.createObjectURL(blob);
-                                window.open(url, '_blank');
-                                setTimeout(() => URL.revokeObjectURL(url), 5000);
-                              } else {
-                                info('הקובץ לא זמין locally. הורד מ־Storage אם נשמר שם.');
-                              }
-                            } catch {
-                              info('לא ניתן לצפות בקובץ');
-                            }
-                          }}
+                          onClick={() => viewExpenseFile(e)}
                         >
                           <Eye className="w-4 h-4" />
                         </Button>

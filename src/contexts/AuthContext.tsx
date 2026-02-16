@@ -62,9 +62,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const refreshUser = async () => {
     try {
       const { user: au } = await withTimeout(getSessionUserFast(), 3000, 'getSession (refresh)');
-      if (au) { setSupabaseUser(au); await fetchUserProfile(au); }
-      else { setUser(null); setSupabaseUser(null); }
-    } catch { /* ignore */ }
+      if (au) {
+        setSupabaseUser(au);
+        await fetchUserProfile(au);
+      } else {
+        setUser(null);
+        setSupabaseUser(null);
+      }
+    } catch {
+      setUser(null);
+      setSupabaseUser(null);
+    }
   };
 
   const retryConnection = React.useCallback(() => {
@@ -82,18 +90,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const initAuthRef = React.useRef<() => void>(() => {});
 
-  // ── INIT: must resolve FAST — show login page within 3-6s max ─────────
+  // ── INIT: await getSession() before rendering. No band-aid timeouts. ───
   useEffect(() => {
     let mounted = true;
-
-    // Hard safety: ABSOLUTE cap — 3s prod, 3s dev. No matter what, stop loading.
-    const hardMs = 3000;
-    const hardTimer = setTimeout(() => {
-      if (mounted && loading) {
-        if (import.meta.env.DEV) console.debug(`[NPC Auth] Hard safety (${hardMs}ms) — forcing loading=false`);
-        setLoading(false);
-      }
-    }, hardMs);
+    let initResolved = false;
 
     const initAuth = async () => {
       try {
@@ -103,21 +103,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (demoAuth === 'true' && demoUserData) {
           try {
             const du = JSON.parse(demoUserData) as User;
-            if (mounted) { setUser(du); setLoading(false); }
-          } catch { if (mounted) setLoading(false); }
+            if (mounted) { initResolved = true; setUser(du); setLoading(false); }
+          } catch { if (mounted) { initResolved = true; setLoading(false); } }
           return;
         }
 
-        // Fast session check: 3s max. If no session → show login immediately.
+        // Session restore: give Supabase time to hydrate from localStorage (critical on F5 refresh)
         let authUser: SupabaseUser | null = null;
         try {
-          const r = await withTimeout(getSessionUserFast(), 3000, 'getSession (init)');
+          const r = await withTimeout(getSessionUserFast(), 5000, 'getSession (init)');
           authUser = r.user ?? null;
+          if (!authUser) {
+            await new Promise((res) => setTimeout(res, 300));
+            const r2 = await withTimeout(getSessionUserFast(), 3000, 'getSession (retry)');
+            authUser = r2.user ?? null;
+          }
         } catch {
-          authUser = null; // timeout → treat as no session
+          authUser = null;
         }
 
-        // Magic-link callback: tokens in URL hash — give Supabase time to process
+        // OAuth/magic-link callback: tokens in URL hash — give Supabase time to process
         const hash = typeof window !== 'undefined' ? window.location.hash : '';
         if (!authUser && (hash.includes('access_token=') || hash.includes('refresh_token='))) {
           await new Promise((r) => setTimeout(r, 1500));
@@ -135,35 +140,51 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         if (authUser) {
           setSupabaseUser(authUser);
-          // Try to fetch profile with SHORT timeout — if it fails, still show login
           const profile = await Promise.race([
             fetchUserProfile(authUser),
-            new Promise<null>((res) => setTimeout(() => res(null), 4000)),
+            new Promise<null>((res) => setTimeout(() => res(null), 5000)),
           ]);
           if (!mounted) return;
           if (!profile) {
-            // Profile not available — clear stale session, show login
             setUser(null);
             setSupabaseUser(null);
+            try { await supabaseSignOut(); } catch { /* ignore */ }
+            const base = typeof window !== 'undefined' ? window.location.origin : '';
+            if (typeof window !== 'undefined') window.location.href = `${base}/login?unauthorized=1`;
           }
+        } else {
+          setUser(null);
+          setSupabaseUser(null);
         }
-        if (mounted) setLoading(false);
+        if (mounted) { initResolved = true; setLoading(false); }
       } catch (err) {
         console.warn('Auth init error', err);
-        if (mounted) setLoading(false);
+        if (mounted) { initResolved = true; setUser(null); setSupabaseUser(null); setLoading(false); }
       }
     };
 
     initAuthRef.current = () => initAuth();
-    initAuth().catch(() => { if (mounted) setLoading(false); });
 
-    // Auth state listener (for magic-link completion, sign-out, etc.)
+    // Network-failure guard: if getSession hangs >12s, treat as no session and stop loading
+    const networkGuardMs = 12000;
+    const guardTimer = setTimeout(() => {
+      if (mounted && !initResolved) {
+        if (import.meta.env.DEV) console.debug(`[Auth] getSession exceeded ${networkGuardMs}ms — treating as no session`);
+        initResolved = true;
+        setUser(null);
+        setSupabaseUser(null);
+        setLoading(false);
+      }
+    }, networkGuardMs);
+
+    initAuth().catch(() => { if (mounted && !initResolved) { initResolved = true; setLoading(false); } });
+
+    // Auth state listener: SIGNED_OUT / session expiry MUST clear user (no zombie state)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!mounted) return;
       if (localStorage.getItem('demo_authenticated') === 'true') return;
 
       if (session?.user) {
-        // Clear magic-link hash so LoginPage doesn't spin indefinitely
         if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && typeof window !== 'undefined' && window.history.replaceState) {
           const h = window.location.hash || '';
           if (h.includes('access_token=') || h.includes('refresh_token=')) {
@@ -176,7 +197,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
 
-      // No session — quick retry (token refresh race)
+      // No session: retry once (token refresh race), then clear user on failure
       try {
         const { data: r } = await withTimeout(supabase.auth.getSession(), 3000, 'listener retry');
         if (r?.session?.user && mounted) {
@@ -187,11 +208,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       } catch { /* timeout */ }
 
-      if (mounted) { setUser(null); setSupabaseUser(null); }
+      // SIGNED_OUT / session expiry: clear user immediately — no zombie state
+      setUser(null);
+      setSupabaseUser(null);
       setLoading(false);
     });
 
-    return () => { mounted = false; clearTimeout(hardTimer); subscription.unsubscribe(); };
+    return () => { mounted = false; clearTimeout(guardTimer); subscription.unsubscribe(); };
   }, []);
 
   // ── Sign out ──────────────────────────────────────────────────────────

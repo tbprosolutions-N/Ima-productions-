@@ -117,6 +117,7 @@ export const signIn = async (email: string, password: string) => {
   return { data, error };
 };
 
+/** @deprecated Use signInWithGoogle for native OAuth */
 export const signInWithMagicLink = async (email: string) => {
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const redirectTo = `${origin}/login`;
@@ -127,6 +128,24 @@ export const signInWithMagicLink = async (email: string) => {
     },
   });
   return { data, error };
+};
+
+/** Native Google SSO (OAuth). Primary login method for B2B. */
+export const signInWithGoogle = async (): Promise<{ error: { message: string } | null }> => {
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const appOrigin = origin.includes('supabase.co') ? (import.meta.env.VITE_APP_URL || 'https://npc-am.com') : origin;
+  const redirectTo = `${appOrigin.replace(/\/$/, '')}`;
+  try {
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo },
+    });
+    if (error) return { error: { message: error.message } };
+    if (data?.url) window.location.href = data.url;
+    return { error: null };
+  } catch (e: any) {
+    return { error: { message: e?.message || 'שגיאה בהתחלת התחברות Google' } };
+  }
 };
 
 export const signOut = async () => {

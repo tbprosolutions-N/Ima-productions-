@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { getEdgeFunctionErrorMessage } from '@/lib/edgeFunctionErrors';
 
 export type GoogleConnectRequested = {
   drive?: boolean;
@@ -19,7 +20,10 @@ export async function startGoogleOAuth(args: {
       returnTo: args.returnTo || `${window.location.origin}/settings?tab=integrations`,
     },
   });
-  if (error) throw error;
+  if (error) {
+    const msg = await getEdgeFunctionErrorMessage(error, 'Google OAuth failed');
+    throw new Error(msg);
+  }
   if (!data?.authUrl) throw new Error('Missing authUrl from server');
   return { authUrl: String(data.authUrl) };
 }

@@ -1,113 +1,85 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Mail, Building2 } from 'lucide-react';
+import { Building2 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
-import { Label } from '@/components/ui/Label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { useAuth } from '@/contexts/AuthContext';
-import { signInWithMagicLink, supabase } from '@/lib/supabase';
+import { useToast } from '@/contexts/ToastContext';
+import { signInWithGoogle } from '@/lib/supabase';
+import { useSearchParams } from 'react-router-dom';
 
-function hasMagicLinkHash(): boolean {
+function hasAuthHash(): boolean {
   if (typeof window === 'undefined') return false;
   const h = window.location.hash;
   return h.includes('access_token=') || h.includes('refresh_token=') || h.includes('type=magiclink');
 }
 
+const GoogleIcon = () => (
+  <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+  </svg>
+);
+
 const LoginPage: React.FC = () => {
   const { loading, user } = useAuth();
-  const [showForm, setShowForm] = useState(false);
+  const toast = useToast();
+  const [searchParams] = useSearchParams();
   const [isLoading, setIsLoading] = useState(false);
-  const [email, setEmail] = useState('');
-  const [companyId, setCompanyId] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [linkSent, setLinkSent] = useState(false);
+  const unauthorized = searchParams.get('unauthorized') === '1';
 
   const companyName = 'NPC';
 
-  // Force light mode on login page for consistent palette
+  // Force light mode on login page
   useEffect(() => {
     const html = document.documentElement;
     html.classList.remove('dark');
     html.classList.add('light');
     html.style.colorScheme = 'light';
-    return () => {
-      html.style.colorScheme = '';
-    };
+    return () => { html.style.colorScheme = ''; };
   }, []);
 
-  const handleSendLink = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleGoogleSignIn = async () => {
     setError(null);
-    setLinkSent(false);
     setIsLoading(true);
-
     try {
-      const emailTrim = email.trim().toLowerCase();
-      if (!emailTrim) {
-        throw new Error('נא להזין דוא"ל');
+      const { error: err } = await signInWithGoogle();
+      if (err) {
+        const msg = err.message || 'שגיאה בהתחברות';
+        setError(msg);
+        toast.error(msg);
       }
-      const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-      if (!emailRe.test(emailTrim)) {
-        throw new Error('נא להזין כתובת דוא"ל מלאה תקינה (לדוגמה: user@domain.com)');
-      }
-
-      if (companyId.trim()) {
-        localStorage.setItem('ima:last_company_id', companyId.trim());
-      }
-
-      // Run signOut and email check in parallel for faster UX
-      const [_, { data: exists, error: lookupError }] = await Promise.all([
-        supabase.auth.signOut(),
-        supabase.rpc('check_email_exists_for_login', { p_email: emailTrim }),
-      ]);
-
-      if (lookupError) {
-        // Don't block login if lookup fails – fall through to magic link
-      } else if (!exists) {
-        throw new Error('כתובת הדוא"ל לא נמצאה במערכת. פנה למנהל כדי לקבל גישה.');
-      }
-
-      const { error: otpError } = await signInWithMagicLink(emailTrim);
-
-      if (otpError) {
-        const msg = String(otpError?.message || '');
-        if (msg.includes('rate limit') || msg.includes('too many')) throw new Error('נסה שוב בעוד כמה דקות');
-        if (msg.includes('network') || msg.includes('fetch')) throw new Error('שגיאת חיבור. בדוק את האינטרנט.');
-        if ((msg.toLowerCase().includes('sending') && msg.toLowerCase().includes('email')) || msg.includes('500')) {
-          throw new Error('שליחת המייל נכשלה. מנהל: Supabase → Authentication → SMTP (Host: smtp.gmail.com) ו־URL Configuration (הוסף npc-am.com ו־npc-am.com/login).');
-        }
-        throw new Error(msg || 'שליחת הקישור נכשלה');
-      }
-
-      setLinkSent(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'שגיאה');
+      // On success, signInWithGoogle redirects; loading stays until redirect
+    } catch (e: any) {
+      const msg = e?.message || 'שגיאה בהתחברות';
+      setError(msg);
+      toast.error(msg);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // When auth is loading, or we landed with magic-link hash (tokens in URL), show "signing in" until session is ready
-  const processingMagicLink = hasMagicLinkHash() && !user;
+  const processingAuth = hasAuthHash() && !user;
 
-  // Escape hatch: if stuck on magic-link processing >15s, clear hash and show error
-  const [magicLinkTimeout, setMagicLinkTimeout] = useState(false);
+  const [authTimeout, setAuthTimeout] = useState(false);
   useEffect(() => {
-    if (!processingMagicLink) return;
+    if (!processingAuth) return;
     const t = setTimeout(() => {
-      setMagicLinkTimeout(true);
+      setAuthTimeout(true);
       if (typeof window !== 'undefined' && window.history.replaceState) {
         window.history.replaceState(null, '', window.location.pathname + window.location.search);
       }
     }, 15000);
     return () => clearTimeout(t);
-  }, [processingMagicLink]);
+  }, [processingAuth]);
   useEffect(() => {
-    if (!processingMagicLink) setMagicLinkTimeout(false);
-  }, [processingMagicLink]);
+    if (!processingAuth) setAuthTimeout(false);
+  }, [processingAuth]);
 
-  if ((loading || processingMagicLink) && !magicLinkTimeout) {
+  if ((loading || processingAuth) && !authTimeout) {
     return (
       <div className="min-h-screen min-h-[100dvh] w-full max-w-[100vw] flex items-center justify-center bg-[#f8fafc] p-4 box-border">
         <motion.div
@@ -119,12 +91,8 @@ const LoginPage: React.FC = () => {
           <div className="mx-auto w-16 h-16 bg-slate-900 rounded-2xl flex items-center justify-center shadow-md mb-6">
             <Building2 className="w-8 h-8 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-slate-900 mb-2">
-            ברוך הבא ל-NPC AGENCY MANAGEMENT
-          </h1>
-          <p className="text-slate-600 text-sm mb-6">
-            {processingMagicLink ? 'מתחבר... נא להמתין' : 'בודק סשן...'}
-          </p>
+          <h1 className="text-2xl font-bold text-slate-900 mb-2">ברוך הבא ל-NPC AGENCY MANAGEMENT</h1>
+          <p className="text-slate-600 text-sm mb-6">{processingAuth ? 'מתחבר... נא להמתין' : 'בודק סשן...'}</p>
           <div className="flex justify-center">
             <svg className="animate-spin h-8 w-8 text-slate-900" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -136,69 +104,25 @@ const LoginPage: React.FC = () => {
     );
   }
 
-  // Escape hatch: was stuck on magic-link processing — show error and allow retry
-  if (magicLinkTimeout) {
+  if (authTimeout) {
     return (
       <div className="min-h-screen min-h-[100dvh] w-full max-w-[100vw] flex items-center justify-center bg-[#f8fafc] p-4 box-border">
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="w-full max-w-md text-center space-y-4"
-        >
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md text-center space-y-4">
           <div className="mx-auto w-16 h-16 bg-amber-100 rounded-2xl flex items-center justify-center mb-4">
             <Building2 className="w-8 h-8 text-amber-700" />
           </div>
           <h1 className="text-xl font-bold text-slate-900">התחברות נכשלה</h1>
           <p className="text-slate-600 text-sm">
-            לא הצלחנו להשלים את החיבור. ייתכן שהפרופיל חסר במערכת. פנה למנהל ונסה שוב.
+            לא הצלחנו להשלים את החיבור. פנה למנהל ונסה שוב.
           </p>
-          <Button onClick={() => { setMagicLinkTimeout(false); setShowForm(true); }} className="mt-4">
-            נסה שוב
-          </Button>
-        </motion.div>
-      </div>
-    );
-  }
-
-  // Welcome-first: show welcome message, form appears only when user clicks "כניסה"
-  if (!showForm) {
-    return (
-      <div className="min-h-screen min-h-[100dvh] w-full max-w-[100vw] flex items-center justify-center bg-[#f8fafc] p-4 box-border">
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.25 }}
-          className="w-full max-w-md flex-shrink-0 text-center"
-        >
-          <div className="mx-auto w-20 h-20 bg-slate-900 rounded-2xl flex items-center justify-center shadow-lg shadow-slate-200/50 mb-8">
-            <Building2 className="w-10 h-10 text-white" />
-          </div>
-          <h1 className="text-3xl font-bold text-slate-900 mb-3 leading-tight">
-            ברוך הבא ל-NPC AGENCY MANAGEMENT
-          </h1>
-          <p className="text-slate-600 text-base mb-8">
-            מערכת ניהול אירועים מתקדמת לשנת 2026
-          </p>
-          <Button
-            type="button"
-            onClick={() => setShowForm(true)}
-            className="py-4 px-10 rounded-xl bg-slate-900 text-white font-semibold text-lg hover:bg-slate-800 shadow-md"
-          >
-            כניסה
-          </Button>
-          <p className="text-xs text-slate-500 mt-8">
-            לקבלת גישה — מנהל המערכת יכול לשלוח קישור כניסה מהגדרות → משתמשים
-          </p>
-          <p className="text-center text-slate-500 text-sm mt-6">
-            © 2026 {companyName}. All rights reserved.
-          </p>
+          <Button onClick={() => setAuthTimeout(false)} className="mt-4">נסה שוב</Button>
         </motion.div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen min-h-[100dvh] w-full max-w-[100vw] flex items-center justify-center bg-[#f8fafc] p-4 box-border">
+    <div className="min-h-screen min-h-[100dvh] w-full max-w-[100vw] flex items-center justify-center bg-[#f8fafc] p-4 sm:p-6 box-border">
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -214,103 +138,47 @@ const LoginPage: React.FC = () => {
               כניסה ל-NPC AGENCY MANAGEMENT
             </CardTitle>
             <CardDescription className="text-slate-600 text-sm">
-              הזן דוא"ל ונסה לך קישור כניסה — בלי סיסמה
+              התחברות במערכת באמצעות חשבון Google
             </CardDescription>
-            <button
-              type="button"
-              onClick={() => setShowForm(false)}
-              className="text-sm text-slate-500 hover:text-slate-700 underline mt-2"
-            >
-              ← חזור
-            </button>
           </CardHeader>
 
-          <CardContent className="p-6 pt-2">
-            {linkSent ? (
-              <div className="space-y-4 text-center py-4">
-                <div className="p-4 bg-green-50 border border-green-200 rounded-lg text-green-800 text-sm">
-                  נשלח קישור כניסה ל־{email.trim()}. פתח את המייל ולחץ על הקישור כדי להיכנס.
-                </div>
-                <p className="text-slate-600 text-sm">
-                  לא קיבלת? בדוק תיקיית דואר זבל או נסה שוב.
-                </p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => { setLinkSent(false); setEmail(''); }}
-                  className="w-full"
-                >
-                  שלח קישור שוב
-                </Button>
+          <CardContent className="p-6 pt-2 space-y-4">
+            {unauthorized && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
+                הדוא״ל שלך לא מאושר במערכת. פנה למנהל לקבלת גישה.
               </div>
-            ) : (
-              <form onSubmit={handleSendLink} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="email" className="text-slate-900">
-                    דוא"ל
-                  </Label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
-                    <Input
-                      id="email"
-                      type="email"
-                      placeholder="your@email.com"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      className="pl-10 border-slate-300 bg-white text-slate-900"
-                      required
-                      autoComplete="email"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="companyId" className="text-slate-900">
-                    קוד חברה (אופציונלי)
-                  </Label>
-                  <div className="relative">
-                    <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
-                    <Input
-                      id="companyId"
-                      type="text"
-                      placeholder="למשל NPC001"
-                      value={companyId}
-                      onChange={(e) => setCompanyId(e.target.value)}
-                      className="pl-10 border-slate-300 bg-white text-slate-900"
-                      autoComplete="off"
-                    />
-                  </div>
-                </div>
-
-                {error && (
-                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-                    {error}
-                  </div>
-                )}
-
-                <Button
-                  type="submit"
-                  disabled={isLoading}
-                  className="w-full py-3 rounded-lg bg-slate-900 text-white font-semibold hover:bg-slate-800"
-                >
-                  {isLoading ? (
-                    <span className="flex items-center justify-center gap-2">
-                      <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                      </svg>
-                      שולח קישור...
-                    </span>
-                  ) : (
-                    'שלח לי קישור כניסה'
-                  )}
-                </Button>
-
-              </form>
+            )}
+            {error && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                {error}
+              </div>
             )}
 
-            <p className="text-xs text-slate-500 text-center mt-4">
-              לקבלת גישה — מנהל המערכת יכול לשלוח קישור כניסה מהגדרות → משתמשים
+            <Button
+              type="button"
+              onClick={handleGoogleSignIn}
+              disabled={isLoading}
+              className="w-full min-h-[48px] py-2.5 px-4 rounded-md bg-white border border-[#dadce0] shadow-[0_1px_2px_0_rgba(60,64,67,.3)] text-[#1f1f1f] font-medium hover:bg-[#f8f9fa] hover:shadow-[0_1px_3px_1px_rgba(60,64,67,.15)] transition-shadow flex items-center justify-center gap-3 touch-manipulation"
+              style={{ fontFamily: "'Roboto', 'Helvetica Neue', sans-serif" }}
+            >
+              {isLoading ? (
+                <span className="flex items-center gap-2">
+                  <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  מתחבר...
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-3">
+                  <GoogleIcon />
+                  <span className="font-medium">התחברות באמצעות Google</span>
+                </span>
+              )}
+            </Button>
+
+            <p className="text-xs text-slate-500 text-center mt-2">
+              לקבלת גישה — מנהל המערכת יכול להוסיף את הדוא״ל שלך מהגדרות → משתמשים
             </p>
           </CardContent>
 
@@ -323,9 +191,7 @@ const LoginPage: React.FC = () => {
           </div>
         </Card>
 
-        <p className="text-center text-slate-500 text-sm mt-4">
-          © 2026 {companyName}. All rights reserved.
-        </p>
+        <p className="text-center text-slate-500 text-sm mt-4">© 2026 {companyName}. All rights reserved.</p>
       </motion.div>
     </div>
   );

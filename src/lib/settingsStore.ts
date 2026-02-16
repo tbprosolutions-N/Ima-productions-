@@ -95,7 +95,7 @@ export type ManagedUser = {
   full_name: string;
   email: string;
   role: 'producer' | 'finance' | 'manager' | 'owner';
-  status: 'active' | 'disabled';
+  status: 'active' | 'disabled' | 'pending';
   created_at: string;
   // Optional fine-grained permissions (demo-first; production should store in DB)
   permissions?: {

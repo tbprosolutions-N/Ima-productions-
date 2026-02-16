@@ -10,22 +10,14 @@
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { Resend } from "npm:resend";
-
-function corsHeaders(origin = "*") {
-  return {
-    "access-control-allow-origin": origin,
-    "access-control-allow-headers":
-      "authorization, x-client-info, apikey, content-type, x-supabase-authorization",
-    "access-control-allow-methods": "POST, OPTIONS",
-  };
-}
+import { corsHeaders } from "../_shared/cors.ts";
 
 function json(body: unknown, status = 200, extraHeaders: Record<string, string> = {}) {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
       "content-type": "application/json; charset=utf-8",
-      ...corsHeaders(),
+      ...corsHeaders,
       ...extraHeaders,
     },
   });
@@ -42,7 +34,7 @@ type Body = {
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders() });
+    return new Response("ok", { status: 200, headers: corsHeaders });
   }
 
   if (req.method !== "POST") {

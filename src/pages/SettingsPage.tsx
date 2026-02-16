@@ -1,36 +1,27 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Settings as SettingsIcon, User, Bell, Lock, Palette, Globe, Users as UsersIcon, Plug, Upload, KeyRound, ClipboardCheck, Download } from 'lucide-react';
+import { Settings as SettingsIcon, User, Bell, Lock, Palette, Globe, Users as UsersIcon, Upload, KeyRound, ClipboardCheck, Download } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/Dialog';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLocale } from '@/contexts/LocaleContext';
 import { useToast } from '@/contexts/ToastContext';
 import { useAgency } from '@/contexts/AgencyContext';
 import {
-  getMorningApiKey,
-  getMorningCompanyId,
   getCompanyName,
   getManagedUsers,
-  isIntegrationConnected,
-  setIntegrationConnected,
   setManagedUsers,
-  setMorningApiKey,
-  setMorningCompanyId,
   setCompanyName,
   type ManagedUser,
 } from '@/lib/settingsStore';
 import { supabase } from '@/lib/supabase';
 import { updateFaviconForPalette } from '@/lib/favicon';
 import type { IntegrationConnection } from '@/types';
-import { queueSyncJob } from '@/lib/syncJobs';
-import { startGoogleOAuth } from '@/lib/googleOAuth';
 import { demoGetEvents, demoGetClients, demoGetArtists, isDemoMode } from '@/lib/demoStore';
 import { getFinanceExpenses } from '@/lib/financeStore';
 import jsPDF from 'jspdf';
@@ -44,8 +35,8 @@ const SettingsPage: React.FC = () => {
   const [fullName, setFullName] = useState(user?.full_name || '');
   const [email, setEmail] = useState(user?.email || '');
   const [searchParams, setSearchParams] = useSearchParams();
-  const tabFromUrl = (searchParams.get('tab') || 'general') as 'general' | 'users' | 'integrations' | 'backup' | 'training';
-  const validTabs = ['general', 'users', 'integrations', 'backup', 'training'] as const;
+  const tabFromUrl = (searchParams.get('tab') || 'general') as 'general' | 'users' | 'backup' | 'training';
+  const validTabs = ['general', 'users', 'backup', 'training'] as const;
   const [tab, setTabState] = useState<typeof validTabs[number]>(validTabs.includes(tabFromUrl) ? tabFromUrl : 'general');
 
   const setTab = useCallback((id: typeof validTabs[number]) => {
@@ -146,7 +137,6 @@ const SettingsPage: React.FC = () => {
   // Users management (demo-first)
   const [managedUsers, setManagedUsersState] = useState<ManagedUser[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
-  const [inviteMagicLink, setInviteMagicLink] = useState<{ link: string; email: string } | null>(null);
   const [newUser, setNewUser] = useState<{
     full_name: string;
     email: string;
@@ -159,14 +149,8 @@ const SettingsPage: React.FC = () => {
     permissions: { finance: false, users: false, integrations: false, events_create: true, events_delete: false },
   });
 
-  // Integrations
-  const [gDriveConnected, setGDriveConnected] = useState(false);
-  const [gCalConnected, setGCalConnected] = useState(false);
-  const [googleConnectedEmail, setGoogleConnectedEmail] = useState<string | null>(null);
+  // Backup: sheets spreadsheet ID (from integrations table, if any)
   const [sheetsSpreadsheetId, setSheetsSpreadsheetId] = useState<string | null>(null);
-  const [morningConnected, setMorningConnected] = useState(false);
-  const [morningApiKey, setMorningApiKeyState] = useState('');
-  const [morningCompanyId, setMorningCompanyIdState] = useState('');
 
   // Data backup link (e.g., Google Drive / Sheets)
   const [backupUrl, setBackupUrl] = useState('');
@@ -182,9 +166,7 @@ const SettingsPage: React.FC = () => {
 
   const isDemo = () => isDemoMode();
   const canManageUsers = user?.role === 'owner' || user?.role === 'manager';
-  const canManageIntegrations = canManageUsers || user?.role === 'finance';
   const canEditPermissionLevels = user?.role === 'owner';
-  const canEditIntegrations = user?.role === 'owner';
 
   // Tutorial (per-user)
   const tourDisabledKey = user?.id ? `ima_tour_disabled_${user.id}` : '';
@@ -197,46 +179,20 @@ const SettingsPage: React.FC = () => {
   const [notifEvents, setNotifEvents] = useState(true);
   const [notifFinance, setNotifFinance] = useState(true);
 
-  const morningSandboxKey = String(import.meta.env.VITE_MORNING_SANDBOX_API_KEY || '');
-
   useEffect(() => {
-    // Integrations: demo uses localStorage, production uses DB table `integrations` (owner-managed).
-    if (isDemo()) {
-      setGDriveConnected(isIntegrationConnected(agencyId, 'google_drive'));
-      setGCalConnected(isIntegrationConnected(agencyId, 'google_calendar'));
-      setMorningConnected(isIntegrationConnected(agencyId, 'morning'));
-      const stored = getMorningApiKey(agencyId);
-      setMorningApiKeyState(stored || morningSandboxKey);
-      setMorningCompanyIdState(getMorningCompanyId(agencyId) || (morningSandboxKey ? '123456' : ''));
-    } else {
-      // Best-effort: if DB/table not ready yet, fall back to local settings.
+    // Backup: load sheets spreadsheet ID from integrations table if available.
+    if (!isDemo() && currentAgency?.id) {
       (async () => {
         try {
-          if (!currentAgency?.id) return;
           const { data } = await supabase
             .from('integrations')
             .select('*')
             .eq('agency_id', currentAgency.id);
           const list = (data as IntegrationConnection[]) || [];
-          const google = list.find(x => x.provider === 'google');
-          const morning = list.find(x => x.provider === 'morning');
-
-          setGDriveConnected(google?.status === 'connected' && google?.config?.drive_connected !== false);
-          setGCalConnected(google?.status === 'connected' && google?.config?.calendar_connected !== false);
-          setGoogleConnectedEmail((google?.config as any)?.google_email ?? null);
           const sheetsConn = list.find((x: any) => x.provider === 'sheets');
           setSheetsSpreadsheetId((sheetsConn as any)?.config?.spreadsheet_id ?? null);
-          setMorningConnected(morning?.status === 'connected');
-          // Morning secrets are stored server-side; do not display them in production UI.
-          setMorningApiKeyState('');
-          setMorningCompanyIdState('');
         } catch (e) {
-          console.warn('Integrations load failed; falling back to local settings', e);
-          setGDriveConnected(isIntegrationConnected(agencyId, 'google_drive'));
-          setGCalConnected(isIntegrationConnected(agencyId, 'google_calendar'));
-          setMorningConnected(isIntegrationConnected(agencyId, 'morning'));
-          setMorningApiKeyState(getMorningApiKey(agencyId));
-          setMorningCompanyIdState(getMorningCompanyId(agencyId));
+          console.warn('Integrations load failed', e);
         }
       })();
     }
@@ -305,14 +261,21 @@ const SettingsPage: React.FC = () => {
         return;
       }
 
-      // Non-demo: best-effort list from users table (RLS may restrict)
-      const { data, error } = await supabase
-        .from('users')
-        .select('id,full_name,email,role,created_at')
-        .eq('agency_id', agencyId)
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      const mapped: ManagedUser[] = (data || []).map((u: any) => ({
+      // Fetch users (signed in) and pending_invites (added, not yet signed in)
+      const [usersRes, pendingRes] = await Promise.all([
+        supabase
+          .from('users')
+          .select('id,full_name,email,role,created_at')
+          .eq('agency_id', agencyId)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('pending_invites')
+          .select('id,email,full_name,role,created_at')
+          .eq('agency_id', agencyId)
+          .order('created_at', { ascending: false }),
+      ]);
+      if (usersRes.error) throw usersRes.error;
+      const fromUsers: ManagedUser[] = (usersRes.data || []).map((u: any) => ({
         id: u.id,
         full_name: u.full_name,
         email: u.email,
@@ -320,7 +283,21 @@ const SettingsPage: React.FC = () => {
         status: 'active' as const,
         created_at: u.created_at,
       }));
-      setManagedUsersState(mapped);
+      const userEmails = new Set(fromUsers.map((u) => u.email.toLowerCase()));
+      const fromPending: ManagedUser[] = (pendingRes.data || [])
+        .filter((p: any) => !userEmails.has((p.email || '').toLowerCase()))
+        .map((p: any) => ({
+          id: p.id,
+          full_name: p.full_name || p.email?.split('@')[0] || '—',
+          email: p.email,
+          role: p.role,
+          status: 'pending' as const,
+          created_at: p.created_at,
+        }));
+      const merged = [...fromUsers, ...fromPending].sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+      setManagedUsersState(merged);
     } catch (e) {
       console.error(e);
       toast.error('שגיאה בטעינת משתמשים');
@@ -408,41 +385,6 @@ const SettingsPage: React.FC = () => {
     toast.success('ההדרכה אופסה והופעלה מחדש ✅');
   };
 
-  const sendMagicLink = async (emailAddress: string, existingUser?: { full_name: string; role: string; permissions?: Record<string, boolean> }) => {
-    const emailAddr = emailAddress.trim().toLowerCase();
-    if (!emailAddr) throw new Error('אימייל חסר');
-
-    // Demo stability: don't depend on external email delivery
-    if (isDemo()) {
-      const url = `${window.location.origin}/login?demo_invite=1&email=${encodeURIComponent(emailAddr)}`;
-      try {
-        await navigator.clipboard.writeText(url);
-        toast.success('דמו: לינק התחברות הועתק ללוח ✅');
-      } catch {
-        toast.info(`דמו: העתק ידנית את הלינק: ${url}`);
-      }
-      return;
-    }
-
-    // Production: call invite-user Edge Function (sends email via Supabase Auth)
-    if (!currentAgency?.id) throw new Error('אין סוכנות פעילה');
-    const { data, error } = await supabase.functions.invoke('invite-user', {
-      body: {
-        agencyId: currentAgency.id,
-        email: emailAddr,
-        full_name: (existingUser?.full_name || emailAddr.split('@')[0] || 'User').trim(),
-        role: (existingUser?.role as any) || 'producer',
-        permissions: existingUser?.permissions || {},
-        redirectTo: `${window.location.origin}/login`,
-      },
-    });
-    if (error) throw error;
-    const res = data as { ok?: boolean; error?: string; hint?: string; magic_link?: string };
-    if (!res?.ok) throw new Error(res?.error || 'Invite failed');
-    if (res?.magic_link) setInviteMagicLink({ link: res.magic_link, email: emailAddr });
-    if (res?.hint) toast.info(res.hint);
-  };
-
   const addUser = async () => {
     if (!newUser.full_name.trim() || !newUser.email.trim()) {
       toast.error('נא למלא שם ואימייל');
@@ -469,43 +411,26 @@ const SettingsPage: React.FC = () => {
           role: 'producer',
           permissions: { finance: false, users: false, integrations: false, events_create: true, events_delete: false },
         });
-        await sendMagicLink(next.email);
-        toast.success('דמו: משתמש נוסף + נוצר לינק התחברות ✅');
+        toast.success('דמו: משתמש נוסף ✅');
         return;
       }
 
       if (!currentAgency?.id) throw new Error('אין סוכנות פעילה');
-      // Production: call Edge Function so we don't replace the current session.
-      let inviteResult: { ok?: boolean; error?: string; hint?: string; magic_link?: string } | null = null;
-      try {
-        const { data, error } = await supabase.functions.invoke('invite-user', {
-          body: {
-            agencyId: currentAgency.id,
-            email: newUser.email.trim().toLowerCase(),
-            full_name: newUser.full_name.trim(),
-            role: newUser.role,
-            permissions: newUser.permissions,
-            redirectTo: `${window.location.origin}/login`,
-          },
-        });
-        if (error) throw error;
-        inviteResult = data as { ok?: boolean; error?: string; hint?: string; magic_link?: string };
-      } catch (fnErr: any) {
-        throw fnErr;
-      }
-
-      if (!inviteResult?.ok) {
-        toast.error(inviteResult?.error || 'Invite failed');
-        if (inviteResult?.hint) toast.info(inviteResult.hint);
+      // Production: add to pending_invites via RPC. User signs in with Google on first login.
+      const { data: rpcData, error: rpcError } = await supabase.rpc('add_invited_user', {
+        p_email: newUser.email.trim().toLowerCase(),
+        p_full_name: newUser.full_name.trim(),
+        p_role: newUser.role,
+        p_agency_id: currentAgency.id,
+        p_permissions: newUser.permissions || {},
+      });
+      if (rpcError) throw rpcError;
+      const res = rpcData as { ok?: boolean; error?: string } | null;
+      if (!res?.ok) {
+        toast.error(res?.error || 'הוספת משתמש נכשלה');
         return;
       }
-      if (inviteResult.magic_link) {
-        setInviteMagicLink({ link: inviteResult.magic_link, email: newUser.email.trim().toLowerCase() });
-        toast.info('המייל לא נשלח אוטומטית. העתק את הקישור ושלח למשתמש.');
-      } else {
-        toast.success('נשלחה הזמנה למייל');
-      }
-      if (!inviteResult.magic_link) toast.info(inviteResult.hint || 'בדוק דואר זבל אם המייל לא הגיע.');
+      toast.success('המשתמש נוסף. המשתמש יתחבר באמצעות Google בכניסה הראשונה.');
       setNewUser({
         full_name: '',
         email: '',
@@ -515,14 +440,7 @@ const SettingsPage: React.FC = () => {
       loadUsers();
     } catch (e: any) {
       console.error(e);
-      const msg = String(e?.message || '');
-      if (msg.toLowerCase().includes('redirect') || msg.toLowerCase().includes('url')) {
-        toast.error('שליחת מייל נכשלה. וודא ש־' + (window.location.origin || '') + '/login מופיע ב־Supabase Auth → Redirect URLs.');
-      } else if (msg.toLowerCase().includes('fetch') || msg.toLowerCase().includes('network') || msg.toLowerCase().includes('cors') || msg.toLowerCase().includes('502') || msg.toLowerCase().includes('503')) {
-        toast.error('לא ניתן לגשת לשרת. וודא ש־invite-user פרוס בפרויקט Supabase.');
-      } else {
-        toast.error(msg || 'הוספת משתמש נכשלה.');
-      }
+      toast.error(e?.message || 'הוספת משתמש נכשלה');
     }
   };
 
@@ -549,157 +467,6 @@ const SettingsPage: React.FC = () => {
     toast.success('סטטוס עודכן ✅');
   };
 
-  const connectIntegration = (key: 'google_drive' | 'google_calendar') => {
-    if (isDemo()) {
-      setIntegrationConnected(agencyId, key, true);
-      if (key === 'google_drive') setGDriveConnected(true);
-      if (key === 'google_calendar') setGCalConnected(true);
-      toast.info('חיבור OAuth מלא יתווסף עם Backend. מצב דמו: מחובר ✅');
-      return;
-    }
-    if (!currentAgency?.id) return;
-    if (!canEditIntegrations) {
-      toast.error('רק Owner יכול לחבר אינטגרציות בפרודקשן');
-      return;
-    }
-    (async () => {
-      try {
-        const requested = {
-          drive: key === 'google_drive' ? true : gDriveConnected,
-          calendar: key === 'google_calendar' ? true : gCalConnected,
-          gmail: true,
-          sheets: true,
-        };
-        const { authUrl } = await startGoogleOAuth({
-          agencyId: currentAgency.id,
-          requested,
-          returnTo: `${window.location.origin}/settings?tab=integrations`,
-        });
-        window.location.assign(authUrl);
-      } catch (e: any) {
-        console.error(e);
-        toast.error(e?.message || 'שגיאה בהתחלת OAuth של Google');
-      }
-    })();
-  };
-
-  const disconnectIntegration = (key: 'google_drive' | 'google_calendar') => {
-    if (isDemo()) {
-      setIntegrationConnected(agencyId, key, false);
-      if (key === 'google_drive') setGDriveConnected(false);
-      if (key === 'google_calendar') setGCalConnected(false);
-      toast.success('נותק ✅');
-      return;
-    }
-    if (!currentAgency?.id) return;
-    if (!canEditIntegrations) {
-      toast.error('רק Owner יכול לנתק אינטגרציות בפרודקשן');
-      return;
-    }
-    (async () => {
-      try {
-        const nextConfig = {
-          drive_connected: key === 'google_drive' ? false : gDriveConnected,
-          calendar_connected: key === 'google_calendar' ? false : gCalConnected,
-          gmail_connected: true,
-        };
-        const nextStatus = nextConfig.drive_connected || nextConfig.calendar_connected ? 'connected' : 'disconnected';
-        const { error } = await supabase.from('integrations').upsert(
-          [
-            {
-              agency_id: currentAgency.id,
-              provider: 'google',
-              status: nextStatus,
-              config: nextConfig,
-              connected_by: user?.id,
-              connected_at: new Date().toISOString(),
-            } as any,
-          ],
-          { onConflict: 'agency_id,provider' }
-        );
-        if (error) throw error;
-        if (key === 'google_drive') setGDriveConnected(false);
-        if (key === 'google_calendar') setGCalConnected(false);
-        toast.success('נותק ✅');
-      } catch (e: any) {
-        console.error(e);
-        toast.error(e?.message || 'שגיאה בניתוק Google');
-      }
-    })();
-  };
-
-  const connectMorning = () => {
-    const key = morningApiKey.trim();
-    const cid = morningCompanyId.trim();
-    if (!key || !cid) {
-      toast.error('נא להזין Morning API Key וגם Company ID');
-      return;
-    }
-    if (isDemo()) {
-      setMorningApiKey(agencyId, key);
-      setMorningCompanyId(agencyId, cid);
-      setIntegrationConnected(agencyId, 'morning', true);
-      setMorningConnected(true);
-      toast.success('Morning מחובר ✅');
-      return;
-    }
-    if (!currentAgency?.id) return;
-    if (!canEditIntegrations) {
-      toast.error('רק Owner יכול לחבר Morning בפרודקשן');
-      return;
-    }
-    (async () => {
-      try {
-        const { error } = await supabase.functions.invoke('morning-connect', {
-          body: { agencyId: currentAgency.id, companyId: cid, apiKey: key },
-        });
-        if (error) throw error;
-        setMorningConnected(true);
-        toast.success('Morning מחובר ✅');
-      } catch (e: any) {
-        console.error(e);
-        toast.error(e?.message || 'שגיאה בחיבור Morning');
-      }
-    })();
-  };
-
-  const disconnectMorning = () => {
-    if (isDemo()) {
-      setIntegrationConnected(agencyId, 'morning', false);
-      setMorningConnected(false);
-      toast.success('Morning נותק ✅');
-      return;
-    }
-    if (!currentAgency?.id) return;
-    if (!canEditIntegrations) {
-      toast.error('רק Owner יכול לנתק Morning בפרודקשן');
-      return;
-    }
-    (async () => {
-      try {
-        const { error } = await supabase.from('integrations').upsert(
-          [
-            {
-              agency_id: currentAgency.id,
-              provider: 'morning',
-              status: 'disconnected',
-              config: {},
-              connected_by: user?.id,
-              connected_at: new Date().toISOString(),
-            } as any,
-          ],
-          { onConflict: 'agency_id,provider' }
-        );
-        if (error) throw error;
-        setMorningConnected(false);
-        toast.success('Morning נותק ✅');
-      } catch (e: any) {
-        console.error(e);
-        toast.error(e?.message || 'שגיאה בניתוק Morning');
-      }
-    })();
-  };
-
   const tabButton = (id: typeof tab, label: string, Icon: any) => (
     <Button
       type="button"
@@ -718,41 +485,6 @@ const SettingsPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <Dialog open={!!inviteMagicLink} onOpenChange={(open) => !open && setInviteMagicLink(null)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>קישור התחברות — העתק ושלח למשתמש</DialogTitle>
-          </DialogHeader>
-          {inviteMagicLink && (
-            <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">המייל לא נשלח אוטומטית. העתק את הקישור ושלח ל־{inviteMagicLink.email}</p>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  readOnly
-                  value={inviteMagicLink.link}
-                  className="flex-1 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm font-mono"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(inviteMagicLink!.link);
-                      toast.success('הקישור הועתק ללוח ✅');
-                    } catch {
-                      toast.error('העתקה נכשלה');
-                    }
-                  }}
-                >
-                  <ClipboardCheck className="w-4 h-4 ml-1" />
-                  העתק
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -773,7 +505,6 @@ const SettingsPage: React.FC = () => {
           <div className="flex flex-wrap gap-2">
             {tabButton('general', 'כללי', SettingsIcon)}
             {canManageUsers ? tabButton('users', 'משתמשים', UsersIcon) : null}
-            {canManageIntegrations ? tabButton('integrations', 'אינטגרציות', Plug) : null}
             {user?.role === 'owner' ? tabButton('backup', 'גיבוי נתונים', Globe) : null}
             {tabButton('training', 'הדרכה ומידע', KeyRound)}
           </div>
@@ -1229,7 +960,7 @@ const SettingsPage: React.FC = () => {
                     </SelectContent>
                   </Select>
                   <Button type="button" className="btn-magenta" onClick={addUser} disabled={!canManageUsers}>
-                    {isDemo() ? 'הוסף משתמש' : 'שלח הזמנה'}
+                    הוסף משתמש
                   </Button>
                 </div>
               </div>
@@ -1272,12 +1003,17 @@ const SettingsPage: React.FC = () => {
                             )}
                           </td>
                           <td className="p-3">
-                            <span className={u.status === 'active' ? 'text-green-500' : 'text-red-500'}>
-                              {u.status === 'active' ? 'פעיל' : 'מושבת'}
+                            <span className={
+                              u.status === 'active' ? 'text-green-500' :
+                              u.status === 'pending' ? 'text-amber-600' : 'text-red-500'
+                            }>
+                              {u.status === 'active' ? 'פעיל' : u.status === 'pending' ? 'ממתין להתחברות' : 'מושבת'}
                             </span>
                           </td>
                           <td className="p-3">
-                            {isDemo() ? (
+                            {u.status === 'pending' ? (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            ) : isDemo() ? (
                               <Button
                                 type="button"
                                 size="sm"
@@ -1293,26 +1029,13 @@ const SettingsPage: React.FC = () => {
                             )}
                           </td>
                         <td className="p-3">
-                          <Button
-                            type="button"
-                            size="sm"
-                            className="btn-magenta"
-                            onClick={async () => {
-                              try {
-                                await sendMagicLink(u.email, { full_name: u.full_name, role: u.role, permissions: u.permissions });
-                                toast.success('נשלח לינק התחברות למייל ✅');
-                              } catch (e: any) {
-                                console.error(e);
-                                const msg = e?.message || 'שליחה נכשלה';
-                                toast.error(msg);
-                                if (msg.includes('Redirect') || msg.includes('SMTP')) {
-                                  toast.info('בדוק דואר זבל והוסף ב-Supabase Auth → URL Configuration: ' + (typeof window !== 'undefined' ? window.location.origin + '/login' : ''));
-                                }
-                              }
-                            }}
-                          >
-                            שלח לינק התחברות
-                          </Button>
+                          {u.status === 'pending' ? (
+                            <span className="text-xs text-amber-600">ממתין להתחברות</span>
+                          ) : isDemo() ? (
+                            <a href="/login" className="text-sm text-primary hover:underline">דף כניסה</a>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">התחברות באמצעות Google</span>
+                          )}
                         </td>
                         </tr>
                       ))}
@@ -1320,248 +1043,6 @@ const SettingsPage: React.FC = () => {
                   </table>
                 </div>
               )}
-            </CardContent>
-          </Card>
-        </div>
-        )
-      )}
-
-      {tab === 'integrations' && (
-        !canManageIntegrations ? (
-          <Card className="border-primary/20">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Plug className="w-5 h-5 text-primary" />
-                אינטגרציות
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="text-sm text-muted-foreground">
-              אין לך הרשאה לניהול אינטגרציות. רק בעלים/מנהל (ובחלק מהחיבורים גם כספים) יכולים לגשת למסך זה.
-            </CardContent>
-          </Card>
-        ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <Card className="border-primary/20">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Plug className="w-5 h-5 text-primary" />
-                Google Drive (Documents Sync)
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="text-sm text-muted-foreground">
-                סנכרון מסמכים לתיקיית Drive, כולל העלאה אוטומטית של מסמכים שנשלחו.
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="text-sm flex flex-wrap items-center gap-2">
-                  <span>סטטוס:</span>
-                  {gDriveConnected ? (
-                    <>
-                      <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/12 px-2 py-0.5 text-emerald-700 dark:text-emerald-400 font-medium">מחובר</span>
-                      {googleConnectedEmail && <span className="text-muted-foreground">מחובר כ־{googleConnectedEmail}</span>}
-                      <span className="text-muted-foreground text-xs font-normal">סנכרון אוטומטי פעיל</span>
-                    </>
-                  ) : (
-                    <span className="text-muted-foreground">לא מחובר</span>
-                  )}
-                </div>
-                {gDriveConnected ? (
-                  <Button type="button" variant="outline" disabled={!canEditIntegrations} title={!canEditIntegrations ? 'רק Owner יכול לערוך אינטגרציות בפרודקשן' : undefined} onClick={() => disconnectIntegration('google_drive')}>נתק</Button>
-                ) : (
-                  <Button type="button" className="btn-magenta" disabled={!canEditIntegrations} title={!canEditIntegrations ? 'רק Owner יכול לערוך אינטגרציות בפרודקשן' : undefined} onClick={() => connectIntegration('google_drive')}>התחבר</Button>
-                )}
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={isDemo() || !canEditIntegrations}
-                title={isDemo() ? 'בדמו אין Webhook אמיתי' : (!canEditIntegrations ? 'רק Owner יכול להפעיל סנכרון דו-כיווני' : undefined)}
-                onClick={async () => {
-                  if (!currentAgency?.id) return;
-                  try {
-                    const { error } = await supabase.functions.invoke('google-calendar-watch', {
-                      body: { agencyId: currentAgency.id, calendarId: 'primary' },
-                    });
-                    if (error) throw error;
-                    toast.success('הופעל סנכרון דו-כיווני (Webhook) ✅');
-                  } catch (e: any) {
-                    console.error(e);
-                    toast.error(e?.message || 'כשל בהפעלת Webhook');
-                  }
-                }}
-              >
-                הפעל סנכרון דו‑כיווני (Webhook)
-              </Button>
-
-              <Button
-                type="button"
-                variant="outline"
-                disabled={isDemo() || !canEditIntegrations}
-                title={isDemo() ? 'בדמו אין Webhook אמיתי' : (!canEditIntegrations ? 'רק Owner יכול לחדש Webhooks' : 'מחדש ערוצי Watch לפני תפוגה')}
-                onClick={async () => {
-                  if (!currentAgency?.id) return;
-                  const job = await queueSyncJob({
-                    agencyId: currentAgency.id,
-                    provider: 'google',
-                    kind: 'calendar_watch_renew',
-                    payload: { requested_at: new Date().toISOString() },
-                    createdBy: user?.id,
-                  });
-                  if (job) toast.success('נוצרה משימת חידוש Webhooks ✅ (תתבצע בשרת)');
-                  else toast.error('לא ניתן ליצור משימה כרגע');
-                }}
-              >
-                חדש Webhooks (Watch)
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card className="border-primary/20">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Plug className="w-5 h-5 text-primary" />
-                Google Calendar (Daybook Sync)
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="text-sm text-muted-foreground">
-                סנכרון אירועים עם Google Calendar (ייבוא/ייצוא). כרגע קיים “Add to Google Calendar” בדייבוק.
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="text-sm flex flex-wrap items-center gap-2">
-                  <span>סטטוס:</span>
-                  {gCalConnected ? (
-                    <>
-                      <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/12 px-2 py-0.5 text-emerald-700 dark:text-emerald-400 font-medium">מחובר</span>
-                      {googleConnectedEmail && <span className="text-muted-foreground">מחובר כ־{googleConnectedEmail}</span>}
-                      <span className="text-muted-foreground text-xs font-normal">סנכרון אוטומטי פעיל</span>
-                    </>
-                  ) : (
-                    <span className="text-muted-foreground">לא מחובר</span>
-                  )}
-                </div>
-                {gCalConnected ? (
-                  <Button type="button" variant="outline" disabled={!canEditIntegrations} title={!canEditIntegrations ? 'רק Owner יכול לערוך אינטגרציות בפרודקשן' : undefined} onClick={() => disconnectIntegration('google_calendar')}>נתק</Button>
-                ) : (
-                  <Button type="button" className="btn-magenta" disabled={!canEditIntegrations} title={!canEditIntegrations ? 'רק Owner יכול לערוך אינטגרציות בפרודקשן' : undefined} onClick={() => connectIntegration('google_calendar')}>התחבר</Button>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-primary/20">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Plug className="w-5 h-5 text-primary" />
-                Gmail (Invites / Agreements)
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="text-sm text-muted-foreground">
-                שליחת הזמנות לאירועים והסכמים מהמייל של חשבון ה‑Admin (Owner). דורש OAuth + Backend.
-              </div>
-              <div className="text-sm flex flex-wrap items-center gap-2">
-                <span>סטטוס:</span>
-                {(gCalConnected || gDriveConnected) ? (
-                  <>
-                    <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/12 px-2 py-0.5 text-emerald-700 dark:text-emerald-400 font-medium">מוכן (Google מחובר)</span>
-                    <span className="text-muted-foreground text-xs font-normal">סנכרון אוטומטי פעיל</span>
-                  </>
-                ) : (
-                  <span className="text-muted-foreground">לא מחובר</span>
-                )}
-              </div>
-              <div className="text-xs text-muted-foreground">
-                בשלב הבא נוסיף OAuth אמיתי + שליחת מיילים “המקורית של Google”.
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-primary/20">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Plug className="w-5 h-5 text-primary" />
-                Google Sheets (Events Backup)
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="text-sm text-muted-foreground">
-                גיבוי חי של טבלת האירועים לקובץ Sheets (בבעלות חשבון ה‑Admin). דורש OAuth + Backend.
-              </div>
-              <div className="text-xs text-muted-foreground">
-                בשלב הבא נוסיף יצירת Sheet, מיפוי עמודות, ו‑upsert לכל שינוי באירוע.
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={!canEditIntegrations}
-                title={!canEditIntegrations ? 'רק Owner יכול לערוך אינטגרציות בפרודקשן' : undefined}
-                onClick={async () => {
-                  if (!currentAgency?.id) return;
-                  const job = await queueSyncJob({
-                    agencyId: currentAgency.id,
-                    provider: 'sheets',
-                    kind: 'events_full_sync',
-                    payload: { requested_at: new Date().toISOString() },
-                    createdBy: user?.id,
-                  });
-                  if (job) toast.success('נוצרה משימת גיבוי ל‑Sheets ✅ (תתבצע בשרת)');
-                  else toast.error('לא ניתן ליצור משימת גיבוי כרגע');
-                }}
-              >
-                צור משימת גיבוי עכשיו
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card className="border-primary/20">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <KeyRound className="w-5 h-5 text-primary" />
-                Morning (Invoices/Receipts)
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="text-sm text-muted-foreground">
-                חיבור Morning להפקת חשבוניות/קבלות והעברת הוצאות. נדרשים שני פרטים: API Key + Company ID.
-              </div>
-              <div className="space-y-2">
-                <Label className="text-foreground">Morning API Key</Label>
-                <Input
-                  type="password"
-                  value={morningApiKey}
-                  onChange={(e) => setMorningApiKeyState(e.target.value)}
-                  className="border-primary/30"
-                  placeholder="לדוגמה: mor_********"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-foreground">Morning Company ID</Label>
-                <Input
-                  value={morningCompanyId}
-                  onChange={(e) => setMorningCompanyIdState(e.target.value)}
-                  className="border-primary/30"
-                  placeholder="לדוגמה: 123456"
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="text-sm flex flex-wrap items-center gap-2">
-                  <span>סטטוס:</span>
-                  {morningConnected ? (
-                    <>
-                      <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/12 px-2 py-0.5 text-emerald-700 dark:text-emerald-400 font-medium">מחובר</span>
-                      <span className="text-muted-foreground text-xs font-normal">סנכרון אוטומטי פעיל</span>
-                    </>
-                  ) : (
-                    <span className="text-muted-foreground">לא מחובר</span>
-                  )}
-                </div>
-                {morningConnected ? (
-                  <Button type="button" variant="outline" disabled={!canEditIntegrations} title={!canEditIntegrations ? 'רק Owner יכול לערוך אינטגרציות בפרודקשן' : undefined} onClick={disconnectMorning}>נתק</Button>
-                ) : (
-                  <Button type="button" className="btn-magenta" disabled={!canEditIntegrations} title={!canEditIntegrations ? 'רק Owner יכול לערוך אינטגרציות בפרודקשן' : undefined} onClick={connectMorning}>התחבר</Button>
-                )}
-              </div>
             </CardContent>
           </Card>
         </div>
@@ -1586,7 +1067,6 @@ const SettingsPage: React.FC = () => {
                 {[
                   { title: 'מדריך למשתמש חדש', desc: 'צעדים ראשונים במערכת: הגדרת פרופיל, יצירת אירוע ראשון, חיבור יומן.', action: 'הפעל הדרכה', onClick: () => { resetTutorial(); window.location.assign('/dashboard?tour=1'); } },
                   { title: 'מדריך לפי תפקיד', desc: 'הרשאות ויכולות לפי תפקיד — בעלים, מנהל, כספים, מפיק.', action: 'קרא עוד', onClick: () => setTab('general') },
-                  { title: 'חיבור אינטגרציות', desc: 'מדריך לחיבור Google Calendar, Google Sheets, ו-Morning API.', action: 'הגדרות אינטגרציות', onClick: () => setTab('integrations') },
                   { title: 'גיבוי ויצוא נתונים', desc: 'איך לגבות את כל הנתונים ולייצא דוחות ל-Excel.', action: 'גיבוי נתונים', onClick: () => setTab('backup') },
                 ].map((item) => (
                   <div key={item.title} className="rounded-lg border border-border bg-card p-4 flex flex-col gap-2 hover:bg-primary/5 transition-colors">
@@ -1611,9 +1091,8 @@ const SettingsPage: React.FC = () => {
                     pdf.text('NPC — מדריך משתמש', 200, 20, { align: 'right' });
                     pdf.setFontSize(10);
                     const sections = [
-                      { h: 'מדריך לפי תפקיד', lines: ['בעלים: מיתוג, ניהול משתמשים, אינטגרציות, כספים.', 'מנהל: ניהול תפעולי, משתמשים, דוחות.', 'כספים: הוצאות, Morning, Excel/Sheets.', 'מפיק: אירועים, יומן, אמנים, לקוחות (ללא סכומים).'] },
-                      { h: 'חיבור אינטגרציות', lines: ['Google Calendar: סנכרון אירועים.', 'Morning: חשבוניות והוצאות.', 'הגדרות > אינטגרציות להתחברות.'] },
-                      { h: 'גיבוי ויצוא', lines: ['הגדרות > גיבוי נתונים.', 'ייצוא ל-Excel/Sheets מדף פיננסים.'] },
+                      { h: 'מדריך לפי תפקיד', lines: ['בעלים: מיתוג, ניהול משתמשים, כספים.', 'מנהל: ניהול תפעולי, משתמשים, דוחות.', 'כספים: הוצאות, Excel/Sheets.', 'מפיק: אירועים, יומן, אמנים, לקוחות (ללא סכומים).'] },
+                      { h: 'גיבוי ויצוא', lines: ['הגדרות > גיבוי נתונים.', 'ייצוא ל-Excel מדף פיננסים.'] },
                     ];
                     let y = 30;
                     sections.forEach(s => {
@@ -1658,10 +1137,10 @@ const SettingsPage: React.FC = () => {
               {[
                 { q: 'איך מוסיפים אירוע חדש?', a: 'לחצו על "אירוע חדש" בדשבורד (יפתח טופס מהיר) או עברו לדף אירועים ולחצו "אירוע חדש". מלאו את הפרטים ושמרו.' },
                 { q: 'איך מזמינים משתמש חדש למערכת?', a: 'הגדרות → משתמשים → הוספת משתמש. הזינו שם, אימייל ותפקיד. המערכת תשלח קישור התחברות למייל.' },
-                { q: 'איך מסנכרנים עם Google Calendar?', a: 'הגדרות → אינטגרציות → חברו את Google. לאחר חיבור, אירועים יסונכרנו אוטומטית ליומן שלכם.' },
+                { q: 'איך מייצאים אירועים ליומן?', a: 'בדף אירועים או יומן ניתן להוסיף אירועים ל-Google Calendar באמצעות "הוסף ל-Google Calendar".' },
                 { q: 'איך מייצאים דוח?', a: 'בדף פיננסים → לחצו "ייצוא". ניתן לייצא ל-Excel או ל-Google Sheets. בחרו טווח תאריכים ולחצו ייצא.' },
                 { q: 'מה ההבדל בין התפקידים?', a: 'בעלים: גישה מלאה. מנהל: גישה מלאה חוץ ממיתוג. כספים: כספים ומסמכים. מפיק: אירועים, יומן, אמנים ולקוחות (ללא סכומים).' },
-                { q: 'איך מחברים Morning API?', a: 'הגדרות → אינטגרציות → Morning. הזינו API Key ו-Company ID. המערכת תבדוק את החיבור ותאשר.' },
+                { q: 'איך מתחברים לחשבוניות?', a: 'המערכת משתמשת ב-Google SSO להתחברות. חשבוניות והוצאות מנוהלים בדף פיננסים.' },
                 { q: 'למה אני לא רואה סכומים?', a: 'אם התפקיד שלך הוא מפיק (Producer), סכומים מוסתרים. בקשו מהבעלים לשנות את ההרשאות.' },
                 { q: 'איך מגבים את הנתונים?', a: 'הגדרות → גיבוי נתונים. אפשר להעתיק ללוח, להוריד JSON, או לסנכרן עם Google Sheets.' },
                 { q: 'איך ממלאים פרטי אמן מלאים?', a: 'אמנים → עריכת אמן. מלאו: Google Calendar Email (לסנכרון יומן), צבע ביומן, פרטי בנק, ח.פ.' },
