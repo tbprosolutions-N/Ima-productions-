@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Outlet } from 'react-router-dom';
 import { Menu } from 'lucide-react';
 import Sidebar from './Sidebar';
@@ -6,37 +6,38 @@ import { Button } from './ui/Button';
 import { appName } from '@/lib/appConfig';
 import { onInstallPrompt, triggerInstallPrompt } from '@/lib/pwa';
 
-const MainLayout: React.FC = () => {
+const MainLayoutInner: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
 
+  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+  const toggleSidebar = useCallback(() => setSidebarOpen(prev => !prev), []);
+
   useEffect(() => {
-    onInstallPrompt(() => {
-      setShowInstallBanner(true);
-    });
+    onInstallPrompt(() => setShowInstallBanner(true));
   }, []);
 
   return (
     <div className="flex flex-row h-screen min-h-[100dvh] w-full max-w-[100vw] overflow-x-hidden overflow-y-auto md:overflow-hidden bg-background ima-bg-vertical">
-      {/* Mobile header bar: hamburger + NPC logo - fixed top, compact, no overlap */}
-      <header className="md:hidden fixed top-0 start-0 end-0 z-[55] h-14 min-h-[44px] px-4 flex items-center justify-between gap-3 bg-card/95 backdrop-blur border-b border-border shrink-0">
+      {/* Mobile header bar: hamburger (right in RTL) + NPC logo */}
+      <header className="md:hidden fixed top-0 start-0 end-0 z-[55] h-14 min-h-[44px] px-3 sm:px-4 flex items-center justify-between gap-3 bg-card/95 backdrop-blur border-b border-border shrink-0">
         <Button
           type="button"
           variant="ghost"
           size="icon"
           className="h-11 w-11 min-h-[44px] min-w-[44px] shrink-0 -ms-1"
-          onClick={() => setSidebarOpen(prev => !prev)}
+          onClick={toggleSidebar}
           aria-label="Open menu"
         >
           <Menu className="w-6 h-6" />
         </Button>
         <div className="flex-1 min-w-0 flex justify-center">
-          <span className="text-lg font-bold text-foreground tracking-wide truncate">NPC</span>
+          <span className="text-base sm:text-lg font-bold text-foreground tracking-wide truncate">NPC</span>
         </div>
         <div className="w-11 shrink-0" aria-hidden />
       </header>
 
-      <Sidebar mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Sidebar mobileOpen={sidebarOpen} onClose={closeSidebar} />
 
       {/* Main: on mobile full width with header offset; on desktop flex-1 fills remaining */}
       <main className="flex-1 min-w-0 w-full overflow-x-hidden overflow-y-auto">
@@ -54,16 +55,17 @@ const MainLayout: React.FC = () => {
         </div>
       </main>
 
-      {/* Mobile sidebar overlay - below sidebar so sidebar stays on top */}
+      {/* Mobile sidebar overlay - tap to close drawer */}
       {sidebarOpen && (
         <div
           className="fixed inset-0 bg-black/50 z-[40] md:hidden"
           aria-hidden
-          onClick={() => setSidebarOpen(false)}
+          onClick={closeSidebar}
         />
       )}
     </div>
   );
 };
 
+const MainLayout = React.memo(MainLayoutInner);
 export default MainLayout;

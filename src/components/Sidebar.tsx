@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { NavLink } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -13,6 +13,7 @@ import {
   LogOut,
   Moon,
   Sun,
+  type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRole } from '@/hooks/useRole';
@@ -23,9 +24,9 @@ import { useAgency } from '@/contexts/AgencyContext';
 import { getAgencyLogo, getCompanyName } from '@/lib/settingsStore';
 import { Button } from './ui/Button';
 
-interface NavItem {
+interface NavItemDef {
   to: string;
-  icon: React.ReactNode;
+  Icon: LucideIcon;
   label: string;
   roles?: string[];
 }
@@ -35,11 +36,12 @@ interface SidebarProps {
   onClose?: () => void;
 }
 
-const SIDEBAR_WIDTH = 280;
+/** Mobile drawer width: slides in from right; max 70vw */
+const SIDEBAR_WIDTH_MOBILE = 256;
 
-const Sidebar: React.FC<SidebarProps> = ({ mobileOpen = false, onClose }) => {
+const SidebarInner: React.FC<SidebarProps> = ({ mobileOpen = false, onClose }) => {
   const { user, signOut } = useAuth();
-  const { role } = useRole(); // Role from DB so owner always sees Settings, Finance, Sync
+  const { role } = useRole();
   const { theme, toggleTheme } = useTheme();
   const { t } = useLocale();
   const { currentAgency } = useAgency();
@@ -79,124 +81,88 @@ const Sidebar: React.FC<SidebarProps> = ({ mobileOpen = false, onClose }) => {
     };
   }, [currentAgency?.id]);
 
-  const navItems: NavItem[] = [
-    {
-      to: '/dashboard',
-      icon: <LayoutDashboard className="w-5 h-5" />,
-      label: t('nav.dashboard'),
-    },
-    {
-      to: '/events',
-      icon: <Calendar className="w-5 h-5" />,
-      label: t('nav.events'),
-    },
-    {
-      to: '/artists',
-      icon: <UserCircle className="w-5 h-5" />,
-      label: t('nav.artists'),
-    },
-    {
-      to: '/clients',
-      icon: <Users className="w-5 h-5" />,
-      label: t('nav.clients'),
-    },
-    {
-      to: '/finance',
-      icon: <DollarSign className="w-5 h-5" />,
-      label: t('nav.finance'),
-      roles: ['finance', 'manager', 'owner'],
-    },
-    {
-      to: '/calendar',
-      icon: <Calendar className="w-5 h-5" />,
-      label: t('nav.calendar'),
-    },
-    {
-      to: '/documents',
-      icon: <FileText className="w-5 h-5" />,
-      label: t('nav.documents'),
-    },
-    {
-      to: '/settings',
-      icon: <Settings className="w-5 h-5" />,
-      label: t('nav.settings'),
-    },
-    {
-      to: '/sync',
-      icon: <Activity className="w-5 h-5" />,
-      label: 'Sync Monitor',
-      roles: ['owner'],
-    },
-  ];
+  const navItems: NavItemDef[] = useMemo(() => [
+    { to: '/dashboard', Icon: LayoutDashboard, label: t('nav.dashboard') },
+    { to: '/events', Icon: Calendar, label: t('nav.events') },
+    { to: '/artists', Icon: UserCircle, label: t('nav.artists') },
+    { to: '/clients', Icon: Users, label: t('nav.clients') },
+    { to: '/finance', Icon: DollarSign, label: t('nav.finance'), roles: ['finance', 'manager', 'owner'] },
+    { to: '/calendar', Icon: Calendar, label: t('nav.calendar') },
+    { to: '/documents', Icon: FileText, label: t('nav.documents') },
+    { to: '/settings', Icon: Settings, label: t('nav.settings') },
+    { to: '/sync', Icon: Activity, label: 'Sync Monitor', roles: ['owner'] },
+  ], [t]);
 
-  const canAccessRoute = (roles?: string[]) => {
+  const canAccessRoute = useCallback((roles?: string[]) => {
     if (!roles || !user) return true;
-    // Use role from DB (useRole) so owner always sees admin nav
     const effectiveRole = role ?? user.role;
     if (!effectiveRole) return true;
-
     if (roles.includes('finance')) {
       if (user.permissions?.finance === true) return true;
       if (user.permissions?.finance === false) return false;
     }
     return roles.includes(effectiveRole);
-  };
+  }, [user, role]);
+
+  const handleNavClick = useCallback(() => {
+    onClose?.();
+  }, [onClose]);
+
+  const handlePrefetch = useCallback((path: string) => {
+    prefetchRoute(path);
+  }, []);
+
+  const mobileX = isDesktop ? 0 : (mobileOpen ? 0 : SIDEBAR_WIDTH_MOBILE);
 
   return (
     <motion.aside
       initial={false}
-      animate={{ x: isDesktop ? 0 : (mobileOpen ? 0 : -SIDEBAR_WIDTH) }}
+      animate={{ x: mobileX }}
       transition={{ type: 'tween', duration: 0.2 }}
-      className={`w-64 shrink-0 bg-card border-r border-border flex flex-col h-screen
-        fixed top-0 left-0 z-50
-        md:relative md:left-auto md:z-auto md:translate-x-0
-        ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}
+      className="w-64 max-w-[70vw] md:max-w-none md:w-64 shrink-0 bg-card border-r border-border flex flex-col h-screen
+        fixed top-0 right-0 z-50
+        md:relative md:right-auto md:left-0 md:translate-x-0"
+      style={isDesktop ? undefined : { width: 'min(256px, 70vw)' }}
     >
-      <div className="p-6 border-b border-border">
-        <div className="flex items-center gap-3">
-          <div className="w-14 h-14 rounded-2xl ima-palette-gradient sidebar-logo-shadow ring-1 ring-primary/20 flex items-center justify-center overflow-hidden">
+      <div className="p-4 sm:p-5 md:p-6 border-b border-border">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl ima-palette-gradient sidebar-logo-shadow ring-1 ring-primary/20 flex items-center justify-center overflow-hidden shrink-0">
             {logo ? (
-              <img
-                src={logo}
-                alt="Agency logo"
-                className="w-full h-full object-cover"
-              />
+              <img src={logo} alt="Agency logo" className="w-full h-full object-cover" />
             ) : (
-              <img src="/logo.svg?v=2" alt="NPC" className="w-full h-full object-contain p-1.5" />
+              <img src="/logo.svg?v=2" alt="NPC" className="w-full h-full object-contain p-1 sm:p-1.5" />
             )}
           </div>
           <div className="min-w-0">
-            <div className="text-base font-bold text-foreground leading-5 break-words" title={companyName}>
+            <div className="text-sm sm:text-base font-bold text-foreground leading-5 break-words" title={companyName}>
               {companyName}
             </div>
-            <div className="text-xs text-muted-foreground">ניהול הפקות</div>
+            <div className="text-[10px] sm:text-xs text-muted-foreground">ניהול הפקות</div>
           </div>
         </div>
       </div>
 
-      <nav className="flex-1 overflow-y-auto p-4 space-y-1">
+      <nav className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-0.5 sm:space-y-1">
         {navItems.map((item) => {
           if (!canAccessRoute(item.roles)) return null;
-
+          const Icon = item.Icon;
           return (
             <NavLink
               key={item.to}
               to={item.to}
-              onMouseEnter={() => prefetchRoute(item.to)}
-              onFocus={() => prefetchRoute(item.to)}
-              onClick={() => onClose?.()}
+              onMouseEnter={() => handlePrefetch(item.to)}
+              onFocus={() => handlePrefetch(item.to)}
+              onClick={handleNavClick}
               className={({ isActive }) =>
-                `modu-icon-text gap-3 px-4 py-3 rounded-[var(--modu-radius)] transition-all duration-200 min-h-[44px] ${item.to === '/events' ? 'events-link' : ''} ${
-                  isActive
-                    ? 'bg-primary text-primary-foreground shadow-lg'
-                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                `modu-icon-text gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 sm:py-3 rounded-[var(--modu-radius)] transition-all duration-200 min-h-[40px] sm:min-h-[44px] text-sm sm:text-base ${item.to === '/events' ? 'events-link' : ''} ${
+                  isActive ? 'bg-primary text-primary-foreground shadow-lg' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
                 }`
               }
             >
               {({ isActive }) => (
                 <>
-                  <span className={`w-9 h-9 rounded-[var(--modu-radius)] flex items-center justify-center shrink-0 ${!isActive ? 'bg-primary/10 dark:bg-primary/20' : ''}`}>
-                    {item.icon}
+                  <span className={`w-8 h-8 sm:w-9 sm:h-9 rounded-[var(--modu-radius)] flex items-center justify-center shrink-0 ${!isActive ? 'bg-primary/10 dark:bg-primary/20' : ''}`}>
+                    <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
                   </span>
                   <span className="font-medium">{item.label}</span>
                 </>
@@ -206,39 +172,29 @@ const Sidebar: React.FC<SidebarProps> = ({ mobileOpen = false, onClose }) => {
         })}
       </nav>
 
-      <div className="p-4 border-t border-border space-y-2">
-        <Button
-          variant="ghost"
-          onClick={toggleTheme}
-          className="w-full justify-start modu-icon-text"
-        >
-          {theme === 'dark' ? (
-            <Sun className="w-5 h-5 shrink-0" />
-          ) : (
-            <Moon className="w-5 h-5 shrink-0" />
-          )}
+      <div className="p-3 sm:p-4 border-t border-border space-y-1 sm:space-y-2">
+        <Button variant="ghost" onClick={toggleTheme} className="w-full justify-start modu-icon-text text-sm sm:text-base min-h-[40px] sm:min-h-[44px]">
+          {theme === 'dark' ? <Sun className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" /> : <Moon className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />}
           {theme === 'dark' ? 'מצב בהיר' : 'מצב כהה'}
         </Button>
-
         <Button
           type="button"
           variant="ghost"
           onClick={() => void signOut()}
-          className="w-full justify-start text-red-500 hover:text-red-600 hover:bg-red-500/10 modu-icon-text"
+          className="w-full justify-start text-red-500 hover:text-red-600 hover:bg-red-500/10 modu-icon-text text-sm sm:text-base min-h-[40px] sm:min-h-[44px]"
         >
-          <LogOut className="w-5 h-5 shrink-0" />
+          <LogOut className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
           {t('auth.logout')}
         </Button>
-
         {user && (
           <div className="pt-2 border-t border-border">
-            <div className="flex items-center gap-3 px-2">
-              <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center text-primary-foreground font-semibold">
+            <div className="flex items-center gap-2 sm:gap-3 px-1 sm:px-2">
+              <div className="w-9 h-9 sm:w-10 sm:h-10 bg-primary rounded-full flex items-center justify-center text-primary-foreground font-semibold text-xs sm:text-sm shrink-0">
                 {user.full_name.charAt(0)}
               </div>
-              <div className="flex-1 overflow-hidden">
-                <div className="font-medium text-sm truncate text-foreground">{user.full_name}</div>
-                <div className="text-xs text-muted-foreground truncate">{user.email}</div>
+              <div className="flex-1 overflow-hidden min-w-0">
+                <div className="font-medium text-xs sm:text-sm truncate text-foreground">{user.full_name}</div>
+                <div className="text-[10px] sm:text-xs text-muted-foreground truncate">{user.email}</div>
               </div>
             </div>
           </div>
@@ -248,4 +204,5 @@ const Sidebar: React.FC<SidebarProps> = ({ mobileOpen = false, onClose }) => {
   );
 };
 
+const Sidebar = React.memo(SidebarInner);
 export default Sidebar;

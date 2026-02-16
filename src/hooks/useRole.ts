@@ -1,57 +1,45 @@
 /**
- * Fetches the current user's role directly from the Supabase users table
- * so UI always reflects DB (avoids stale session/profile metadata).
- * Use this for nav visibility and permission checks (e.g. Sidebar).
+ * Fetches the current user's role from the Supabase users table.
+ * Cached via React Query (2 min stale) to avoid waterfall and repeated requests.
  */
-import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import type { UserRole } from '@/types';
 
+const ROLE_STALE_MS = 2 * 60 * 1000;
+const ROLE_GC_MS = 10 * 60 * 1000;
+const VALID_ROLES: UserRole[] = ['producer', 'finance', 'manager', 'owner'];
+
 export function useRole(): { role: UserRole | null; isLoading: boolean } {
   const { user } = useAuth();
-  const [role, setRole] = useState<UserRole | null>(user?.role ?? null);
-  const [isLoading, setIsLoading] = useState(!!user?.id);
+  const userId = user?.id ?? null;
 
-  useEffect(() => {
-    if (!user?.id) {
-      setRole(null);
-      setIsLoading(false);
-      return;
-    }
-    if (localStorage.getItem('demo_authenticated') === 'true') {
-      setRole((user as any).role ?? null);
-      setIsLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setRole(user.role ?? null);
-    (async () => {
-      try {
-        const { data, error } = await supabase
-          .from('users')
-          .select('role')
-          .eq('id', user.id)
-          .single();
-        if (cancelled) return;
-        if (error) {
-          setRole(user.role ?? null);
-          return;
-        }
-        const dbRole = (data as { role?: string })?.role;
-        if (dbRole && ['producer', 'finance', 'manager', 'owner'].includes(dbRole)) {
-          setRole(dbRole as UserRole);
-        } else {
-          setRole(user.role ?? null);
-        }
-      } catch {
-        if (!cancelled) setRole(user.role ?? null);
-      } finally {
-        if (!cancelled) setIsLoading(false);
+  const { data: role, isLoading, isFetching } = useQuery({
+    queryKey: ['userRole', userId],
+    queryFn: async (): Promise<UserRole | null> => {
+      if (!userId) return null;
+      if (localStorage.getItem('demo_authenticated') === 'true') {
+        return (user as { role?: UserRole })?.role ?? null;
       }
-    })();
-    return () => { cancelled = true; };
-  }, [user?.id, user?.role]);
+      const { data, error } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', userId)
+        .single();
+      if (error) return (user as { role?: UserRole })?.role ?? null;
+      const r = (data as { role?: string })?.role;
+      return r && VALID_ROLES.includes(r as UserRole) ? (r as UserRole) : (user as { role?: UserRole })?.role ?? null;
+    },
+    enabled: !!userId,
+    staleTime: ROLE_STALE_MS,
+    gcTime: ROLE_GC_MS,
+    refetchOnWindowFocus: false,
+    placeholderData: user?.role ?? undefined,
+  });
 
-  return { role: role ?? user?.role ?? null, isLoading };
+  return {
+    role: role ?? user?.role ?? null,
+    isLoading: !!userId && (isLoading || (isFetching && role === undefined)),
+  };
 }
