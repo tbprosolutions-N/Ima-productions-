@@ -1,7 +1,10 @@
 /**
  * Morning (Green Invoice) API via Netlify Function proxy.
  * Never sends API Secret to the client; all auth is server-side.
+ * Uses /api/morning (redirected to /.netlify/functions/morning-api via netlify.toml).
  */
+
+const MORNING_API_PATH = '/api/morning';
 
 export type MorningCreateDocumentResult =
   | { ok: true; docId: string | null; docNumber: string | null; docUrl: string | null }
@@ -20,7 +23,7 @@ export async function checkEventDocumentStatus(
   eventId: string
 ): Promise<MorningCheckStatusResult> {
   const base = typeof window !== 'undefined' ? window.location.origin : '';
-  const url = `${base}/.netlify/functions/morning-api`;
+  const url = `${base}${MORNING_API_PATH}`;
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -67,7 +70,7 @@ export async function createEventDocument(
   eventId: string
 ): Promise<MorningCreateDocumentResult> {
   const base = typeof window !== 'undefined' ? window.location.origin : '';
-  const url = `${base}/.netlify/functions/morning-api`;
+  const url = `${base}${MORNING_API_PATH}`;
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

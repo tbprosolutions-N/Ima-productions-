@@ -7,7 +7,14 @@
 [dev]
   targetPort = 5173
 
-# SPA routing (React Router) — functions are excluded automatically by Netlify
+# Explicit function proxy — ensures CDN edge routes to functions, not SPA fallback
+[[redirects]]
+  from = "/api/morning"
+  to = "/.netlify/functions/morning-api"
+  status = 200
+  force = true
+
+# SPA routing (React Router)
 [[redirects]]
   from = "/*"
   to = "/index.html"
