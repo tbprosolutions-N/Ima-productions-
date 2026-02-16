@@ -201,38 +201,52 @@ async function clearAndSyncAll(args: {
   return { events: events.length, clients: clients.length, artists: artists.length, expenses: expenses.length };
 }
 
-// ── Handler ─────────────────────────────────────────────────────────────────
+// ── CORS + Handler ──────────────────────────────────────────────────────────
+
+const CORS_HEADERS = {
+  'access-control-allow-origin': '*',
+  'access-control-allow-headers': 'authorization, content-type',
+  'access-control-allow-methods': 'POST, OPTIONS',
+};
+
+function respond(statusCode: number, body: unknown) {
+  return { statusCode, headers: { 'content-type': 'application/json', ...CORS_HEADERS }, body: JSON.stringify(body) };
+}
 
 const AUTH_ERROR_MSG = 'טוקן Google פג תוקף או חסר. התנתק/י והתחבר/י מחדש עם Google.';
 
 export const handler = async (event: { httpMethod: string; headers: Record<string, string>; body?: string | null }) => {
+  // CORS preflight
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 204, headers: CORS_HEADERS, body: '' };
+  }
   if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed' }) };
+    return respond(405, { error: 'Method not allowed' });
   }
 
   const supabaseUrl = process.env.SUPABASE_URL?.trim();
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
   if (!supabaseUrl || !supabaseServiceKey) {
-    return { statusCode: 500, body: JSON.stringify({ error: 'Supabase not configured' }) };
+    return respond(500, { error: 'Supabase not configured' });
   }
 
-  let reqBody: { action?: string; agencyId?: string; folderId?: string; spreadsheetId?: string; refreshToken?: string };
+  let reqBody: { action?: string; agencyId?: string; folderId?: string; spreadsheetId?: string; refreshToken?: string; googleToken?: string };
   try {
     reqBody = typeof event.body === 'string' ? JSON.parse(event.body) : event.body || {};
   } catch {
-    return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) };
+    return respond(400, { error: 'Invalid JSON' });
   }
 
-  // Extract user's Google OAuth token from Authorization header
+  // Accept Google OAuth token from Authorization header OR request body
   const authHeader = event.headers?.authorization || event.headers?.Authorization || '';
-  let token = authHeader.replace(/^Bearer\s+/i, '').trim();
+  let token = authHeader.replace(/^Bearer\s+/i, '').trim() || (reqBody.googleToken || '').trim();
   if (!token) {
-    return { statusCode: 401, body: JSON.stringify({ error: AUTH_ERROR_MSG, code: 'NO_TOKEN' }) };
+    return respond(401, { error: AUTH_ERROR_MSG, code: 'NO_TOKEN' });
   }
 
   const { action, agencyId, folderId, spreadsheetId } = reqBody;
   if (!agencyId) {
-    return { statusCode: 400, body: JSON.stringify({ error: 'Missing agencyId' }) };
+    return respond(400, { error: 'Missing agencyId' });
   }
 
   const { createClient } = await import('@supabase/supabase-js');
@@ -257,27 +271,27 @@ export const handler = async (event: { httpMethod: string; headers: Record<strin
   // ── createAndSync ─────────────────────────────────────────────────────────
   if (action === 'createAndSync') {
     if (!folderId) {
-      return { statusCode: 400, body: JSON.stringify({ error: 'Missing folderId' }) };
+      return respond(400, { error: 'Missing folderId' });
     }
 
     let result: { spreadsheetId: string; spreadsheetUrl: string };
     try {
       result = await withTokenRefresh(t => createSpreadsheetInFolder(t, `NPC Sync — ${new Date().toISOString().slice(0, 10)}`, folderId));
     } catch (e: any) {
-      if (e instanceof GoogleAuthError) {
-        return { statusCode: 401, body: JSON.stringify({ error: AUTH_ERROR_MSG, code: 'TOKEN_EXPIRED', detail: e.message }) };
+      if (e instanceof GoogleAuthError || (e?.message && e.message.includes('Google API 401'))) {
+        return respond(401, { error: AUTH_ERROR_MSG, code: 'TOKEN_EXPIRED', detail: e.message });
       }
-      return { statusCode: 502, body: JSON.stringify({ error: 'Failed to create spreadsheet', detail: e.message }) };
+      return respond(502, { error: 'Failed to create spreadsheet', detail: e.message });
     }
 
     let counts: { events: number; clients: number; artists: number; expenses: number };
     try {
       counts = await withTokenRefresh(t => clearAndSyncAll({ token: t, spreadsheetId: result.spreadsheetId, supabase, agencyId }));
     } catch (e: any) {
-      if (e instanceof GoogleAuthError) {
-        return { statusCode: 401, body: JSON.stringify({ error: AUTH_ERROR_MSG, code: 'TOKEN_EXPIRED', detail: e.message, spreadsheetId: result.spreadsheetId, spreadsheetUrl: result.spreadsheetUrl }) };
+      if (e instanceof GoogleAuthError || (e?.message && e.message.includes('Google API 401'))) {
+        return respond(401, { error: AUTH_ERROR_MSG, code: 'TOKEN_EXPIRED', detail: e.message, spreadsheetId: result.spreadsheetId, spreadsheetUrl: result.spreadsheetUrl });
       }
-      return { statusCode: 502, body: JSON.stringify({ error: 'Created spreadsheet but sync failed', detail: e.message, spreadsheetId: result.spreadsheetId, spreadsheetUrl: result.spreadsheetUrl }) };
+      return respond(502, { error: 'Created spreadsheet but sync failed', detail: e.message, spreadsheetId: result.spreadsheetId, spreadsheetUrl: result.spreadsheetUrl });
     }
 
     try {
@@ -292,35 +306,27 @@ export const handler = async (event: { httpMethod: string; headers: Record<strin
       console.warn('Failed to save integration record:', e);
     }
 
-    return {
-      statusCode: 200,
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ ok: true, spreadsheetId: result.spreadsheetId, spreadsheetUrl: result.spreadsheetUrl, counts }),
-    };
+    return respond(200, { ok: true, spreadsheetId: result.spreadsheetId, spreadsheetUrl: result.spreadsheetUrl, counts });
   }
 
   // ── sync ──────────────────────────────────────────────────────────────────
   if (action === 'sync') {
     if (!spreadsheetId) {
-      return { statusCode: 400, body: JSON.stringify({ error: 'Missing spreadsheetId' }) };
+      return respond(400, { error: 'Missing spreadsheetId' });
     }
 
     let counts: { events: number; clients: number; artists: number; expenses: number };
     try {
       counts = await withTokenRefresh(t => clearAndSyncAll({ token: t, spreadsheetId, supabase, agencyId }));
     } catch (e: any) {
-      if (e instanceof GoogleAuthError) {
-        return { statusCode: 401, body: JSON.stringify({ error: AUTH_ERROR_MSG, code: 'TOKEN_EXPIRED', detail: e.message }) };
+      if (e instanceof GoogleAuthError || (e?.message && e.message.includes('Google API 401'))) {
+        return respond(401, { error: AUTH_ERROR_MSG, code: 'TOKEN_EXPIRED', detail: e.message });
       }
-      return { statusCode: 502, body: JSON.stringify({ error: 'Sync failed', detail: e.message }) };
+      return respond(502, { error: 'Sync failed', detail: e.message });
     }
 
-    return {
-      statusCode: 200,
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ ok: true, spreadsheetId, spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`, counts }),
-    };
+    return respond(200, { ok: true, spreadsheetId, spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`, counts });
   }
 
-  return { statusCode: 400, body: JSON.stringify({ error: 'Unknown action. Use createAndSync or sync.' }) };
+  return respond(400, { error: 'Unknown action. Use createAndSync or sync.' });
 };

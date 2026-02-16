@@ -1,7 +1,7 @@
 /**
  * Google Sheets Sync via Netlify Function proxy.
  * Uses /api/sheets-sync (redirected to /.netlify/functions/sheets-sync-api).
- * Passes the user's Google OAuth token from localStorage in the Authorization header.
+ * Passes the user's Google OAuth token in the request body to avoid CORS preflight.
  */
 
 const SHEETS_API_PATH = '/api/sheets-sync';
@@ -26,21 +26,17 @@ export function clearGoogleTokens(): void {
   } catch {}
 }
 
-function buildHeaders(): Record<string, string> {
-  const headers: Record<string, string> = { 'content-type': 'application/json' };
-  const token = getGoogleToken();
-  if (token) headers['authorization'] = `Bearer ${token}`;
-  return headers;
-}
-
 async function sheetsFetch(bodyObj: Record<string, unknown>): Promise<SheetsSyncResult> {
   const base = typeof window !== 'undefined' ? window.location.origin : '';
+
+  const googleToken = getGoogleToken();
+  if (googleToken) bodyObj.googleToken = googleToken;
   const refreshToken = getGoogleRefreshToken();
   if (refreshToken) bodyObj.refreshToken = refreshToken;
 
   const res = await fetch(`${base}${SHEETS_API_PATH}`, {
     method: 'POST',
-    headers: buildHeaders(),
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify(bodyObj),
   });
   const data = await res.json().catch(() => ({})) as any;
