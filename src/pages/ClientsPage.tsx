@@ -15,14 +15,15 @@ import { demoAddSentDoc } from '@/lib/sentDocs';
 import { exportJsonToExcel } from '@/lib/exportUtils';
 import { formatCurrency } from '@/lib/utils';
 import { demoGetClients, demoGetEvents, demoSetClients, demoUpsertClient, isDemoMode } from '@/lib/demoStore';
+import { useClientsQuery, useInvalidateClients } from '@/hooks/useSupabaseQuery';
 
 const ClientsPage: React.FC = () => {
   const { currentAgency } = useAgency();
   const { success, error: showError } = useToast();
   const { user } = useAuth();
   const canSeeMoney = user?.role !== 'producer';
-  const [clients, setClients] = useState<Client[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: clients = [], isLoading: loading } = useClientsQuery(currentAgency?.id);
+  const invalidateClients = useInvalidateClients();
   const [searchQuery, setSearchQuery] = useState('');
   const [view, setView] = useState<'grid' | 'table'>('grid');
   const [showExtra, setShowExtra] = useState(false);
@@ -47,37 +48,6 @@ const ClientsPage: React.FC = () => {
     vat_id: '',
     notes: '',
   });
-
-  useEffect(() => {
-    fetchClients();
-  }, [currentAgency]);
-
-  const fetchClients = async () => {
-    if (!currentAgency) return;
-
-    try {
-      setLoading(true);
-
-      if (isDemoMode()) {
-        setClients(demoGetClients(currentAgency.id));
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from('clients')
-        .select('*')
-        .eq('agency_id', currentAgency.id)
-        .order('name', { ascending: true });
-
-      if (error) throw error;
-      setClients(data || []);
-    } catch (err) {
-      console.error('Error fetching clients:', err);
-      showError('טעינת הלקוחות נכשלה. אנא נסה שוב.');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -106,7 +76,7 @@ const ClientsPage: React.FC = () => {
           : [nextClient, ...existing];
 
         demoSetClients(currentAgency.id, next);
-        setClients(next);
+        invalidateClients(currentAgency.id);
         success(editingClient ? 'לקוח עודכן בהצלחה! ✅' : 'לקוח נוסף בהצלחה! 🎉');
         closeDialog();
         return;
@@ -148,7 +118,7 @@ const ClientsPage: React.FC = () => {
         success('לקוח נוסף בהצלחה! 🎉');
       }
 
-      fetchClients();
+      invalidateClients(currentAgency.id);
       closeDialog();
     } catch (err: any) {
       showError(err.message || 'אירעה שגיאה בשמירה. אנא נסה שוב.');
@@ -164,7 +134,7 @@ const ClientsPage: React.FC = () => {
       if (isDemoMode()) {
         const next = demoGetClients(currentAgency.id).filter(c => c.id !== id);
         demoSetClients(currentAgency.id, next);
-        setClients(next);
+        invalidateClients(currentAgency.id);
         success('לקוח נמחק בהצלחה');
         return;
       }
@@ -176,7 +146,7 @@ const ClientsPage: React.FC = () => {
 
       if (error) throw error;
       success('לקוח נמחק בהצלחה');
-      fetchClients();
+      invalidateClients(currentAgency.id);
     } catch (err: any) {
       showError(err.message || 'אירעה שגיאה במחיקה. אנא נסה שוב.');
     }

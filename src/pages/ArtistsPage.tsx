@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { UserCircle, Plus, Edit, Trash2, Search, ChevronDown, ChevronUp, Mail, Phone, Building, Palette, CreditCard } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
@@ -9,7 +9,9 @@ import { Label } from '@/components/ui/Label';
 import { useAgency } from '@/contexts/AgencyContext';
 import { useToast } from '@/contexts/ToastContext';
 import { supabase } from '@/lib/supabase';
-import { demoGetArtists, demoSetArtists, demoUpsertArtist, isDemoMode } from '@/lib/demoStore';
+import { demoSetArtists, demoUpsertArtist, isDemoMode } from '@/lib/demoStore';
+import { useArtistsQuery, useInvalidateArtists } from '@/hooks/useSupabaseQuery';
+import { cleanNotes } from '@/lib/notesCleanup';
 import type { Artist } from '@/types';
 
 const ARTIST_COLORS = [
@@ -21,8 +23,8 @@ const ARTIST_COLORS = [
 const ArtistsPage: React.FC = () => {
   const { currentAgency } = useAgency();
   const { success, error: showError } = useToast();
-  const [artists, setArtists] = useState<Artist[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: artists = [], isLoading: loading } = useArtistsQuery(currentAgency?.id);
+  const invalidateArtists = useInvalidateArtists();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingArtist, setEditingArtist] = useState<Artist | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -42,29 +44,6 @@ const ArtistsPage: React.FC = () => {
     bank_account: '',
   });
 
-  useEffect(() => {
-    if (!currentAgency) return;
-    const load = async () => {
-      setLoading(true);
-      if (isDemoMode()) {
-        setArtists(demoGetArtists(currentAgency.id));
-      } else {
-        const { data, error } = await supabase
-          .from('artists')
-          .select('*')
-          .eq('agency_id', currentAgency.id)
-          .order('name', { ascending: true });
-        if (error) {
-          showError('טעינת האמנים נכשלה. אנא נסה שוב.');
-          setArtists([]);
-        } else {
-          setArtists((data || []) as Artist[]);
-        }
-      }
-      setLoading(false);
-    };
-    load();
-  }, [currentAgency?.id]);
 
   const filteredArtists = artists.filter(a =>
     !searchQuery || a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -72,9 +51,7 @@ const ArtistsPage: React.FC = () => {
     (a.company_name || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  /** Strip IMA_PAYOUT metadata from notes for display/edit. */
-  const stripPayoutMetadata = (notes: string | null | undefined): string =>
-    (notes || '').replace(/IMA_PAYOUT_=\{[^}]*\}__/g, '').replace(/IMA_PAYOUT_[^_]+__/g, '').trim();
+  const stripPayoutMetadata = cleanNotes;
 
   const openDialog = (artist?: Artist) => {
     if (artist) {
@@ -130,12 +107,7 @@ const ArtistsPage: React.FC = () => {
       };
 
       if (isDemoMode()) {
-        const updated = demoUpsertArtist(currentAgency.id, payload as any, editingArtist?.id);
-        const list: Artist[] = editingArtist
-          ? artists.map((a) => (a.id === editingArtist.id ? { ...a, ...payload, updated_at: new Date().toISOString() } as Artist : a))
-          : [{ ...updated, ...payload } as Artist, ...artists];
-        demoSetArtists(currentAgency.id, list);
-        setArtists(list);
+        demoUpsertArtist(currentAgency.id, payload as any, editingArtist?.id);
         success(editingArtist ? 'אמן עודכן בהצלחה' : 'אמן נוסף בהצלחה');
       } else {
         if (editingArtist) {
@@ -154,13 +126,8 @@ const ArtistsPage: React.FC = () => {
           if (error) throw error;
           success('אמן נוסף בהצלחה');
         }
-        const { data } = await supabase
-          .from('artists')
-          .select('*')
-          .eq('agency_id', currentAgency.id)
-          .order('name', { ascending: true });
-        setArtists((data || []) as Artist[]);
       }
+      invalidateArtists(currentAgency.id);
       closeDialog();
     } catch (err: any) {
       showError(err?.message || 'אירעה שגיאה. אנא נסה שוב.');
@@ -174,14 +141,13 @@ const ArtistsPage: React.FC = () => {
       if (isDemoMode()) {
         const next = artists.filter((a) => a.id !== id);
         demoSetArtists(currentAgency.id, next);
-        setArtists(next);
         success('אמן נמחק');
       } else {
         const { error } = await supabase.from('artists').delete().eq('id', id);
         if (error) throw error;
-        setArtists((prev) => prev.filter((a) => a.id !== id));
         success('אמן נמחק');
       }
+      invalidateArtists(currentAgency.id);
     } catch (err: any) {
       showError(err?.message || 'אירעה שגיאה במחיקה. אנא נסה שוב.');
     }
@@ -319,9 +285,7 @@ const ArtistsPage: React.FC = () => {
                         <DetailItem icon={<CreditCard className="w-4 h-4" />} label="ח.פ / עוסק" value={artist.vat_id} />
                         <DetailItem icon={<CreditCard className="w-4 h-4" />} label="בנק" value={artist.bank_name ? `${artist.bank_name} סניף ${artist.bank_branch || '—'} חשבון ${artist.bank_account || '—'}` : undefined} />
                         {artist.notes && (() => {
-                          // Hide raw IMA_PAYOUT_={...}__ metadata – show only human-readable notes
-                          const raw = String(artist.notes);
-                          const cleaned = raw.replace(/IMA_PAYOUT_=\{[^}]*\}__/g, '').replace(/IMA_PAYOUT_[^_]+__/g, '').trim();
+                          const cleaned = cleanNotes(artist.notes);
                           if (!cleaned) return null;
                           return (
                             <div className="sm:col-span-2 lg:col-span-3">

@@ -38,6 +38,7 @@ import {
   demoUpsertClient,
   isDemoMode,
 } from '@/lib/demoStore';
+import { useArtistsQuery, useClientsQuery, useInvalidateClients, useInvalidateArtists } from '@/hooks/useSupabaseQuery';
 import { buildTemplateVariables, demoAddSentDoc, renderTemplate } from '@/lib/sentDocs';
 import { getMorningApiKey, getMorningCompanyId, isIntegrationConnected } from '@/lib/settingsStore';
 import { useSearchParams } from 'react-router-dom';
@@ -56,6 +57,10 @@ const EventsPage: React.FC = () => {
       (user.permissions?.events_create !== false && ['producer', 'manager', 'owner'].includes(user.role)));
   const [searchParams, setSearchParams] = useSearchParams();
   const [events, setEvents] = useState<Event[]>([]);
+  const { data: clients = [] } = useClientsQuery(currentAgency?.id);
+  const { data: artists = [] } = useArtistsQuery(currentAgency?.id);
+  const invalidateClients = useInvalidateClients();
+  const invalidateArtists = useInvalidateArtists();
   const [requestCorrectionEvent, setRequestCorrectionEvent] = useState<Event | null>(null);
 
   const isRowLocked = (ev: Event) => !!(ev.morning_id || ev.morning_sync_status === 'synced');
@@ -66,8 +71,6 @@ const EventsPage: React.FC = () => {
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
-  const [clients, setClients] = useState<Client[]>([]);
-  const [artists, setArtists] = useState<Artist[]>([]);
   const isOwner = user?.role === 'owner';
   type EventFormData = {
     event_date: string;
@@ -152,7 +155,6 @@ const EventsPage: React.FC = () => {
   useEffect(() => {
     if (currentAgency) {
       fetchEvents();
-      fetchReferences();
     } else {
       setLoading(false);
     }
@@ -172,51 +174,25 @@ const EventsPage: React.FC = () => {
     setSearchParams(next, { replace: true });
   }, [searchParams, loading, events]);
 
-  const fetchReferences = async () => {
-    if (!currentAgency) return;
-    try {
-      if (isDemoMode()) {
-        setClients(demoGetClients(currentAgency.id));
-        setArtists(demoGetArtists(currentAgency.id));
-        return;
-      }
-
-      const [{ data: cData }, { data: aData }] = await Promise.all([
-        supabase.from('clients').select('*').eq('agency_id', currentAgency.id).order('name', { ascending: true }),
-        supabase.from('artists').select('*').eq('agency_id', currentAgency.id).order('name', { ascending: true }),
-      ]);
-      setClients((cData as Client[]) || []);
-      setArtists((aData as Artist[]) || []);
-    } catch {
-      // ignore – references are optional for basic CRUD
-    }
-  };
-
   const fetchEvents = async () => {
     if (!currentAgency) return;
-
     try {
       setLoading(true);
-
-      // DEMO MODE: Use localStorage (no Supabase / no RLS issues)
       if (isDemoMode()) {
         setEvents(demoGetEvents(currentAgency.id));
         return;
       }
-
       const { data, error } = await supabase
         .from('events')
         .select('*')
         .eq('agency_id', currentAgency.id)
         .order('event_date', { ascending: false });
-
       if (error) throw error;
       setEvents(data || []);
     } catch (error) {
       console.error('Error fetching events:', error);
-      // Fallback: still show something in demo/offline scenarios
       if (isDemoMode()) {
-        setEvents(demoGetEvents(currentAgency?.id || 'ima-productions-id'));
+        setEvents(demoGetEvents(currentAgency?.id || 'npc-agency-id'));
       } else {
         showError('טעינת האירועים נכשלה. אנא נסה שוב.');
       }
@@ -352,7 +328,7 @@ const EventsPage: React.FC = () => {
           if (found) return { id: found.id, existed: true };
           const created = demoUpsertClient(currentAgency.id, { name: clientName });
           demoSetClients(currentAgency.id, [created, ...existing]);
-          setClients([created, ...existing]);
+          invalidateClients(currentAgency.id);
           return { id: created.id, existed: false };
         }
         const { data: found } = await supabase
@@ -380,7 +356,7 @@ const EventsPage: React.FC = () => {
           if (found) return { id: found.id, existed: true };
           const created = demoUpsertArtist(currentAgency.id, { name: artistName });
           demoSetArtists(currentAgency.id, [created, ...existing]);
-          setArtists([created, ...existing]);
+          invalidateArtists(currentAgency.id);
           return { id: created.id, existed: false };
         }
         const { data: found } = await supabase

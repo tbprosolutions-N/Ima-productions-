@@ -1,18 +1,33 @@
 /**
  * PWA registration and install prompt for NPC.
  * Ensures app is installable on Netlify (HTTPS) and supports beforeinstallprompt.
+ * Optimized to avoid redundant re-registrations.
  */
 
 let deferredPrompt: { prompt: () => Promise<{ outcome: string }>; userChoice: Promise<{ outcome: string }> } | null = null;
+let registered = false;
 
 export function registerServiceWorker(): void {
+  if (registered) return;
   if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
+  registered = true;
+
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/service-worker.js', { scope: '/' }).then(
       (reg) => {
-        console.log('NPC PWA: Service Worker registered', reg.scope);
+        // Silent update check — don't log on every page load
+        reg.addEventListener('updatefound', () => {
+          const newWorker = reg.installing;
+          if (newWorker) {
+            newWorker.addEventListener('statechange', () => {
+              if (newWorker.state === 'activated' && navigator.serviceWorker.controller) {
+                console.log('NPC PWA: New version available');
+              }
+            });
+          }
+        });
       },
-      (err) => console.warn('NPC PWA: Service Worker registration failed', err)
+      () => { /* SW registration failed — non-critical */ }
     );
   });
 }

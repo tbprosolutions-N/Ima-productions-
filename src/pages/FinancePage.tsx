@@ -18,6 +18,7 @@ import { deleteFinanceExpenseFile, getFinanceExpenseFile, setFinanceExpenseFile,
 import { supabase } from '@/lib/supabase';
 import type { Artist, Client, Event } from '@/types';
 import { demoGetArtists, demoGetClients, demoGetEvents, isDemoMode } from '@/lib/demoStore';
+import { cleanNotes } from '@/lib/notesCleanup';
 import { exportJsonToCSV, exportJsonToExcel } from '@/lib/exportUtils';
 import { useSearchParams } from 'react-router-dom';
 import { formatCurrency } from '@/lib/utils';
@@ -521,7 +522,7 @@ const FinancePageContent: React.FC = () => {
         'סטטוס': e.status,
         'הכנסה לחברה': Number(e.amount) || 0,
         'לתשלום לאמן': payable,
-        'הערות': e.notes || '',
+        'הערות': cleanNotes(e.notes),
       });
     }
 
@@ -1924,7 +1925,7 @@ const FinancePageContent: React.FC = () => {
                           </div>
                           <div className="rounded-md border border-border bg-background/40 dark:bg-card/60 px-3 py-2">
                             <div className="text-xs text-muted-foreground">הערות</div>
-                            <div className="text-foreground font-medium truncate">{e.notes?.trim() ? e.notes : '—'}</div>
+                            <div className="text-foreground font-medium truncate">{cleanNotes(e.notes) || '—'}</div>
                           </div>
                           <div className="md:col-span-3 flex justify-end">
                             <Button type="button" variant="outline" size="sm" onClick={() => setInlineEditExpenseId(e.id)} title="ערוך פרטים">

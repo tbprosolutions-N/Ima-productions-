@@ -1,5 +1,6 @@
 import React, { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { LocaleProvider } from './contexts/LocaleContext';
@@ -8,6 +9,17 @@ import { ToastProvider } from './contexts/ToastContext';
 import MainLayout from './components/MainLayout';
 import SetupWizard from './components/SetupWizard';
 import PageLoader from './components/PageLoader';
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 2 * 60 * 1000,
+      gcTime: 10 * 60 * 1000,
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+});
 
 const LoginPage = lazy(() => import('./pages/LoginPage'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
@@ -215,19 +227,21 @@ const AppRoutes: React.FC = () => {
 
 function App() {
   return (
-    <BrowserRouter>
-      <ThemeProvider>
-        <LocaleProvider>
-          <ToastProvider>
-            <AuthProvider>
-              <AgencyProvider>
-                <AppRoutes />
-              </AgencyProvider>
-            </AuthProvider>
-          </ToastProvider>
-        </LocaleProvider>
-      </ThemeProvider>
-    </BrowserRouter>
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <ThemeProvider>
+          <LocaleProvider>
+            <ToastProvider>
+              <AuthProvider>
+                <AgencyProvider>
+                  <AppRoutes />
+                </AgencyProvider>
+              </AuthProvider>
+            </ToastProvider>
+          </LocaleProvider>
+        </ThemeProvider>
+      </BrowserRouter>
+    </QueryClientProvider>
   );
 }
 
