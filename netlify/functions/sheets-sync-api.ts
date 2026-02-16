@@ -1,51 +1,11 @@
 /**
  * Netlify Function: Google Sheets Sync API.
  * Creates a spreadsheet in a user's Drive folder and syncs all agency data.
- * Uses a Google Service Account for auth — no user OAuth needed.
+ * Uses the logged-in user's Google OAuth token (passed via Authorization header).
  *
  * Env:
- * - GOOGLE_SA_CLIENT_EMAIL (Service Account email)
- * - GOOGLE_SA_PRIVATE_KEY (Service Account private key, PEM format)
  * - SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
  */
-
-// ── Google Service Account JWT Auth ─────────────────────────────────────────
-
-function base64url(input: string): string {
-  return Buffer.from(input).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-async function getServiceAccountToken(email: string, privateKeyPem: string): Promise<string> {
-  const header = base64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
-  const now = Math.floor(Date.now() / 1000);
-  const claim = base64url(JSON.stringify({
-    iss: email,
-    scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive',
-    aud: 'https://oauth2.googleapis.com/token',
-    iat: now,
-    exp: now + 3600,
-  }));
-  const unsignedToken = `${header}.${claim}`;
-
-  const crypto = await import('crypto');
-  const sign = crypto.createSign('RSA-SHA256');
-  sign.update(unsignedToken);
-  const signature = sign.sign(privateKeyPem, 'base64')
-    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-
-  const jwt = `${unsignedToken}.${signature}`;
-
-  const res = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=${jwt}`,
-  });
-  const data = await res.json() as { access_token?: string; error?: string; error_description?: string };
-  if (!res.ok || !data.access_token) {
-    throw new Error(`Google SA token error: ${data.error_description || data.error || res.status}`);
-  }
-  return data.access_token;
-}
 
 // ── Google API helpers ──────────────────────────────────────────────────────
 
@@ -91,7 +51,7 @@ async function createSpreadsheetInFolder(token: string, title: string, folderId:
         body: {},
       });
     } catch (e) {
-      console.warn('Could not move spreadsheet to folder (folder may not be shared with SA):', e);
+      console.warn('Could not move spreadsheet to folder:', e);
     }
   }
 
@@ -200,19 +160,20 @@ async function clearAndSyncAll(args: {
 
 // ── Handler ─────────────────────────────────────────────────────────────────
 
-export const handler = async (event: { httpMethod: string; body?: string | null }) => {
+export const handler = async (event: { httpMethod: string; headers: Record<string, string>; body?: string | null }) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed' }) };
   }
 
-  const saEmail = process.env.GOOGLE_SA_CLIENT_EMAIL?.trim();
-  const saKey = (process.env.GOOGLE_SA_PRIVATE_KEY || '').replace(/\\n/g, '\n').trim();
+  // Extract user's Google OAuth token from Authorization header
+  const authHeader = event.headers?.authorization || event.headers?.Authorization || '';
+  const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+  if (!token) {
+    return { statusCode: 401, body: JSON.stringify({ error: 'Missing Google OAuth token. Please log in with Google and grant Sheets/Drive permissions.' }) };
+  }
+
   const supabaseUrl = process.env.SUPABASE_URL?.trim();
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
-
-  if (!saEmail || !saKey) {
-    return { statusCode: 500, body: JSON.stringify({ error: 'Google Service Account not configured (GOOGLE_SA_CLIENT_EMAIL, GOOGLE_SA_PRIVATE_KEY)' }) };
-  }
   if (!supabaseUrl || !supabaseServiceKey) {
     return { statusCode: 500, body: JSON.stringify({ error: 'Supabase not configured' }) };
   }
@@ -227,13 +188,6 @@ export const handler = async (event: { httpMethod: string; body?: string | null 
   const { action, agencyId, folderId, spreadsheetId } = body;
   if (!agencyId) {
     return { statusCode: 400, body: JSON.stringify({ error: 'Missing agencyId' }) };
-  }
-
-  let token: string;
-  try {
-    token = await getServiceAccountToken(saEmail, saKey);
-  } catch (e: any) {
-    return { statusCode: 502, body: JSON.stringify({ error: 'Google auth failed', detail: e.message }) };
   }
 
   const { createClient } = await import('@supabase/supabase-js');
@@ -274,7 +228,7 @@ export const handler = async (event: { httpMethod: string; body?: string | null 
     return {
       statusCode: 200,
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ ok: true, spreadsheetId: result.spreadsheetId, spreadsheetUrl: result.spreadsheetUrl, counts, saEmail }),
+      body: JSON.stringify({ ok: true, spreadsheetId: result.spreadsheetId, spreadsheetUrl: result.spreadsheetUrl, counts }),
     };
   }
 

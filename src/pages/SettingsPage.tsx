@@ -24,7 +24,7 @@ import { updateFaviconForPalette } from '@/lib/favicon';
 import type { IntegrationConnection } from '@/types';
 import { demoGetEvents, demoGetClients, demoGetArtists, isDemoMode } from '@/lib/demoStore';
 import { getFinanceExpenses } from '@/lib/financeStore';
-import { createSheetAndSync, resyncSheet } from '@/services/sheetsSyncService';
+import { createSheetAndSync, resyncSheet, hasGoogleToken } from '@/services/sheetsSyncService';
 import jsPDF from 'jspdf';
 
 const SettingsPage: React.FC = () => {
@@ -1247,13 +1247,18 @@ const SettingsPage: React.FC = () => {
                     disabled={sheetsSyncing}
                   />
                   <p className="text-xs text-muted-foreground">
-                    שתף את התיקייה עם כתובת Service Account (Editor) לפני הסנכרון.
+                    הגיבוי משתמש בחשבון Google שלך. ודא/י שהתחברת עם Google ושיש הרשאות Sheets ו-Drive.
                   </p>
+                  {!hasGoogleToken() && (
+                    <div className="rounded-lg border border-yellow-300 bg-yellow-50 dark:bg-yellow-950/20 dark:border-yellow-800 p-3 text-sm text-yellow-800 dark:text-yellow-200">
+                      לא נמצא טוקן Google. התנתק/י והתחבר/י מחדש עם Google כדי לאשר הרשאות Sheets ו-Drive.
+                    </div>
+                  )}
                   <div className="flex flex-wrap gap-2">
                     <Button
                       type="button"
                       className="btn-magenta"
-                      disabled={sheetsSyncing}
+                      disabled={sheetsSyncing || !hasGoogleToken()}
                       onClick={async () => {
                         const url = backupUrl.trim();
                         if (!url) { toast.error('נא להזין קישור לתיקיית Drive'); return; }
@@ -1268,9 +1273,7 @@ const SettingsPage: React.FC = () => {
                           if (result.ok) {
                             setSheetsSpreadsheetId(result.spreadsheetId);
                             toast.success(`גיליון נוצר וסונכרן: ${result.counts.events} אירועים, ${result.counts.clients} לקוחות, ${result.counts.artists} אמנים, ${result.counts.expenses} הוצאות`);
-                            if (result.saEmail) {
-                              toast.info(`שתף את התיקייה עם: ${result.saEmail}`);
-                            }
+                            
                           } else {
                             if (result.spreadsheetId) setSheetsSpreadsheetId(result.spreadsheetId);
                             toast.error(result.error + (result.detail ? ` — ${result.detail}` : ''));

@@ -191,6 +191,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             window.history.replaceState(null, '', window.location.pathname + window.location.search);
           }
         }
+        // Capture Google OAuth provider token for Sheets/Drive API access
+        if (event === 'SIGNED_IN' && session.provider_token) {
+          try { localStorage.setItem('google_provider_token', session.provider_token); } catch {}
+        }
         setSupabaseUser(session.user);
         await fetchUserProfile(session.user);
         setLoading(false);

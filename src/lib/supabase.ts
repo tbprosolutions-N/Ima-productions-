@@ -138,7 +138,10 @@ export const signInWithGoogle = async (): Promise<{ error: { message: string } |
   try {
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo },
+      options: {
+        redirectTo,
+        scopes: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file',
+      },
     });
     if (error) return { error: { message: error.message } };
     if (data?.url) window.location.href = data.url;
@@ -149,6 +152,7 @@ export const signInWithGoogle = async (): Promise<{ error: { message: string } |
 };
 
 export const signOut = async () => {
+  try { localStorage.removeItem('google_provider_token'); } catch {}
   const { error } = await supabase.auth.signOut();
   return { error };
 };
