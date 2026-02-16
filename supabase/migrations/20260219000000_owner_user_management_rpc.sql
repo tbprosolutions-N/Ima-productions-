@@ -45,6 +45,9 @@ BEGIN
 END;
 $$;
 
+-- Drop first in case existing function has different return type
+DROP FUNCTION IF EXISTS public.remove_agency_user(uuid);
+
 CREATE OR REPLACE FUNCTION public.remove_agency_user(p_user_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql

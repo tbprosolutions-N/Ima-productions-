@@ -171,6 +171,7 @@ const SettingsPage: React.FC = () => {
   const canManageUsers = user?.role === 'owner' || user?.role === 'manager';
   const canEditPermissionLevels = user?.role === 'owner';
   const canEditDeleteUsers = user?.role === 'owner' || (user?.email?.toLowerCase() === 'tb.prosolutions@gmail.com');
+  const canCreateBackupSheets = user?.role === 'owner' && (user?.email?.toLowerCase() === 'npcollectivebooking@gmail.com');
 
   // Tutorial (per-user)
   const tourDisabledKey = user?.id ? `ima_tour_disabled_${user.id}` : '';
@@ -474,6 +475,7 @@ const SettingsPage: React.FC = () => {
   };
 
   const [deleteUserTarget, setDeleteUserTarget] = useState<ManagedUser | null>(null);
+  const [deleteUserLoading, setDeleteUserLoading] = useState(false);
   const [editUserTarget, setEditUserTarget] = useState<ManagedUser | null>(null);
   const [editUserRole, setEditUserRole] = useState<ManagedUser['role']>('producer');
 
@@ -491,8 +493,13 @@ const SettingsPage: React.FC = () => {
       toast.success('משתמש הוסר');
       return;
     }
+    setDeleteUserLoading(true);
     try {
-      const { data, error } = await supabase.rpc('remove_agency_user', { p_user_id: target.id });
+      const rpcName = target.status === 'pending' ? 'remove_pending_invite' : 'remove_agency_user';
+      const rpcPayload = target.status === 'pending'
+        ? { p_invite_id: target.id }
+        : { p_user_id: target.id };
+      const { data, error } = await supabase.rpc(rpcName, rpcPayload);
       const res = data as { ok?: boolean; error?: string } | null;
       if (error || !res?.ok) {
         toast.error(res?.error || error?.message || 'מחיקת משתמש נכשלה');
@@ -503,6 +510,8 @@ const SettingsPage: React.FC = () => {
       toast.success('משתמש הוסר מהמערכת');
     } catch (e: any) {
       toast.error(e?.message || 'מחיקת משתמש נכשלה');
+    } finally {
+      setDeleteUserLoading(false);
     }
   };
 
@@ -545,7 +554,7 @@ const SettingsPage: React.FC = () => {
     role === 'owner' ? 'בעלים' : role === 'manager' ? 'מנהל' : role === 'finance' ? 'כספים' : 'מפיק';
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 overflow-x-hidden">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -572,9 +581,9 @@ const SettingsPage: React.FC = () => {
         </div>
         <div className="p-6">
       {tab === 'general' && (
-        <div className="modu-grid-12 grid-cols-1 lg:grid-cols-12">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Profile */}
-          <div className="lg:col-span-6">
+          <div>
           <Card className="border-border modu-elevation-1">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -630,7 +639,7 @@ const SettingsPage: React.FC = () => {
           </div>
 
           {/* Appearance */}
-          <div className="lg:col-span-6">
+          <div>
           <Card className="border-border modu-elevation-1">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -688,7 +697,7 @@ const SettingsPage: React.FC = () => {
           </div>
 
           {/* Branding — compact card to fit content only */}
-          <div className="lg:col-span-6">
+          <div>
           <Card className="border-border modu-elevation-1 w-full max-w-xl">
             <CardHeader className="pb-2">
               <CardTitle className="flex items-center gap-2 text-base">
@@ -716,8 +725,8 @@ const SettingsPage: React.FC = () => {
           </Card>
           </div>
 
-          {/* Notifications + Security (kept) */}
-          <div className="lg:col-span-6">
+          {/* Notifications */}
+          <div>
           <Card className="border-border modu-elevation-1">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -783,7 +792,10 @@ const SettingsPage: React.FC = () => {
             </CardContent>
           </Card>
 
+          </div>
+
           {/* Help / Guides */}
+          <div className="md:col-span-2">
           <Card className="border-primary/20">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -876,7 +888,10 @@ const SettingsPage: React.FC = () => {
               </div>
             </CardContent>
           </Card>
+          </div>
 
+          {/* Security */}
+          <div className="md:col-span-2">
           <Card className="border-primary/20">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -1145,8 +1160,10 @@ const SettingsPage: React.FC = () => {
                 </DialogDescription>
               </DialogHeader>
               <div className="flex gap-2 justify-end mt-4">
-                <Button variant="outline" onClick={() => setDeleteUserTarget(null)}>ביטול</Button>
-                <Button variant="destructive" onClick={() => deleteUserTarget && handleDeleteUser(deleteUserTarget)}>הסר משתמש</Button>
+                <Button variant="outline" onClick={() => setDeleteUserTarget(null)} disabled={deleteUserLoading}>ביטול</Button>
+                <Button variant="destructive" onClick={() => deleteUserTarget && handleDeleteUser(deleteUserTarget)} disabled={deleteUserLoading}>
+                  {deleteUserLoading ? 'מסיר...' : 'הסר משתמש'}
+                </Button>
               </div>
             </DialogContent>
           </Dialog>
@@ -1314,12 +1331,17 @@ const SettingsPage: React.FC = () => {
                   <Globe className="w-5 h-5 text-primary" />
                   סנכרון אוטומטי ל־Google Sheets
                 </CardTitle>
+                {!canCreateBackupSheets && (
+                  <p className="text-sm text-amber-600 dark:text-amber-400 mt-1">
+                    יצירת גיליון גיבוי זמינה רק לחשבון npcollectivebooking@gmail.com
+                  </p>
+                )}
                 <p className="text-sm text-muted-foreground mt-1">
                   הדבק קישור לתיקיית Drive — המערכת תיצור גיליון ותסנכרן את כל הנתונים (אירועים, לקוחות, אמנים, פיננסים).
                 </p>
               </CardHeader>
               <CardContent className="space-y-4">
-                {sheetsSpreadsheetId && (
+                {canCreateBackupSheets && sheetsSpreadsheetId && (
                   <div className="rounded-lg border border-green-300 bg-green-50 dark:bg-green-950/20 dark:border-green-800 p-3 space-y-2">
                     <div className="flex items-center gap-2">
                       <div className="w-2 h-2 rounded-full bg-green-500" />
@@ -1372,6 +1394,7 @@ const SettingsPage: React.FC = () => {
                     </div>
                   </div>
                 )}
+                {canCreateBackupSheets && (
                 <div className="space-y-2">
                   <Label className="text-foreground">קישור לתיקיית Google Drive</Label>
                   <Input
@@ -1445,6 +1468,7 @@ const SettingsPage: React.FC = () => {
                     )}
                   </div>
                 </div>
+                )}
                 <div className="border-t border-border pt-4 mt-4 space-y-3">
                   <Label className="text-foreground">ייצוא גיבוי מקומי (JSON)</Label>
                   <p className="text-xs text-muted-foreground">
