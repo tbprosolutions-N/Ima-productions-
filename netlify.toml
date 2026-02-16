@@ -7,10 +7,16 @@
 [dev]
   targetPort = 5173
 
-# Explicit function proxy — ensures CDN edge routes to functions, not SPA fallback
+# Explicit function proxies — ensures CDN edge routes to functions, not SPA fallback
 [[redirects]]
   from = "/api/morning"
   to = "/.netlify/functions/morning-api"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/sheets-sync"
+  to = "/.netlify/functions/sheets-sync-api"
   status = 200
   force = true
 

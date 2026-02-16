@@ -24,6 +24,7 @@ import { updateFaviconForPalette } from '@/lib/favicon';
 import type { IntegrationConnection } from '@/types';
 import { demoGetEvents, demoGetClients, demoGetArtists, isDemoMode } from '@/lib/demoStore';
 import { getFinanceExpenses } from '@/lib/financeStore';
+import { createSheetAndSync, resyncSheet } from '@/services/sheetsSyncService';
 import jsPDF from 'jspdf';
 
 const SettingsPage: React.FC = () => {
@@ -154,6 +155,7 @@ const SettingsPage: React.FC = () => {
 
   // Data backup link (e.g., Google Drive / Sheets)
   const [backupUrl, setBackupUrl] = useState('');
+  const [sheetsSyncing, setSheetsSyncing] = useState(false);
 
   // Color palette (accent) – like Chrome theme; explicit Save
   const [pendingAccentPalette, setPendingAccentPalette] = useState<string>(() => localStorage.getItem('ima_palette') || 'bw');
@@ -1180,57 +1182,132 @@ const SettingsPage: React.FC = () => {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Globe className="w-5 h-5 text-primary" />
-                  קישור גיבוי (Google Drive / Sheets)
+                  סנכרון אוטומטי ל־Google Sheets
                 </CardTitle>
                 <p className="text-sm text-muted-foreground mt-1">
-                  שמור קישור לתיקייה או גיליון ב־Drive; ייצא נתונים להעתקה או הורדה.
+                  הדבק קישור לתיקיית Drive — המערכת תיצור גיליון ותסנכרן את כל הנתונים (אירועים, לקוחות, אמנים, פיננסים).
                 </p>
               </CardHeader>
               <CardContent className="space-y-4">
-                {!isDemo() && sheetsSpreadsheetId && (
-                  <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-2">
-                    <Label className="text-foreground">גיליון גיבוי אירועים (Google Sheets)</Label>
+                {sheetsSpreadsheetId && (
+                  <div className="rounded-lg border border-green-300 bg-green-50 dark:bg-green-950/20 dark:border-green-800 p-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-green-500" />
+                      <Label className="text-foreground font-semibold">גיליון מסונכרן</Label>
+                    </div>
                     <p className="text-xs text-muted-foreground">
-                      הגיליון נוצר אוטומטית עם יצירת הנתונים הראשונים ומתעדכן בסנכרון.
+                      הגיליון נוצר ומכיל 4 טאבים: אירועים, לקוחות, אמנים, פיננסים.
                     </p>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => window.open(`https://docs.google.com/spreadsheets/d/${sheetsSpreadsheetId}/edit`, '_blank', 'noopener,noreferrer')}
-                    >
-                      פתח גיליון גיבוי ב־Sheets
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => window.open(`https://docs.google.com/spreadsheets/d/${sheetsSpreadsheetId}/edit`, '_blank', 'noopener,noreferrer')}
+                      >
+                        פתח ב־Google Sheets
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={sheetsSyncing}
+                        onClick={async () => {
+                          if (!currentAgency?.id || !sheetsSpreadsheetId) return;
+                          setSheetsSyncing(true);
+                          try {
+                            const result = await resyncSheet(currentAgency.id, sheetsSpreadsheetId);
+                            if (result.ok) {
+                              toast.success(`סנכרון הושלם: ${result.counts.events} אירועים, ${result.counts.clients} לקוחות, ${result.counts.artists} אמנים, ${result.counts.expenses} הוצאות`);
+                            } else {
+                              toast.error(result.error + (result.detail ? ` — ${result.detail}` : ''));
+                            }
+                          } catch (e: any) {
+                            toast.error(e?.message || 'סנכרון נכשל');
+                          } finally {
+                            setSheetsSyncing(false);
+                          }
+                        }}
+                      >
+                        {sheetsSyncing ? (
+                          <span className="flex items-center gap-2">
+                            <span className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                            מסנכרן...
+                          </span>
+                        ) : 'סנכרן שוב'}
+                      </Button>
+                    </div>
                   </div>
                 )}
                 <div className="space-y-2">
-                  <Label className="text-foreground">קישור לקובץ/תיקיית גיבוי</Label>
+                  <Label className="text-foreground">קישור לתיקיית Google Drive</Label>
                   <Input
                     value={backupUrl}
                     onChange={(e) => setBackupUrl(e.target.value)}
-                    placeholder="הדבק/י כאן קישור שיתוף (Drive/Sheets)"
+                    placeholder="https://drive.google.com/drive/folders/..."
                     className="border-primary/30 w-full"
+                    disabled={sheetsSyncing}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    שתף את התיקייה עם כתובת Service Account (Editor) לפני הסנכרון.
+                  </p>
                   <div className="flex flex-wrap gap-2">
-                    <Button type="button" className="btn-magenta" onClick={saveBackupUrl}>
-                      שמור
-                    </Button>
                     <Button
                       type="button"
-                      variant="outline"
-                      onClick={() => {
+                      className="btn-magenta"
+                      disabled={sheetsSyncing}
+                      onClick={async () => {
                         const url = backupUrl.trim();
-                        if (!url) return toast.error('אין קישור לפתיחה');
-                        window.open(url, '_blank', 'noopener,noreferrer');
+                        if (!url) { toast.error('נא להזין קישור לתיקיית Drive'); return; }
+                        const folderMatch = url.match(/folders\/([a-zA-Z0-9_-]+)/);
+                        if (!folderMatch) { toast.error('הקישור אינו קישור תיקיית Google Drive תקין'); return; }
+                        const folderId = folderMatch[1];
+                        if (!currentAgency?.id) { toast.error('אין סוכנות פעילה'); return; }
+                        saveBackupUrl();
+                        setSheetsSyncing(true);
+                        try {
+                          const result = await createSheetAndSync(currentAgency.id, folderId);
+                          if (result.ok) {
+                            setSheetsSpreadsheetId(result.spreadsheetId);
+                            toast.success(`גיליון נוצר וסונכרן: ${result.counts.events} אירועים, ${result.counts.clients} לקוחות, ${result.counts.artists} אמנים, ${result.counts.expenses} הוצאות`);
+                            if (result.saEmail) {
+                              toast.info(`שתף את התיקייה עם: ${result.saEmail}`);
+                            }
+                          } else {
+                            if (result.spreadsheetId) setSheetsSpreadsheetId(result.spreadsheetId);
+                            toast.error(result.error + (result.detail ? ` — ${result.detail}` : ''));
+                          }
+                        } catch (e: any) {
+                          toast.error(e?.message || 'יצירת גיליון נכשלה');
+                        } finally {
+                          setSheetsSyncing(false);
+                        }
                       }}
                     >
-                      פתח ב־Drive
+                      {sheetsSyncing ? (
+                        <span className="flex items-center gap-2">
+                          <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          יוצר ומסנכרן...
+                        </span>
+                      ) : (sheetsSpreadsheetId ? 'צור גיליון חדש וסנכרן' : 'צור גיליון וסנכרן')}
                     </Button>
+                    {backupUrl.trim() && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          const url = backupUrl.trim();
+                          if (!url) return toast.error('אין קישור לפתיחה');
+                          window.open(url, '_blank', 'noopener,noreferrer');
+                        }}
+                      >
+                        פתח תיקייה ב־Drive
+                      </Button>
+                    )}
                   </div>
                 </div>
                 <div className="border-t border-border pt-4 mt-4 space-y-3">
-                  <Label className="text-foreground">ייצוא גיבוי (אירועים, לקוחות, אמנים, הוצאות)</Label>
+                  <Label className="text-foreground">ייצוא גיבוי מקומי (JSON)</Label>
                   <p className="text-xs text-muted-foreground">
-                    העתק ללוח או הורד JSON והעלה/הדבק ב־Drive.
+                    העתק ללוח או הורד כקובץ JSON.
                   </p>
                   <div className="flex flex-wrap gap-2">
                     <Button
@@ -1242,22 +1319,10 @@ const SettingsPage: React.FC = () => {
                           const clients = isDemoMode() ? demoGetClients(agencyId) : [];
                           const artists = isDemoMode() ? demoGetArtists(agencyId) : [];
                           const expenses = getFinanceExpenses(agencyId);
-                          const payload = {
-                            exportedAt: new Date().toISOString(),
-                            agencyId,
-                            companyName: getCompanyName(agencyId) || currentAgency?.name,
-                            events,
-                            clients,
-                            artists,
-                            expenses: expenses.map(e => ({ id: e.id, filename: e.filename, amount: e.amount, vendor: e.vendor, created_at: e.created_at, notes: e.notes })),
-                          };
-                          const str = JSON.stringify(payload, null, 2);
-                          navigator.clipboard.writeText(str);
-                          toast.success('גיבוי הועתק ללוח — הדבק בקובץ Drive');
-                        } catch (e) {
-                          console.error(e);
-                          toast.error('העתקה נכשלה');
-                        }
+                          const payload = { exportedAt: new Date().toISOString(), agencyId, companyName: getCompanyName(agencyId) || currentAgency?.name, events, clients, artists, expenses: expenses.map(e => ({ id: e.id, filename: e.filename, amount: e.amount, vendor: e.vendor, created_at: e.created_at, notes: e.notes })) };
+                          navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+                          toast.success('גיבוי הועתק ללוח');
+                        } catch (e) { console.error(e); toast.error('העתקה נכשלה'); }
                       }}
                     >
                       העתק גיבוי ללוח
@@ -1271,35 +1336,17 @@ const SettingsPage: React.FC = () => {
                           const clients = isDemoMode() ? demoGetClients(agencyId) : [];
                           const artists = isDemoMode() ? demoGetArtists(agencyId) : [];
                           const expenses = getFinanceExpenses(agencyId);
-                          const payload = {
-                            exportedAt: new Date().toISOString(),
-                            agencyId,
-                            companyName: getCompanyName(agencyId) || currentAgency?.name,
-                            events,
-                            clients,
-                            artists,
-                            expenses: expenses.map(e => ({ id: e.id, filename: e.filename, amount: e.amount, vendor: e.vendor, created_at: e.created_at, notes: e.notes })),
-                          };
+                          const payload = { exportedAt: new Date().toISOString(), agencyId, companyName: getCompanyName(agencyId) || currentAgency?.name, events, clients, artists, expenses: expenses.map(e => ({ id: e.id, filename: e.filename, amount: e.amount, vendor: e.vendor, created_at: e.created_at, notes: e.notes })) };
                           const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-                          const a = document.createElement('a');
-                          a.href = URL.createObjectURL(blob);
-                          a.download = `ima-backup-${agencyId}-${new Date().toISOString().slice(0, 10)}.json`;
-                          a.click();
-                          URL.revokeObjectURL(a.href);
+                          const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `npc-backup-${agencyId}-${new Date().toISOString().slice(0, 10)}.json`; a.click(); URL.revokeObjectURL(a.href);
                           toast.success('קובץ גיבוי הורד');
-                        } catch (e) {
-                          console.error(e);
-                          toast.error('הורדה נכשלה');
-                        }
+                        } catch (e) { console.error(e); toast.error('הורדה נכשלה'); }
                       }}
                     >
                       הורד גיבוי (JSON)
                     </Button>
                   </div>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  טיפ: שמור כאן את קישור ה־Google Sheet/Drive שמשמש לגיבוי חיצוני.
-                </p>
               </CardContent>
             </Card>
           </div>
