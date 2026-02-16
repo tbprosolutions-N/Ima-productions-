@@ -82,6 +82,17 @@
   }
 }
 
+/* Touch targets: min 44x44px for mobile (WCAG 2.5.5) */
+@media (max-width: 767px) {
+  button, [role="button"], .min-touch-44 {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  input:not([type="hidden"]), select {
+    min-height: 44px;
+  }
+}
+
 @layer base {
   * {
     @apply border-border;

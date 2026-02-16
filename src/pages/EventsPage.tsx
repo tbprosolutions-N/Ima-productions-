@@ -46,11 +46,13 @@ import { queueSyncJob } from '@/lib/syncJobs';
 import { createEventDocument, checkEventDocumentStatus } from '@/services/morningService';
 import { agreementService } from '@/services/agreementService';
 import { getCollectionStatus } from '@/lib/collectionStatus';
+import { useSilentSheetsSync } from '@/hooks/useSilentSheetsSync';
 
 const EventsPage: React.FC = () => {
   const { currentAgency } = useAgency();
   const { user } = useAuth();
   const { success, error: showError } = useToast();
+  useSilentSheetsSync();
   const canCreateEvent =
     !!user &&
     (user.permissions?.events_create === true ||

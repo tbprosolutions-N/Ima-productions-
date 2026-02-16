@@ -17,6 +17,7 @@ import { supabase } from '@/lib/supabase';
 import { demoGetEvents, demoGetClients, demoGetArtists, isDemoMode } from '@/lib/demoStore';
 import { getFinanceExpenses } from '@/lib/financeStore';
 import { getActivity, type ActivityEntry } from '@/lib/activityLog';
+import { useSilentSheetsSync } from '@/hooks/useSilentSheetsSync';
 import type { Event, Artist, Client } from '@/types';
 
 /* ─── Dashboard Stats Hook ─── */
@@ -404,6 +405,7 @@ const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { currentAgency } = useAgency();
+  useSilentSheetsSync();
   const { stats, events, artists, clients, activityLog, loading } = useDashboardStats(currentAgency?.id);
   const displayName = user?.full_name || user?.email?.split('@')[0] || 'משתמש';
   const canSeeMoney = user?.role !== 'producer';

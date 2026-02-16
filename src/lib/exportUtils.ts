@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx';
 import type { Event } from '@/types';
 import { formatDate } from '@/lib/utils';
+import { cleanNotes } from '@/lib/notesCleanup';
 
 export const exportEventsToExcel = (events: Event[], filename: string = 'events') => {
   // Prepare data for export
@@ -14,7 +15,7 @@ export const exportEventsToExcel = (events: Event[], filename: string = 'events'
     'מספר מסמך': event.doc_number || '',
     'תאריך תשלום': event.due_date ? formatDate(event.due_date) : '',
     'סטטוס': getStatusLabel(event.status),
-    'הערות': event.notes || '',
+    'הערות': cleanNotes(event.notes),
   }));
 
   // Create workbook
@@ -106,7 +107,7 @@ export const exportToCSV = (events: Event[], filename: string = 'events') => {
     event.doc_number || '',
     event.due_date ? formatDate(event.due_date) : '',
     getStatusLabel(event.status),
-    event.notes || '',
+    cleanNotes(event.notes),
   ]);
 
   const csv = [

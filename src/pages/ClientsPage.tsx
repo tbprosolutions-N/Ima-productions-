@@ -16,6 +16,7 @@ import { exportJsonToExcel } from '@/lib/exportUtils';
 import { formatCurrency } from '@/lib/utils';
 import { demoGetClients, demoGetEvents, demoSetClients, demoUpsertClient, isDemoMode } from '@/lib/demoStore';
 import { useClientsQuery, useInvalidateClients } from '@/hooks/useSupabaseQuery';
+import { cleanNotes } from '@/lib/notesCleanup';
 
 const ClientsPage: React.FC = () => {
   const { currentAgency } = useAgency();
@@ -270,7 +271,7 @@ const ClientsPage: React.FC = () => {
       'סטטוס': e.status === 'cancelled' ? 'נדחה' : e.status,
       'סכום לחברה': Number(e.amount) || 0,
       'תאריך תשלום': String(e.payment_date || '').slice(0, 10),
-      'הערות': e.notes || '',
+      'הערות': (e.notes ? cleanNotes(e.notes) : ''),
     }));
     const filename = `client_period_${folderClient.id}_${folderFrom || 'from'}_${folderTo || 'to'}`;
     try {

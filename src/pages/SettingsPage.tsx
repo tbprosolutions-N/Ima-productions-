@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Settings as SettingsIcon, User, Bell, Lock, Palette, Globe, Users as UsersIcon, Upload, KeyRound, ClipboardCheck, Download } from 'lucide-react';
+import { Settings as SettingsIcon, User, Bell, Lock, Palette, Globe, Users as UsersIcon, Upload, KeyRound, ClipboardCheck, Download, Edit, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/Dialog';
 import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select';
@@ -24,7 +25,7 @@ import { updateFaviconForPalette } from '@/lib/favicon';
 import type { IntegrationConnection } from '@/types';
 import { demoGetEvents, demoGetClients, demoGetArtists, isDemoMode } from '@/lib/demoStore';
 import { getFinanceExpenses } from '@/lib/financeStore';
-import { createSheetAndSyncClient, resyncSheetClient, hasGoogleToken } from '@/services/sheetsSyncClient';
+import { createSheetAndSyncClient, resyncSheetClient, hasGoogleToken, fetchSyncDataForAgency } from '@/services/sheetsSyncClient';
 import jsPDF from 'jspdf';
 
 const SettingsPage: React.FC = () => {
@@ -169,6 +170,7 @@ const SettingsPage: React.FC = () => {
   const isDemo = () => isDemoMode();
   const canManageUsers = user?.role === 'owner' || user?.role === 'manager';
   const canEditPermissionLevels = user?.role === 'owner';
+  const canEditDeleteUsers = user?.role === 'owner' || (user?.email?.toLowerCase() === 'tb.prosolutions@gmail.com');
 
   // Tutorial (per-user)
   const tourDisabledKey = user?.id ? `ima_tour_disabled_${user.id}` : '';
@@ -318,29 +320,7 @@ const SettingsPage: React.FC = () => {
     localStorage.setItem(notifKey, JSON.stringify(next));
   };
 
-  const fetchSyncData = async (): Promise<{ events: any[]; clients: any[]; artists: any[]; expenses: any[] }> => {
-    if (!currentAgency?.id) return { events: [], clients: [], artists: [], expenses: [] };
-    if (isDemo()) {
-      return {
-        events: demoGetEvents(currentAgency.id),
-        clients: demoGetClients(currentAgency.id),
-        artists: demoGetArtists(currentAgency.id),
-        expenses: getFinanceExpenses(currentAgency.id),
-      };
-    }
-    const [eventsRes, clientsRes, artistsRes, expensesRes] = await Promise.all([
-      supabase.from('events').select('*').eq('agency_id', currentAgency.id).order('event_date', { ascending: false }),
-      supabase.from('clients').select('*').eq('agency_id', currentAgency.id).order('name'),
-      supabase.from('artists').select('*').eq('agency_id', currentAgency.id).order('name'),
-      supabase.from('finance_expenses').select('*').eq('agency_id', currentAgency.id).order('created_at', { ascending: false }),
-    ]);
-    return {
-      events: (eventsRes.data || []) as any[],
-      clients: (clientsRes.data || []) as any[],
-      artists: (artistsRes.data || []) as any[],
-      expenses: (expensesRes.data || []) as any[],
-    };
-  };
+  const fetchSyncData = () => fetchSyncDataForAgency(currentAgency?.id || '');
 
   const saveBackupUrl = () => {
     const url = backupUrl.trim();
@@ -491,6 +471,61 @@ const SettingsPage: React.FC = () => {
     setManagedUsers(agencyId, updated);
     setManagedUsersState(updated);
     toast.success('סטטוס עודכן ✅');
+  };
+
+  const [deleteUserTarget, setDeleteUserTarget] = useState<ManagedUser | null>(null);
+  const [editUserTarget, setEditUserTarget] = useState<ManagedUser | null>(null);
+  const [editUserRole, setEditUserRole] = useState<ManagedUser['role']>('producer');
+
+  const handleDeleteUser = async (target: ManagedUser) => {
+    if (!canEditDeleteUsers) return;
+    if (target.id === user?.id) {
+      toast.error('לא ניתן להסיר את עצמך');
+      return;
+    }
+    if (isDemo()) {
+      const next = managedUsers.filter(u => u.id !== target.id);
+      setManagedUsers(agencyId, next);
+      setManagedUsersState(next);
+      setDeleteUserTarget(null);
+      toast.success('משתמש הוסר');
+      return;
+    }
+    try {
+      const { data, error } = await supabase.rpc('remove_agency_user', { p_user_id: target.id });
+      const res = data as { ok?: boolean; error?: string } | null;
+      if (error || !res?.ok) {
+        toast.error(res?.error || error?.message || 'מחיקת משתמש נכשלה');
+        return;
+      }
+      setManagedUsersState(prev => prev.filter(u => u.id !== target.id));
+      setDeleteUserTarget(null);
+      toast.success('משתמש הוסר מהמערכת');
+    } catch (e: any) {
+      toast.error(e?.message || 'מחיקת משתמש נכשלה');
+    }
+  };
+
+  const handleUpdateUserRole = async (target: ManagedUser, newRole: ManagedUser['role']) => {
+    if (!canEditDeleteUsers) return;
+    if (isDemo()) {
+      updateUserRole(target.id, newRole);
+      setEditUserTarget(null);
+      return;
+    }
+    try {
+      const { data, error } = await supabase.rpc('update_agency_user_role', { p_user_id: target.id, p_role: newRole });
+      const res = data as { ok?: boolean; error?: string } | null;
+      if (error || !res?.ok) {
+        toast.error(res?.error || error?.message || 'עדכון תפקיד נכשל');
+        return;
+      }
+      setManagedUsersState(prev => prev.map(u => u.id === target.id ? { ...u, role: newRole } : u));
+      setEditUserTarget(null);
+      toast.success('תפקיד עודכן ✅');
+    } catch (e: any) {
+      toast.error(e?.message || 'עדכון תפקיד נכשל');
+    }
   };
 
   const tabButton = (id: typeof tab, label: string, Icon: any) => (
@@ -1037,22 +1072,50 @@ const SettingsPage: React.FC = () => {
                             </span>
                           </td>
                           <td className="p-3">
-                            {u.status === 'pending' ? (
-                              <span className="text-xs text-muted-foreground">—</span>
-                            ) : isDemo() ? (
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                disabled={!canEditPermissionLevels}
-                                title={!canEditPermissionLevels ? 'רק בעלים יכול להשבית/להפעיל משתמש' : undefined}
-                                onClick={() => toggleUserStatus(u.id)}
-                              >
-                                {u.status === 'active' ? 'השבת' : 'הפעל'}
-                              </Button>
-                            ) : (
-                              <span className="text-xs text-muted-foreground">—</span>
-                            )}
+                            <div className="flex flex-wrap gap-2 items-center">
+                              {u.status !== 'pending' && isDemo() && (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={!canEditPermissionLevels}
+                                  className="min-h-[44px] min-w-[44px]"
+                                  title={!canEditPermissionLevels ? 'רק בעלים יכול להשבית/להפעיל משתמש' : undefined}
+                                  onClick={() => toggleUserStatus(u.id)}
+                                >
+                                  {u.status === 'active' ? 'השבת' : 'הפעל'}
+                                </Button>
+                              )}
+                              {canEditDeleteUsers && (
+                                <>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    className="min-h-[44px] min-w-[44px]"
+                                    aria-label="ערוך"
+                                    onClick={() => { setEditUserTarget(u); setEditUserRole(u.role); }}
+                                  >
+                                    <Edit className="w-4 h-4" />
+                                  </Button>
+                                  {u.id !== user?.id && (
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      className="min-h-[44px] min-w-[44px] text-red-500 hover:bg-red-500/10"
+                                      aria-label="מחק"
+                                      onClick={() => setDeleteUserTarget(u)}
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                  )}
+                                </>
+                              )}
+                              {!canEditDeleteUsers && u.status === 'pending' && !isDemo() && (
+                                <span className="text-xs text-muted-foreground">—</span>
+                              )}
+                            </div>
                           </td>
                         <td className="p-3">
                           {u.status === 'pending' ? (
@@ -1071,6 +1134,49 @@ const SettingsPage: React.FC = () => {
               )}
             </CardContent>
           </Card>
+
+          {/* Delete user confirmation */}
+          <Dialog open={!!deleteUserTarget} onOpenChange={(open) => !open && setDeleteUserTarget(null)}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>הסרת משתמש</DialogTitle>
+                <DialogDescription>
+                  האם אתה בטוח שברצונך להסיר את {deleteUserTarget?.full_name || deleteUserTarget?.email} מ-NPC? פעולה זו תסיר את המשתמש מהמערכת.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="flex gap-2 justify-end mt-4">
+                <Button variant="outline" onClick={() => setDeleteUserTarget(null)}>ביטול</Button>
+                <Button variant="destructive" onClick={() => deleteUserTarget && handleDeleteUser(deleteUserTarget)}>הסר משתמש</Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* Edit user role */}
+          <Dialog open={!!editUserTarget} onOpenChange={(open) => !open && setEditUserTarget(null)}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>עריכת תפקיד</DialogTitle>
+                <DialogDescription>
+                  שנה את התפקיד של {editUserTarget?.full_name || editUserTarget?.email}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 mt-4">
+                <Select value={editUserRole} onValueChange={(v) => setEditUserRole(v as ManagedUser['role'])}>
+                  <SelectTrigger className="min-h-[44px]"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="producer">מפיק</SelectItem>
+                    <SelectItem value="finance">כספים</SelectItem>
+                    <SelectItem value="manager">מנהל</SelectItem>
+                    <SelectItem value="owner">בעלים</SelectItem>
+                  </SelectContent>
+                </Select>
+                <div className="flex gap-2 justify-end">
+                  <Button variant="outline" onClick={() => setEditUserTarget(null)}>ביטול</Button>
+                  <Button className="btn-magenta" onClick={() => editUserTarget && handleUpdateUserRole(editUserTarget, editUserRole)}>שמור</Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
         )
       )}

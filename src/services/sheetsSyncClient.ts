@@ -5,6 +5,9 @@
  */
 import { supabase } from '@/lib/supabase';
 import { cleanNotes } from '@/lib/notesCleanup';
+import { isDemoMode } from '@/lib/demoStore';
+import { demoGetEvents, demoGetClients, demoGetArtists } from '@/lib/demoStore';
+import { getFinanceExpenses } from '@/lib/financeStore';
 
 export type SheetsSyncClientResult =
   | { ok: true; spreadsheetId: string; spreadsheetUrl: string; counts: { events: number; clients: number; artists: number; expenses: number } }
@@ -169,13 +172,14 @@ export async function createSheetAndSyncClient(
       expenses: data.expenses.length,
     };
 
+    const now = new Date().toISOString();
     const { error } = await supabase.from('integrations').upsert(
       [{
         agency_id: agencyId,
         provider: 'sheets',
         status: 'connected',
-        config: { spreadsheet_id: spreadsheetId, folder_id: folderId, sheet_name: 'Events' },
-        connected_at: new Date().toISOString(),
+        config: { spreadsheet_id: spreadsheetId, folder_id: folderId, sheet_name: 'Events', last_sync_at: now },
+        connected_at: now,
       }],
       { onConflict: 'agency_id,provider' }
     );
@@ -193,9 +197,10 @@ export async function createSheetAndSyncClient(
 
 /**
  * Re-sync all data to an existing spreadsheet.
+ * Updates last_sync_at in integrations config on success.
  */
 export async function resyncSheetClient(
-  _agencyId: string,
+  agencyId: string,
   spreadsheetId: string,
   data: SyncData
 ): Promise<SheetsSyncClientResult> {
@@ -223,6 +228,14 @@ export async function resyncSheetClient(
       expenses: data.expenses.length,
     };
 
+    const now = new Date().toISOString();
+    const { data: conn } = await supabase.from('integrations').select('config').eq('agency_id', agencyId).eq('provider', 'sheets').maybeSingle();
+    const cfg = (conn as any)?.config || {};
+    await supabase.from('integrations').update({
+      config: { ...cfg, spreadsheet_id: spreadsheetId, last_sync_at: now },
+      updated_at: now,
+    }).eq('agency_id', agencyId).eq('provider', 'sheets');
+
     return {
       ok: true,
       spreadsheetId,
@@ -235,5 +248,76 @@ export async function resyncSheetClient(
       return { ok: false, error: 'טוקן Google פג תוקף. התנתק/י והתחבר/י מחדש עם Google.', code: 'TOKEN_EXPIRED' };
     }
     return { ok: false, error: msg };
+  }
+}
+
+// ── Shared fetch + Silent Sync ───────────────────────────────────────────────
+
+/**
+ * Fetch all data needed for Sheets sync. Used by SettingsPage and silent sync.
+ */
+export async function fetchSyncDataForAgency(agencyId: string): Promise<SyncData> {
+  if (!agencyId) return { events: [], clients: [], artists: [], expenses: [] };
+  if (isDemoMode()) {
+    return {
+      events: demoGetEvents(agencyId),
+      clients: demoGetClients(agencyId),
+      artists: demoGetArtists(agencyId),
+      expenses: getFinanceExpenses(agencyId),
+    };
+  }
+  const [eventsRes, clientsRes, artistsRes, expensesRes] = await Promise.all([
+    supabase.from('events').select('*').eq('agency_id', agencyId).order('event_date', { ascending: false }),
+    supabase.from('clients').select('*').eq('agency_id', agencyId).order('name'),
+    supabase.from('artists').select('*').eq('agency_id', agencyId).order('name'),
+    supabase.from('finance_expenses').select('*').eq('agency_id', agencyId).order('created_at', { ascending: false }),
+  ]);
+  return {
+    events: (eventsRes.data || []) as any[],
+    clients: (clientsRes.data || []) as any[],
+    artists: (artistsRes.data || []) as any[],
+    expenses: (expensesRes.data || []) as any[],
+  };
+}
+
+const SILENT_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Check last_sync_at and trigger resync if >24h or never. Runs in background.
+ * Call from Dashboard/Events on load. No loaders — subtle toast on success, prompt on token error only.
+ */
+export async function checkAndTriggerSilentSync(
+  agencyId: string,
+  callbacks: { onSuccess?: () => void; onTokenError?: () => void }
+): Promise<void> {
+  if (!agencyId || !hasGoogleToken()) return;
+  if (isDemoMode()) return;
+
+  try {
+    const { data } = await supabase
+      .from('integrations')
+      .select('config')
+      .eq('agency_id', agencyId)
+      .eq('provider', 'sheets')
+      .maybeSingle();
+
+    const config = (data as any)?.config || {};
+    const spreadsheetId = config?.spreadsheet_id;
+    if (!spreadsheetId) return;
+
+    const lastSync = config?.last_sync_at ? new Date(config.last_sync_at).getTime() : 0;
+    const now = Date.now();
+    if (lastSync && now - lastSync < SILENT_SYNC_INTERVAL_MS) return;
+
+    const syncData = await fetchSyncDataForAgency(agencyId);
+    const result = await resyncSheetClient(agencyId, spreadsheetId, syncData);
+
+    if (result.ok) {
+      callbacks.onSuccess?.();
+    } else if (result.code === 'TOKEN_EXPIRED' || result.code === 'NO_TOKEN') {
+      callbacks.onTokenError?.();
+    }
+  } catch {
+    // Silent failure — don't disturb the user for transient errors
   }
 }

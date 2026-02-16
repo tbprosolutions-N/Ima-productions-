@@ -17,26 +17,30 @@ const MainLayout: React.FC = () => {
   }, []);
 
   return (
-    <div className="flex flex-row h-screen min-h-[100dvh] w-full max-w-[100vw] overflow-hidden bg-background ima-bg-vertical">
-      {/* Mobile menu button - above overlay when sidebar open */}
-      <div className="fixed top-4 left-4 z-[60] md:hidden">
+    <div className="flex flex-row h-screen min-h-[100dvh] w-full max-w-[100vw] overflow-x-hidden overflow-y-auto md:overflow-hidden bg-background ima-bg-vertical">
+      {/* Mobile header bar: hamburger + NPC logo - fixed top, compact, no overlap */}
+      <header className="md:hidden fixed top-0 start-0 end-0 z-[55] h-14 min-h-[44px] px-4 flex items-center justify-between gap-3 bg-card/95 backdrop-blur border-b border-border shrink-0">
         <Button
           type="button"
-          variant="outline"
+          variant="ghost"
           size="icon"
-          className="h-12 w-12 min-h-[44px] min-w-[44px] bg-card/95 backdrop-blur border-border"
-          onClick={() => setSidebarOpen(true)}
+          className="h-11 w-11 min-h-[44px] min-w-[44px] shrink-0 -ms-1"
+          onClick={() => setSidebarOpen(prev => !prev)}
           aria-label="Open menu"
         >
-          <Menu className="w-5 h-5" />
+          <Menu className="w-6 h-6" />
         </Button>
-      </div>
+        <div className="flex-1 min-w-0 flex justify-center">
+          <span className="text-lg font-bold text-foreground tracking-wide truncate">NPC</span>
+        </div>
+        <div className="w-11 shrink-0" aria-hidden />
+      </header>
 
       <Sidebar mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
-      {/* Main: on mobile full width (sidebar is fixed overlay); on desktop flex-1 fills remaining space */}
+      {/* Main: on mobile full width with header offset; on desktop flex-1 fills remaining */}
       <main className="flex-1 min-w-0 w-full overflow-x-hidden overflow-y-auto">
-        <div className="w-full min-w-0 p-6 md:p-8 lg:p-10 pt-16 md:pt-8 lg:pt-10 box-border 2xl:max-w-[1800px] 2xl:mx-auto">
+        <div className="w-full min-w-0 max-w-[100vw] box-border p-4 sm:p-6 md:p-8 lg:p-10 pt-[4.5rem] sm:pt-[4.5rem] md:pt-8 lg:pt-10 2xl:max-w-[1800px] 2xl:mx-auto">
           {showInstallBanner && (
             <div className="mb-4 rounded-lg border border-primary/30 bg-card/90 backdrop-blur p-3 flex items-center justify-between gap-3">
               <span className="text-sm text-foreground text-gray-900 dark:text-gray-100">התקן את {appName} כאפליקציה</span>
