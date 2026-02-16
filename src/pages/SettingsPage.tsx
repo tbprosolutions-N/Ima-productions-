@@ -174,11 +174,12 @@ const SettingsPage: React.FC = () => {
   };
 
   const isDemo = () => isDemoMode();
-  const { role: dbRole } = useRole();
+  const { role: dbRole, isLoading: roleLoading } = useRole();
   const effectiveRole = dbRole ?? user?.role;
   const canManageUsers = effectiveRole === 'owner' || effectiveRole === 'manager';
   const canEditPermissionLevels = effectiveRole === 'owner';
-  const canEditDeleteUsers = effectiveRole === 'owner';
+  // Only show Remove (and owner-only Edit) when role has been resolved and user is owner (UX: hide for non-owners)
+  const canEditDeleteUsers = !roleLoading && effectiveRole === 'owner';
   const canCreateBackupSheets = effectiveRole === 'owner';
 
   // Tutorial (per-user)
@@ -487,7 +488,10 @@ const SettingsPage: React.FC = () => {
   const [editUserRole, setEditUserRole] = useState<ManagedUser['role']>('producer');
 
   const handleDeleteUser = async (target: ManagedUser) => {
-    if (!canEditDeleteUsers) return;
+    if (!canEditDeleteUsers) {
+      toast.error('אין הרשאה להסרת משתמשים');
+      return;
+    }
     if (target.id === user?.id) {
       toast.error('לא ניתן להסיר את עצמך');
       return;
@@ -509,7 +513,8 @@ const SettingsPage: React.FC = () => {
       const { data, error } = await supabase.rpc(rpcName, rpcPayload);
       const res = data as { ok?: boolean; error?: string } | null;
       if (error || !res?.ok) {
-        toast.error(res?.error || error?.message || 'מחיקת משתמש נכשלה');
+        const msg = res?.error || error?.message || 'מחיקת משתמש נכשלה';
+        toast.error(msg);
         return;
       }
       setManagedUsersState(prev => prev.filter(u => u.id !== target.id));
@@ -1108,6 +1113,7 @@ const SettingsPage: React.FC = () => {
                                   {u.status === 'active' ? 'השבת' : 'הפעל'}
                                 </Button>
                               )}
+                              {/* Owner only: Edit + Remove hidden for non-owners (canEditDeleteUsers is false when !roleLoading && role !== 'owner') */}
                               {canEditDeleteUsers && (
                                 <>
                                   <Button
@@ -1167,8 +1173,17 @@ const SettingsPage: React.FC = () => {
                 </DialogDescription>
               </DialogHeader>
               <div className="flex gap-2 justify-end mt-4">
-                <Button variant="outline" onClick={() => setDeleteUserTarget(null)} disabled={deleteUserLoading}>ביטול</Button>
-                <Button variant="destructive" onClick={() => deleteUserTarget && handleDeleteUser(deleteUserTarget)} disabled={deleteUserLoading}>
+                <Button type="button" variant="outline" onClick={() => setDeleteUserTarget(null)} disabled={deleteUserLoading}>ביטול</Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (deleteUserTarget) handleDeleteUser(deleteUserTarget);
+                  }}
+                  disabled={deleteUserLoading}
+                >
                   {deleteUserLoading ? 'מסיר...' : 'הסר משתמש'}
                 </Button>
               </div>
