@@ -3,9 +3,19 @@
  * Creates a spreadsheet in a user's Drive folder and syncs all agency data.
  * Uses the logged-in user's Google OAuth token (passed via Authorization header).
  *
+ * Token refresh: If GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are set, the function
+ * can refresh an expired access token using the refresh_token from the request body.
+ *
  * Env:
  * - SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+ * - GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET (optional, for token refresh)
  */
+
+// ── Custom error for Google auth failures ───────────────────────────────────
+
+class GoogleAuthError extends Error {
+  constructor(message: string) { super(message); this.name = 'GoogleAuthError'; }
+}
 
 // ── Google API helpers ──────────────────────────────────────────────────────
 
@@ -19,8 +29,38 @@ async function googleApi(args: { url: string; method?: string; token: string; bo
     body: args.body ? JSON.stringify(args.body) : undefined,
   });
   const text = await res.text();
-  if (!res.ok) throw new Error(`Google API ${res.status}: ${text}`);
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      throw new GoogleAuthError(`Google API ${res.status}: ${text}`);
+    }
+    throw new Error(`Google API ${res.status}: ${text}`);
+  }
   try { return JSON.parse(text); } catch { return text; }
+}
+
+// ── Token refresh ───────────────────────────────────────────────────────────
+
+async function refreshGoogleToken(refreshToken: string): Promise<string | null> {
+  const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
+  if (!clientId || !clientSecret || !refreshToken) return null;
+
+  try {
+    const res = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token',
+      }).toString(),
+    });
+    const data = await res.json() as { access_token?: string };
+    return data?.access_token || null;
+  } catch {
+    return null;
+  }
 }
 
 // ── Spreadsheet creation & data writing ─────────────────────────────────────
@@ -51,6 +91,7 @@ async function createSpreadsheetInFolder(token: string, title: string, folderId:
         body: {},
       });
     } catch (e) {
+      if (e instanceof GoogleAuthError) throw e;
       console.warn('Could not move spreadsheet to folder:', e);
     }
   }
@@ -145,7 +186,9 @@ async function clearAndSyncAll(args: {
         token,
         body: { values: [[]] },
       });
-    } catch { /* sheet might not exist yet */ }
+    } catch (e) {
+      if (e instanceof GoogleAuthError) throw e;
+    }
   }
 
   await Promise.all([
@@ -160,16 +203,11 @@ async function clearAndSyncAll(args: {
 
 // ── Handler ─────────────────────────────────────────────────────────────────
 
+const AUTH_ERROR_MSG = 'טוקן Google פג תוקף או חסר. התנתק/י והתחבר/י מחדש עם Google.';
+
 export const handler = async (event: { httpMethod: string; headers: Record<string, string>; body?: string | null }) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed' }) };
-  }
-
-  // Extract user's Google OAuth token from Authorization header
-  const authHeader = event.headers?.authorization || event.headers?.Authorization || '';
-  const token = authHeader.replace(/^Bearer\s+/i, '').trim();
-  if (!token) {
-    return { statusCode: 401, body: JSON.stringify({ error: 'Missing Google OAuth token. Please log in with Google and grant Sheets/Drive permissions.' }) };
   }
 
   const supabaseUrl = process.env.SUPABASE_URL?.trim();
@@ -178,14 +216,21 @@ export const handler = async (event: { httpMethod: string; headers: Record<strin
     return { statusCode: 500, body: JSON.stringify({ error: 'Supabase not configured' }) };
   }
 
-  let body: { action?: string; agencyId?: string; folderId?: string; spreadsheetId?: string };
+  let reqBody: { action?: string; agencyId?: string; folderId?: string; spreadsheetId?: string; refreshToken?: string };
   try {
-    body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body || {};
+    reqBody = typeof event.body === 'string' ? JSON.parse(event.body) : event.body || {};
   } catch {
     return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) };
   }
 
-  const { action, agencyId, folderId, spreadsheetId } = body;
+  // Extract user's Google OAuth token from Authorization header
+  const authHeader = event.headers?.authorization || event.headers?.Authorization || '';
+  let token = authHeader.replace(/^Bearer\s+/i, '').trim();
+  if (!token) {
+    return { statusCode: 401, body: JSON.stringify({ error: AUTH_ERROR_MSG, code: 'NO_TOKEN' }) };
+  }
+
+  const { action, agencyId, folderId, spreadsheetId } = reqBody;
   if (!agencyId) {
     return { statusCode: 400, body: JSON.stringify({ error: 'Missing agencyId' }) };
   }
@@ -193,7 +238,23 @@ export const handler = async (event: { httpMethod: string; headers: Record<strin
   const { createClient } = await import('@supabase/supabase-js');
   const supabase = createClient(supabaseUrl, supabaseServiceKey, { auth: { persistSession: false } });
 
-  // ── createAndSync: create spreadsheet in folder, write all data ─────────
+  // Helper: run an operation with automatic token refresh on auth failure
+  async function withTokenRefresh<T>(operation: (t: string) => Promise<T>): Promise<T> {
+    try {
+      return await operation(token);
+    } catch (e) {
+      if (e instanceof GoogleAuthError && reqBody.refreshToken) {
+        const newToken = await refreshGoogleToken(reqBody.refreshToken);
+        if (newToken) {
+          token = newToken;
+          return await operation(newToken);
+        }
+      }
+      throw e;
+    }
+  }
+
+  // ── createAndSync ─────────────────────────────────────────────────────────
   if (action === 'createAndSync') {
     if (!folderId) {
       return { statusCode: 400, body: JSON.stringify({ error: 'Missing folderId' }) };
@@ -201,15 +262,21 @@ export const handler = async (event: { httpMethod: string; headers: Record<strin
 
     let result: { spreadsheetId: string; spreadsheetUrl: string };
     try {
-      result = await createSpreadsheetInFolder(token, `NPC Sync — ${new Date().toISOString().slice(0, 10)}`, folderId);
+      result = await withTokenRefresh(t => createSpreadsheetInFolder(t, `NPC Sync — ${new Date().toISOString().slice(0, 10)}`, folderId));
     } catch (e: any) {
+      if (e instanceof GoogleAuthError) {
+        return { statusCode: 401, body: JSON.stringify({ error: AUTH_ERROR_MSG, code: 'TOKEN_EXPIRED', detail: e.message }) };
+      }
       return { statusCode: 502, body: JSON.stringify({ error: 'Failed to create spreadsheet', detail: e.message }) };
     }
 
     let counts: { events: number; clients: number; artists: number; expenses: number };
     try {
-      counts = await clearAndSyncAll({ token, spreadsheetId: result.spreadsheetId, supabase, agencyId });
+      counts = await withTokenRefresh(t => clearAndSyncAll({ token: t, spreadsheetId: result.spreadsheetId, supabase, agencyId }));
     } catch (e: any) {
+      if (e instanceof GoogleAuthError) {
+        return { statusCode: 401, body: JSON.stringify({ error: AUTH_ERROR_MSG, code: 'TOKEN_EXPIRED', detail: e.message, spreadsheetId: result.spreadsheetId, spreadsheetUrl: result.spreadsheetUrl }) };
+      }
       return { statusCode: 502, body: JSON.stringify({ error: 'Created spreadsheet but sync failed', detail: e.message, spreadsheetId: result.spreadsheetId, spreadsheetUrl: result.spreadsheetUrl }) };
     }
 
@@ -232,7 +299,7 @@ export const handler = async (event: { httpMethod: string; headers: Record<strin
     };
   }
 
-  // ── sync: re-sync all data to existing spreadsheet ──────────────────────
+  // ── sync ──────────────────────────────────────────────────────────────────
   if (action === 'sync') {
     if (!spreadsheetId) {
       return { statusCode: 400, body: JSON.stringify({ error: 'Missing spreadsheetId' }) };
@@ -240,8 +307,11 @@ export const handler = async (event: { httpMethod: string; headers: Record<strin
 
     let counts: { events: number; clients: number; artists: number; expenses: number };
     try {
-      counts = await clearAndSyncAll({ token, spreadsheetId, supabase, agencyId });
+      counts = await withTokenRefresh(t => clearAndSyncAll({ token: t, spreadsheetId, supabase, agencyId }));
     } catch (e: any) {
+      if (e instanceof GoogleAuthError) {
+        return { statusCode: 401, body: JSON.stringify({ error: AUTH_ERROR_MSG, code: 'TOKEN_EXPIRED', detail: e.message }) };
+      }
       return { statusCode: 502, body: JSON.stringify({ error: 'Sync failed', detail: e.message }) };
     }
 

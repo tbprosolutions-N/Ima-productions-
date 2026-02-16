@@ -1218,7 +1218,11 @@ const SettingsPage: React.FC = () => {
                             if (result.ok) {
                               toast.success(`סנכרון הושלם: ${result.counts.events} אירועים, ${result.counts.clients} לקוחות, ${result.counts.artists} אמנים, ${result.counts.expenses} הוצאות`);
                             } else {
-                              toast.error(result.error + (result.detail ? ` — ${result.detail}` : ''));
+                              if ('code' in result && (result.code === 'TOKEN_EXPIRED' || result.code === 'NO_TOKEN')) {
+                                toast.error('טוקן Google פג תוקף. התנתק/י והתחבר/י מחדש עם Google.');
+                              } else {
+                                toast.error(result.error + (result.detail ? ` — ${result.detail}` : ''));
+                              }
                             }
                           } catch (e: any) {
                             toast.error(e?.message || 'סנכרון נכשל');
@@ -1276,7 +1280,11 @@ const SettingsPage: React.FC = () => {
                             
                           } else {
                             if (result.spreadsheetId) setSheetsSpreadsheetId(result.spreadsheetId);
-                            toast.error(result.error + (result.detail ? ` — ${result.detail}` : ''));
+                            if ('code' in result && (result.code === 'TOKEN_EXPIRED' || result.code === 'NO_TOKEN')) {
+                              toast.error('טוקן Google פג תוקף. התנתק/י והתחבר/י מחדש עם Google.');
+                            } else {
+                              toast.error(result.error + (result.detail ? ` — ${result.detail}` : ''));
+                            }
                           }
                         } catch (e: any) {
                           toast.error(e?.message || 'יצירת גיליון נכשלה');

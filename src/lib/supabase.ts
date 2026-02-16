@@ -152,7 +152,7 @@ export const signInWithGoogle = async (): Promise<{ error: { message: string } |
 };
 
 export const signOut = async () => {
-  try { localStorage.removeItem('google_provider_token'); } catch {}
+  try { localStorage.removeItem('google_provider_token'); localStorage.removeItem('google_provider_refresh_token'); } catch {}
   const { error } = await supabase.auth.signOut();
   return { error };
 };
