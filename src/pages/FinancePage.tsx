@@ -1841,13 +1841,13 @@ const FinancePageContent: React.FC = () => {
                           </div>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
-                          <Button type="button" size="sm" variant="outline" className="shrink-0" onClick={() => openExpenseEditor(e)} title="ערוך פרטים">
+                          <Button type="button" size="icon" variant="outline" className="min-h-[44px] min-w-[44px] shrink-0" onClick={() => openExpenseEditor(e)} title="ערוך פרטים" aria-label="ערוך פרטים">
                             <Pencil className="w-4 h-4" />
                           </Button>
                           <Button
                             type="button"
-                            size="sm"
                             variant="outline"
+                            className="min-h-[44px] min-w-[44px] shrink-0 px-3"
                             onClick={() => viewExpenseFile(e)}
                             disabled={!e.dataUrl && e.file_store !== 'idb' && e.file_store !== 'supabase'}
                           >
@@ -1855,8 +1855,8 @@ const FinancePageContent: React.FC = () => {
                           </Button>
                           <Button
                             type="button"
-                            size="sm"
                             variant="outline"
+                            className="min-h-[44px] min-w-[44px] shrink-0 px-3"
                             onClick={() => downloadExpenseFile(e)}
                             disabled={!e.dataUrl && e.file_store !== 'idb' && e.file_store !== 'supabase'}
                           >
@@ -1864,13 +1864,14 @@ const FinancePageContent: React.FC = () => {
                           </Button>
                           <Button
                             type="button"
-                            size="sm"
+                            size="icon"
                             variant="outline"
-                            className="border-red-500/30 text-red-500 hover:bg-red-500/10"
+                            className="min-h-[44px] min-w-[44px] shrink-0 border-red-500/30 text-red-500 hover:bg-red-500/10"
                             onClick={() => {
                               if (!confirm('למחוק הוצאה זו?')) return;
                               deleteExpense(e.id);
                             }}
+                            aria-label="מחק הוצאה"
                           >
                             מחק
                           </Button>

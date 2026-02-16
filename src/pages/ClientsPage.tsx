@@ -49,10 +49,18 @@ const ClientsPage: React.FC = () => {
     vat_id: '',
     notes: '',
   });
+  const [isSaving, setIsSaving] = useState(false);
+  const [emailError, setEmailError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+    setEmailError(null);
+    const trimmedEmail = formData.email?.trim();
+    if (trimmedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      setEmailError('נא להזין כתובת אימייל תקינה');
+      return;
+    }
+    setIsSaving(true);
     try {
       if (!currentAgency) throw new Error('אין סוכנות פעילה');
 
@@ -123,6 +131,8 @@ const ClientsPage: React.FC = () => {
       closeDialog();
     } catch (err: any) {
       showError(err.message || 'אירעה שגיאה בשמירה. אנא נסה שוב.');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -441,27 +451,29 @@ const ClientsPage: React.FC = () => {
                       <td className="p-3 align-middle">
                         <div className="flex items-center gap-2">
                           <Button
-                            size="sm"
+                            size="icon"
                             variant="outline"
-                            className="border-primary/30 hover:bg-primary/10"
+                            className="min-h-[44px] min-w-[44px] shrink-0 border-primary/30 hover:bg-primary/10"
                             onClick={() => openClientFolder(client)}
                             title="תיק לקוח"
+                            aria-label="תיק לקוח"
                           >
                             <FolderOpen className="w-4 h-4" />
                           </Button>
                           <Button
-                            size="sm"
+                            size="icon"
                             variant="outline"
-                            className="border-primary/30 hover:bg-primary/10"
+                            className="min-h-[44px] min-w-[44px] shrink-0 border-primary/30 hover:bg-primary/10"
                             onClick={() => openPeriodSummary(client.id)}
                             title="סיכום תקופה / דוח לפי לקוח"
+                            aria-label="סיכום תקופה"
                           >
                             <FileDown className="w-4 h-4" />
                           </Button>
-                          <Button size="sm" variant="outline" className="border-primary/30 hover:bg-primary/10" onClick={() => openDialog(client)}>
+                          <Button size="icon" variant="outline" className="min-h-[44px] min-w-[44px] shrink-0 border-primary/30 hover:bg-primary/10" onClick={() => openDialog(client)} aria-label="ערוך לקוח">
                             <Edit className="w-4 h-4" />
                           </Button>
-                          <Button size="sm" variant="outline" className="border-red-500/30 hover:bg-red-500/10 text-red-500" onClick={() => handleDelete(client.id)}>
+                          <Button size="icon" variant="outline" className="min-h-[44px] min-w-[44px] shrink-0 border-red-500/30 hover:bg-red-500/10 text-red-500" onClick={() => handleDelete(client.id)} aria-label="מחק לקוח">
                             <Trash2 className="w-4 h-4" />
                           </Button>
                         </div>
@@ -497,36 +509,40 @@ const ClientsPage: React.FC = () => {
                         </div>
                         <div className="flex gap-2 shrink-0">
                           <Button
-                            size="sm"
+                            size="icon"
                             variant="outline"
                             onClick={() => openClientFolder(client)}
-                            className="border-primary/30 hover:bg-primary/10"
+                            className="min-h-[44px] min-w-[44px] shrink-0 border-primary/30 hover:bg-primary/10"
                             title="תיק לקוח"
+                            aria-label="תיק לקוח"
                           >
                             <FolderOpen className="w-4 h-4" />
                           </Button>
                           <Button
-                            size="sm"
+                            size="icon"
                             variant="outline"
                             onClick={() => openPeriodSummary(client.id)}
-                            className="border-primary/30 hover:bg-primary/10"
+                            className="min-h-[44px] min-w-[44px] shrink-0 border-primary/30 hover:bg-primary/10"
                             title="סיכום תקופה / דוח לפי לקוח"
+                            aria-label="סיכום תקופה"
                           >
                             <FileDown className="w-4 h-4" />
                           </Button>
                           <Button
-                            size="sm"
+                            size="icon"
                             variant="outline"
                             onClick={() => openDialog(client)}
-                            className="border-primary/30 hover:bg-primary/10"
+                            className="min-h-[44px] min-w-[44px] shrink-0 border-primary/30 hover:bg-primary/10"
+                            aria-label="ערוך לקוח"
                           >
                             <Edit className="w-4 h-4" />
                           </Button>
                           <Button
-                            size="sm"
+                            size="icon"
                             variant="outline"
                             onClick={() => handleDelete(client.id)}
-                            className="border-red-500/30 hover:bg-red-500/10 text-red-500"
+                            className="min-h-[44px] min-w-[44px] shrink-0 border-red-500/30 hover:bg-red-500/10 text-red-500"
+                            aria-label="מחק לקוח"
                           >
                             <Trash2 className="w-4 h-4" />
                           </Button>
@@ -707,9 +723,10 @@ const ClientsPage: React.FC = () => {
                   id="email"
                   type="email"
                   value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  onChange={(e) => { setFormData({ ...formData, email: e.target.value }); setEmailError(null); }}
                   className="border-primary/30"
                 />
+                {emailError && <p className="text-xs text-red-500">{emailError}</p>}
               </div>
 
               <div className="space-y-2">
@@ -755,11 +772,16 @@ const ClientsPage: React.FC = () => {
             </div>
 
             <div className="flex gap-2 justify-end pt-4">
-              <Button type="button" variant="outline" onClick={closeDialog}>
+              <Button type="button" variant="outline" onClick={closeDialog} disabled={isSaving}>
                 ביטול
               </Button>
-              <Button type="submit" className="btn-magenta">
-                {editingClient ? 'עדכן' : 'הוסף'}
+              <Button type="submit" className="btn-magenta" disabled={isSaving}>
+                {isSaving ? (
+                  <span className="flex items-center gap-2">
+                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    שומר...
+                  </span>
+                ) : editingClient ? 'עדכן' : 'הוסף'}
               </Button>
             </div>
           </form>

@@ -43,7 +43,8 @@ const ArtistsPage: React.FC = () => {
     bank_branch: '',
     bank_account: '',
   });
-
+  const [isSaving, setIsSaving] = useState(false);
+  const [emailError, setEmailError] = useState<string | null>(null);
 
   const filteredArtists = artists.filter(a =>
     !searchQuery || a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -88,7 +89,20 @@ const ArtistsPage: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setEmailError(null);
+    const emailVal = formData.email?.trim();
+    const calendarEmailVal = formData.calendar_email?.trim();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (emailVal && !emailRegex.test(emailVal)) {
+      setEmailError('נא להזין כתובת אימייל תקינה');
+      return;
+    }
+    if (calendarEmailVal && !emailRegex.test(calendarEmailVal)) {
+      setEmailError('נא להזין כתובת אימייל תקינה (Google Calendar)');
+      return;
+    }
     if (!currentAgency) return;
+    setIsSaving(true);
     try {
       const cleanNotes = stripPayoutMetadata(formData.notes);
       const payload = {
@@ -131,6 +145,8 @@ const ArtistsPage: React.FC = () => {
       closeDialog();
     } catch (err: any) {
       showError(err?.message || 'אירעה שגיאה. אנא נסה שוב.');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -242,21 +258,23 @@ const ArtistsPage: React.FC = () => {
                     <div className="flex items-center gap-2 shrink-0">
                       <Button
                         type="button"
-                        size="sm"
+                        size="icon"
                         variant="outline"
-                        className="h-8 px-2"
+                        className="min-h-[44px] min-w-[44px] shrink-0"
                         onClick={(e: React.MouseEvent) => { e.stopPropagation(); openDialog(artist); }}
+                        aria-label="ערוך אמן"
                       >
-                        <Edit className="w-3.5 h-3.5" />
+                        <Edit className="w-4 h-4" />
                       </Button>
                       <Button
                         type="button"
-                        size="sm"
+                        size="icon"
                         variant="outline"
-                        className="h-8 px-2 border-red-500/30 text-red-500 hover:bg-red-500/10"
+                        className="min-h-[44px] min-w-[44px] shrink-0 border-red-500/30 text-red-500 hover:bg-red-500/10"
                         onClick={(e: React.MouseEvent) => { e.stopPropagation(); handleDelete(artist.id); }}
+                        aria-label="מחק אמן"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-4 h-4" />
                       </Button>
                       {expandedId === artist.id ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
                     </div>
@@ -348,7 +366,7 @@ const ArtistsPage: React.FC = () => {
                     id="artist-email"
                     type="email"
                     value={formData.email}
-                    onChange={(e) => setFormData((d) => ({ ...d, email: e.target.value }))}
+                    onChange={(e) => { setFormData((d) => ({ ...d, email: e.target.value })); setEmailError(null); }}
                   />
                 </div>
               </div>
@@ -365,9 +383,10 @@ const ArtistsPage: React.FC = () => {
                     type="email"
                     placeholder="artist@gmail.com"
                     value={formData.calendar_email}
-                    onChange={(e) => setFormData((d) => ({ ...d, calendar_email: e.target.value }))}
+                    onChange={(e) => { setFormData((d) => ({ ...d, calendar_email: e.target.value })); setEmailError(null); }}
                   />
                   <p className="text-xs text-muted-foreground">כתובת Google של האמן לסנכרון יומן</p>
+                  {emailError && <p className="text-xs text-red-500">{emailError}</p>}
                 </div>
                 <div className="flex flex-col gap-2">
                   <Label>צבע ביומן</Label>
@@ -437,11 +456,16 @@ const ArtistsPage: React.FC = () => {
             </div>
 
             <div className="flex gap-3 justify-end pt-2">
-              <Button type="button" variant="outline" onClick={closeDialog}>
+              <Button type="button" variant="outline" onClick={closeDialog} disabled={isSaving}>
                 ביטול
               </Button>
-              <Button type="submit" className="btn-magenta">
-                {editingArtist ? 'עדכן' : 'הוסף'}
+              <Button type="submit" className="btn-magenta" disabled={isSaving}>
+                {isSaving ? (
+                  <span className="flex items-center gap-2">
+                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    שומר...
+                  </span>
+                ) : editingArtist ? 'עדכן' : 'הוסף'}
               </Button>
             </div>
           </form>

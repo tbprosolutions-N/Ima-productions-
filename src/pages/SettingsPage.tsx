@@ -25,7 +25,7 @@ import { updateFaviconForPalette } from '@/lib/favicon';
 import type { IntegrationConnection } from '@/types';
 import { demoGetEvents, demoGetClients, demoGetArtists, isDemoMode } from '@/lib/demoStore';
 import { getFinanceExpenses } from '@/lib/financeStore';
-import { createSheetAndSyncClient, resyncSheetClient, hasGoogleToken, fetchSyncDataForAgency } from '@/services/sheetsSyncClient';
+import { createSheetAndSync, resyncSheet } from '@/services/sheetsSyncService';
 import jsPDF from 'jspdf';
 
 const SettingsPage: React.FC = () => {
@@ -157,6 +157,11 @@ const SettingsPage: React.FC = () => {
   // Data backup link (e.g., Google Drive / Sheets)
   const [backupUrl, setBackupUrl] = useState('');
   const [sheetsSyncing, setSheetsSyncing] = useState(false);
+
+  // Morning (Green Invoice): API credentials — stored in DB via Netlify function (not shown after save)
+  const [morningCompanyId, setMorningCompanyId] = useState('');
+  const [morningApiSecret, setMorningApiSecret] = useState('');
+  const [morningSaving, setMorningSaving] = useState(false);
 
   // Color palette (accent) – like Chrome theme; explicit Save
   const [pendingAccentPalette, setPendingAccentPalette] = useState<string>(() => localStorage.getItem('ima_palette') || 'bw');
@@ -321,7 +326,6 @@ const SettingsPage: React.FC = () => {
     localStorage.setItem(notifKey, JSON.stringify(next));
   };
 
-  const fetchSyncData = () => fetchSyncDataForAgency(currentAgency?.id || '');
 
   const saveBackupUrl = () => {
     const url = backupUrl.trim();
@@ -1325,6 +1329,81 @@ const SettingsPage: React.FC = () => {
           </Card>
         ) : (
           <div className="max-w-2xl space-y-6">
+            {/* Morning (Green Invoice) API Key — DB-driven */}
+            <Card className="border-primary/20">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <KeyRound className="w-5 h-5 text-primary" />
+                  Morning (חשבונית ירוקה) — מפתח API
+                </CardTitle>
+                <p className="text-sm text-muted-foreground mt-1">
+                  הזן מזהה חברה ומפתח סודי מ־Green Invoice. נשמר במערכת בצורה מאובטחת ומשמש ליצירת מסמכים ואימות סטטוס.
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label className="text-foreground">מזהה חברה (Company ID)</Label>
+                  <Input
+                    value={morningCompanyId}
+                    onChange={(e) => setMorningCompanyId(e.target.value)}
+                    placeholder="מזהה חברה מ־Green Invoice"
+                    className="border-primary/30 w-full"
+                    disabled={morningSaving}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-foreground">מפתח API (סודי)</Label>
+                  <Input
+                    type="password"
+                    value={morningApiSecret}
+                    onChange={(e) => setMorningApiSecret(e.target.value)}
+                    placeholder="מפתח סודי"
+                    className="border-primary/30 w-full"
+                    disabled={morningSaving}
+                  />
+                </div>
+                <Button
+                  type="button"
+                  className="btn-magenta"
+                  disabled={morningSaving || !morningCompanyId.trim() || !morningApiSecret.trim()}
+                  onClick={async () => {
+                    if (!currentAgency?.id) { toast.error('אין סוכנות פעילה'); return; }
+                    setMorningSaving(true);
+                    try {
+                      const base = typeof window !== 'undefined' ? window.location.origin : '';
+                      const res = await fetch(`${base}/api/morning-save-credentials`, {
+                        method: 'POST',
+                        headers: { 'content-type': 'application/json' },
+                        body: JSON.stringify({
+                          agencyId: currentAgency.id,
+                          companyId: morningCompanyId.trim(),
+                          apiSecret: morningApiSecret.trim(),
+                        }),
+                      });
+                      const data = await res.json().catch(() => ({}));
+                      if (!res.ok) {
+                        toast.error(data?.error || 'שמירת המפתח נכשלה');
+                        return;
+                      }
+                      toast.success('מפתח Morning נשמר בהצלחה');
+                      setMorningApiSecret('');
+                    } catch (e: any) {
+                      toast.error(e?.message || 'שמירה נכשלה');
+                    } finally {
+                      setMorningSaving(false);
+                    }
+                  }}
+                >
+                  {morningSaving ? (
+                    <span className="flex items-center gap-2">
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      שומר...
+                    </span>
+                  ) : 'שמור מפתח'}
+                </Button>
+              </CardContent>
+            </Card>
+
             <Card className="border-primary/20">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -1366,16 +1445,11 @@ const SettingsPage: React.FC = () => {
                           if (!currentAgency?.id || !sheetsSpreadsheetId) return;
                           setSheetsSyncing(true);
                           try {
-                            const data = await fetchSyncData();
-                            const result = await resyncSheetClient(currentAgency.id, sheetsSpreadsheetId, data);
+                            const result = await resyncSheet(currentAgency.id, sheetsSpreadsheetId);
                             if (result.ok) {
-                              toast.success(`סנכרון הושלם: ${result.counts.events} אירועים, ${result.counts.clients} לקוחות, ${result.counts.artists} אמנים, ${result.counts.expenses} הוצאות`);
+                              toast.success(`סנכרון הושלם: ${result.counts!.events} אירועים, ${result.counts!.clients} לקוחות, ${result.counts!.artists} אמנים, ${result.counts!.expenses} הוצאות`);
                             } else {
-                              if ('code' in result && (result.code === 'TOKEN_EXPIRED' || result.code === 'NO_TOKEN')) {
-                                toast.error('טוקן Google פג תוקף. התנתק/י והתחבר/י מחדש עם Google.');
-                              } else {
-                                toast.error(result.error);
-                              }
+                              toast.error(result.error);
                             }
                           } catch (e: any) {
                             toast.error(e?.message || 'סנכרון נכשל');
@@ -1405,18 +1479,13 @@ const SettingsPage: React.FC = () => {
                     disabled={sheetsSyncing}
                   />
                   <p className="text-xs text-muted-foreground">
-                    הגיבוי משתמש בחשבון Google שלך. ודא/י שהתחברת עם Google ושיש הרשאות Sheets ו-Drive.
+                    שיתוף התיקייה עם חשבון השירות (Service Account) נדרש — הוסף את המייל שהוגדר ב-Netlify כ־GOOGLE_SA_CLIENT_EMAIL עם הרשאת עורך.
                   </p>
-                  {!hasGoogleToken() && (
-                    <div className="rounded-lg border border-yellow-300 bg-yellow-50 dark:bg-yellow-950/20 dark:border-yellow-800 p-3 text-sm text-yellow-800 dark:text-yellow-200">
-                      לא נמצא טוקן Google. התנתק/י והתחבר/י מחדש עם Google כדי לאשר הרשאות Sheets ו-Drive.
-                    </div>
-                  )}
                   <div className="flex flex-wrap gap-2">
                     <Button
                       type="button"
                       className="btn-magenta"
-                      disabled={sheetsSyncing || !hasGoogleToken()}
+                      disabled={sheetsSyncing}
                       onClick={async () => {
                         const url = backupUrl.trim();
                         if (!url) { toast.error('נא להזין קישור לתיקיית Drive'); return; }
@@ -1427,17 +1496,13 @@ const SettingsPage: React.FC = () => {
                         saveBackupUrl();
                         setSheetsSyncing(true);
                         try {
-                          const data = await fetchSyncData();
-                          const result = await createSheetAndSyncClient(currentAgency.id, folderId, data);
+                          const result = await createSheetAndSync(currentAgency.id, folderId);
                           if (result.ok) {
                             setSheetsSpreadsheetId(result.spreadsheetId);
-                            toast.success(`גיליון נוצר וסונכרן: ${result.counts.events} אירועים, ${result.counts.clients} לקוחות, ${result.counts.artists} אמנים, ${result.counts.expenses} הוצאות`);
+                            const c = result.counts!;
+                            toast.success(`גיליון נוצר וסונכרן: ${c.events} אירועים, ${c.clients} לקוחות, ${c.artists} אמנים, ${c.expenses} הוצאות`);
                           } else {
-                            if ('code' in result && (result.code === 'TOKEN_EXPIRED' || result.code === 'NO_TOKEN')) {
-                              toast.error('טוקן Google פג תוקף. התנתק/י והתחבר/י מחדש עם Google.');
-                            } else {
-                              toast.error(result.error);
-                            }
+                            toast.error(result.error);
                           }
                         } catch (e: any) {
                           toast.error(e?.message || 'יצירת גיליון נכשלה');

@@ -1,20 +1,71 @@
 /**
  * Netlify Function: Google Sheets Sync API.
- * Creates a spreadsheet in a user's Drive folder and syncs all agency data.
- * Uses the logged-in user's Google OAuth token (passed via Authorization header).
- *
- * Token refresh: If GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are set, the function
- * can refresh an expired access token using the refresh_token from the request body.
+ * Creates a spreadsheet in a Drive folder and syncs all agency data.
+ * Uses Service Account JWT auth (no user OAuth). User shares the Drive folder with the SA email.
  *
  * Env:
  * - SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
- * - GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET (optional, for token refresh)
+ * - GOOGLE_SA_CLIENT_EMAIL (service account email)
+ * - GOOGLE_SA_PRIVATE_KEY (PEM private key; newlines as \n in env)
  */
+
+import { createSign } from 'crypto';
 
 // ── Custom error for Google auth failures ───────────────────────────────────
 
 class GoogleAuthError extends Error {
   constructor(message: string) { super(message); this.name = 'GoogleAuthError'; }
+}
+
+// ── Service Account JWT → access token ───────────────────────────────────────
+
+function base64UrlEncode(buf: Buffer): string {
+  return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/** Get Google access token using Service Account credentials (JWT grant). */
+async function getServiceAccountAccessToken(): Promise<string> {
+  const clientEmail = process.env.GOOGLE_SA_CLIENT_EMAIL?.trim();
+  const privateKeyRaw = process.env.GOOGLE_SA_PRIVATE_KEY?.trim();
+  if (!clientEmail || !privateKeyRaw) {
+    throw new Error('GOOGLE_SA_CLIENT_EMAIL and GOOGLE_SA_PRIVATE_KEY must be set in Netlify env');
+  }
+  // Restore newlines in PEM (env often has literal \n)
+  const privateKey = privateKeyRaw.replace(/\\n/g, '\n');
+
+  const now = Math.floor(Date.now() / 1000);
+  const header = { alg: 'RS256', typ: 'JWT' };
+  const payload = {
+    iss: clientEmail,
+    scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive',
+    aud: 'https://oauth2.googleapis.com/token',
+    iat: now,
+    exp: now + 3600,
+  };
+
+  const headerB64 = base64UrlEncode(Buffer.from(JSON.stringify(header)));
+  const payloadB64 = base64UrlEncode(Buffer.from(JSON.stringify(payload)));
+  const signatureInput = `${headerB64}.${payloadB64}`;
+
+  const sign = createSign('RSA-SHA256');
+  sign.update(signatureInput);
+  const signature = base64UrlEncode(sign.sign(privateKey));
+  const jwt = `${signatureInput}.${signature}`;
+
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion: jwt,
+    }).toString(),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`Google OAuth2 token error ${res.status}: ${text}`);
+  const data = JSON.parse(text) as { access_token?: string };
+  const token = data?.access_token;
+  if (!token) throw new Error('No access_token in Google OAuth2 response');
+  return token;
 }
 
 // ── Google API helpers ──────────────────────────────────────────────────────
@@ -36,31 +87,6 @@ async function googleApi(args: { url: string; method?: string; token: string; bo
     throw new Error(`Google API ${res.status}: ${text}`);
   }
   try { return JSON.parse(text); } catch { return text; }
-}
-
-// ── Token refresh ───────────────────────────────────────────────────────────
-
-async function refreshGoogleToken(refreshToken: string): Promise<string | null> {
-  const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
-  if (!clientId || !clientSecret || !refreshToken) return null;
-
-  try {
-    const res = await fetch('https://oauth2.googleapis.com/token', {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        client_id: clientId,
-        client_secret: clientSecret,
-        refresh_token: refreshToken,
-        grant_type: 'refresh_token',
-      }).toString(),
-    });
-    const data = await res.json() as { access_token?: string };
-    return data?.access_token || null;
-  } catch {
-    return null;
-  }
 }
 
 // ── Spreadsheet creation & data writing ─────────────────────────────────────
@@ -213,8 +239,6 @@ function respond(statusCode: number, body: unknown) {
   return { statusCode, headers: { 'content-type': 'application/json', ...CORS_HEADERS }, body: JSON.stringify(body) };
 }
 
-const AUTH_ERROR_MSG = 'טוקן Google פג תוקף או חסר. התנתק/י והתחבר/י מחדש עם Google.';
-
 export const handler = async (event: { httpMethod: string; headers: Record<string, string>; body?: string | null }) => {
   // CORS preflight
   if (event.httpMethod === 'OPTIONS') {
@@ -230,18 +254,11 @@ export const handler = async (event: { httpMethod: string; headers: Record<strin
     return respond(500, { error: 'Supabase not configured' });
   }
 
-  let reqBody: { action?: string; agencyId?: string; folderId?: string; spreadsheetId?: string; refreshToken?: string; googleToken?: string };
+  let reqBody: { action?: string; agencyId?: string; folderId?: string; spreadsheetId?: string };
   try {
     reqBody = typeof event.body === 'string' ? JSON.parse(event.body) : event.body || {};
   } catch {
     return respond(400, { error: 'Invalid JSON' });
-  }
-
-  // Accept Google OAuth token from Authorization header OR request body
-  const authHeader = event.headers?.authorization || event.headers?.Authorization || '';
-  let token = authHeader.replace(/^Bearer\s+/i, '').trim() || (reqBody.googleToken || '').trim();
-  if (!token) {
-    return respond(401, { error: AUTH_ERROR_MSG, code: 'NO_TOKEN' });
   }
 
   const { action, agencyId, folderId, spreadsheetId } = reqBody;
@@ -249,24 +266,19 @@ export const handler = async (event: { httpMethod: string; headers: Record<strin
     return respond(400, { error: 'Missing agencyId' });
   }
 
+  let token: string;
+  try {
+    token = await getServiceAccountAccessToken();
+  } catch (e: any) {
+    const msg = e?.message || String(e);
+    return respond(500, {
+      error: 'Google Service Account not configured',
+      detail: msg,
+    });
+  }
+
   const { createClient } = await import('@supabase/supabase-js');
   const supabase = createClient(supabaseUrl, supabaseServiceKey, { auth: { persistSession: false } });
-
-  // Helper: run an operation with automatic token refresh on auth failure
-  async function withTokenRefresh<T>(operation: (t: string) => Promise<T>): Promise<T> {
-    try {
-      return await operation(token);
-    } catch (e) {
-      if (e instanceof GoogleAuthError && reqBody.refreshToken) {
-        const newToken = await refreshGoogleToken(reqBody.refreshToken);
-        if (newToken) {
-          token = newToken;
-          return await operation(newToken);
-        }
-      }
-      throw e;
-    }
-  }
 
   // ── createAndSync ─────────────────────────────────────────────────────────
   if (action === 'createAndSync') {
@@ -276,22 +288,21 @@ export const handler = async (event: { httpMethod: string; headers: Record<strin
 
     let result: { spreadsheetId: string; spreadsheetUrl: string };
     try {
-      result = await withTokenRefresh(t => createSpreadsheetInFolder(t, `NPC Sync — ${new Date().toISOString().slice(0, 10)}`, folderId));
+      result = await createSpreadsheetInFolder(token, `NPC Sync — ${new Date().toISOString().slice(0, 10)}`, folderId);
     } catch (e: any) {
-      if (e instanceof GoogleAuthError || (e?.message && e.message.includes('Google API 401'))) {
-        return respond(401, { error: AUTH_ERROR_MSG, code: 'TOKEN_EXPIRED', detail: e.message });
-      }
-      return respond(502, { error: 'Failed to create spreadsheet', detail: e.message });
+      return respond(502, { error: 'Failed to create spreadsheet', detail: e?.message });
     }
 
     let counts: { events: number; clients: number; artists: number; expenses: number };
     try {
-      counts = await withTokenRefresh(t => clearAndSyncAll({ token: t, spreadsheetId: result.spreadsheetId, supabase, agencyId }));
+      counts = await clearAndSyncAll({ token, spreadsheetId: result.spreadsheetId, supabase, agencyId });
     } catch (e: any) {
-      if (e instanceof GoogleAuthError || (e?.message && e.message.includes('Google API 401'))) {
-        return respond(401, { error: AUTH_ERROR_MSG, code: 'TOKEN_EXPIRED', detail: e.message, spreadsheetId: result.spreadsheetId, spreadsheetUrl: result.spreadsheetUrl });
-      }
-      return respond(502, { error: 'Created spreadsheet but sync failed', detail: e.message, spreadsheetId: result.spreadsheetId, spreadsheetUrl: result.spreadsheetUrl });
+      return respond(502, {
+        error: 'Created spreadsheet but sync failed',
+        detail: e?.message,
+        spreadsheetId: result.spreadsheetId,
+        spreadsheetUrl: result.spreadsheetUrl,
+      });
     }
 
     try {
@@ -317,12 +328,9 @@ export const handler = async (event: { httpMethod: string; headers: Record<strin
 
     let counts: { events: number; clients: number; artists: number; expenses: number };
     try {
-      counts = await withTokenRefresh(t => clearAndSyncAll({ token: t, spreadsheetId, supabase, agencyId }));
+      counts = await clearAndSyncAll({ token, spreadsheetId, supabase, agencyId });
     } catch (e: any) {
-      if (e instanceof GoogleAuthError || (e?.message && e.message.includes('Google API 401'))) {
-        return respond(401, { error: AUTH_ERROR_MSG, code: 'TOKEN_EXPIRED', detail: e.message });
-      }
-      return respond(502, { error: 'Sync failed', detail: e.message });
+      return respond(502, { error: 'Sync failed', detail: e?.message });
     }
 
     return respond(200, { ok: true, spreadsheetId, spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`, counts });

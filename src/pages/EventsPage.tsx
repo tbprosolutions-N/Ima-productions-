@@ -38,7 +38,7 @@ import {
   demoUpsertClient,
   isDemoMode,
 } from '@/lib/demoStore';
-import { useArtistsQuery, useClientsQuery, useInvalidateClients, useInvalidateArtists } from '@/hooks/useSupabaseQuery';
+import { useEventsQuery, useArtistsQuery, useClientsQuery, useInvalidateEvents, useInvalidateClients, useInvalidateArtists } from '@/hooks/useSupabaseQuery';
 import { buildTemplateVariables, demoAddSentDoc, renderTemplate } from '@/lib/sentDocs';
 import { getMorningApiKey, getMorningCompanyId, isIntegrationConnected } from '@/lib/settingsStore';
 import { useSearchParams } from 'react-router-dom';
@@ -58,15 +58,17 @@ const EventsPage: React.FC = () => {
     (user.permissions?.events_create === true ||
       (user.permissions?.events_create !== false && ['producer', 'manager', 'owner'].includes(user.role)));
   const [searchParams, setSearchParams] = useSearchParams();
-  const [events, setEvents] = useState<Event[]>([]);
+  const { data: events = [], isLoading: loading } = useEventsQuery(currentAgency?.id);
   const { data: clients = [] } = useClientsQuery(currentAgency?.id);
   const { data: artists = [] } = useArtistsQuery(currentAgency?.id);
+  const invalidateEvents = useInvalidateEvents();
   const invalidateClients = useInvalidateClients();
   const invalidateArtists = useInvalidateArtists();
   const [requestCorrectionEvent, setRequestCorrectionEvent] = useState<Event | null>(null);
 
   const isRowLocked = (ev: Event) => !!(ev.morning_id || ev.morning_sync_status === 'synced');
-  const [loading, setLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [globalFilter, setGlobalFilter] = useState('');
@@ -154,14 +156,6 @@ const EventsPage: React.FC = () => {
     };
   };
 
-  useEffect(() => {
-    if (currentAgency) {
-      fetchEvents();
-    } else {
-      setLoading(false);
-    }
-  }, [currentAgency]);
-
   // Deep-link edit support (used by Daybook owner-only edit button)
   useEffect(() => {
     const editId = searchParams.get('edit');
@@ -176,33 +170,6 @@ const EventsPage: React.FC = () => {
     setSearchParams(next, { replace: true });
   }, [searchParams, loading, events]);
 
-  const fetchEvents = async () => {
-    if (!currentAgency) return;
-    try {
-      setLoading(true);
-      if (isDemoMode()) {
-        setEvents(demoGetEvents(currentAgency.id));
-        return;
-      }
-      const { data, error } = await supabase
-        .from('events')
-        .select('*')
-        .eq('agency_id', currentAgency.id)
-        .order('event_date', { ascending: false });
-      if (error) throw error;
-      setEvents(data || []);
-    } catch (error) {
-      console.error('Error fetching events:', error);
-      if (isDemoMode()) {
-        setEvents(demoGetEvents(currentAgency?.id || 'npc-agency-id'));
-      } else {
-        showError('טעינת האירועים נכשלה. אנא נסה שוב.');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleDelete = async (id: string) => {
     if (!confirm('האם אתה בטוח שברצונך למחוק אירוע זה?')) return;
 
@@ -212,7 +179,7 @@ const EventsPage: React.FC = () => {
         if (!currentAgency) return;
         const next = demoGetEvents(currentAgency.id).filter(e => e.id !== id);
         demoSetEvents(currentAgency.id, next);
-        setEvents(next);
+        invalidateEvents(currentAgency.id);
         success('אירוע נמחק בהצלחה! ✅');
         return;
       }
@@ -220,7 +187,7 @@ const EventsPage: React.FC = () => {
       const { error } = await supabase.from('events').delete().eq('id', id);
       if (error) throw error;
       success('אירוע נמחק בהצלחה! ✅');
-      await fetchEvents();
+      invalidateEvents(currentAgency?.id);
     } catch (error) {
       console.error('Error deleting event:', error);
       showError('מחיקת האירוע נכשלה. אנא נסה שוב.');
@@ -229,22 +196,21 @@ const EventsPage: React.FC = () => {
 
   const updateEventInline = async (eventId: string, patch: Partial<Event>) => {
     if (!currentAgency) return;
-    // Optimistic UI
-    setEvents((prev) => prev.map((e) => (e.id === eventId ? { ...e, ...patch } : e)));
 
     try {
       if (isDemoMode()) {
         const next = demoGetEvents(currentAgency.id).map((e) => (e.id === eventId ? { ...e, ...patch } : e));
         demoSetEvents(currentAgency.id, next);
+        invalidateEvents(currentAgency.id);
         return;
       }
       const { error } = await supabase.from('events').update(patch as any).eq('id', eventId);
       if (error) throw error;
+      invalidateEvents(currentAgency.id);
     } catch (e: any) {
       console.error(e);
       showError(e?.message || 'אירעה שגיאה בעדכון. אנא נסה שוב.');
-      // best-effort refresh
-      fetchEvents();
+      invalidateEvents(currentAgency.id);
     }
   };
 
@@ -310,7 +276,7 @@ const EventsPage: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+    setIsSaving(true);
     try {
       if (!currentAgency) {
         throw new Error('לא נמצאה סוכנות פעילה. רענן את הדף ונסה שוב.');
@@ -425,7 +391,7 @@ const EventsPage: React.FC = () => {
           : [base, ...existing];
 
         demoSetEvents(currentAgency.id, next);
-        setEvents(next);
+        invalidateEvents(currentAgency.id);
         success(editingEvent ? 'אירוע עודכן בהצלחה! ✅' : 'אירוע נוסף בהצלחה! 🎉');
 
         // Auto-send agreement ONLY if artist/client already existed in the system
@@ -599,10 +565,12 @@ const EventsPage: React.FC = () => {
         }
       }
 
-      fetchEvents();
+      invalidateEvents(currentAgency?.id);
       closeDialog();
     } catch (err: any) {
       showError(err.message || 'אירעה שגיאה בשמירת האירוע. אנא נסה שוב.');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -804,30 +772,25 @@ const EventsPage: React.FC = () => {
                     return;
                   }
                   // Demo: simulate sync (mock)
-                  setEvents(prev => {
-                    const next = prev.map(e => (e.id === eventId ? { ...e, morning_sync_status: 'syncing' as const } : e));
-                    demoSetEvents(currentAgency.id, next);
-                    return next;
-                  });
+                  const syncing = events.map(e => (e.id === eventId ? { ...e, morning_sync_status: 'syncing' as const } : e));
+                  demoSetEvents(currentAgency.id, syncing);
+                  invalidateEvents(currentAgency.id);
                   await new Promise(resolve => setTimeout(resolve, 1200));
-                  setEvents(prev => {
-                    const next = prev.map(e => (e.id === eventId ? { ...e, morning_sync_status: 'synced' as const } : e));
-                    demoSetEvents(currentAgency.id, next);
-                    return next;
-                  });
+                  const synced = syncing.map(e => (e.id === eventId ? { ...e, morning_sync_status: 'synced' as const } : e));
+                  demoSetEvents(currentAgency.id, synced);
+                  invalidateEvents(currentAgency.id);
                   success('דמו: הסנכרון עם Morning הושלם ✅');
                   return;
                 }
 
                 // Production: call Netlify Function (Morning API proxy; credentials server-side)
-                setEvents(prev => prev.map(e => (e.id === eventId ? { ...e, morning_sync_status: 'syncing' as const } : e)));
                 const result = await createEventDocument(currentAgency.id, eventId);
                 if (result.ok) {
                   success('המסמך נוצר ב־Morning בהצלחה ✅');
-                  fetchEvents();
+                  invalidateEvents(currentAgency.id);
                 } else {
                   showError(result.error + (result.detail ? ` — ${result.detail}` : ''));
-                  setEvents(prev => prev.map(e => (e.id === eventId ? { ...e, morning_sync_status: 'not_synced' as const } : e)));
+                  invalidateEvents(currentAgency.id);
                 }
               }}
               className="btn-magenta text-xs relative overflow-hidden"
@@ -871,7 +834,7 @@ const EventsPage: React.FC = () => {
                       const res = await checkEventDocumentStatus(currentAgency.id, eventId);
                       if (res.ok) {
                         success('סטטוס עודכן מ־Morning ✅');
-                        fetchEvents();
+                        invalidateEvents(currentAgency.id);
                       } else {
                         showError(res.error + (res.detail ? ` — ${res.detail}` : ''));
                       }
@@ -900,16 +863,15 @@ const EventsPage: React.FC = () => {
                 variant="outline"
                 onClick={async () => {
                   if (!currentAgency) return;
-                  const eventId = row.original.id;
-                  setEvents(prev => prev.map(e => (e.id === eventId ? { ...e, morning_sync_status: 'syncing' as const } : e)));
                   await queueSyncJob({
                     agencyId: currentAgency.id,
                     provider: 'morning',
                     kind: 'event_document_create',
-                    payload: { event_id: eventId },
+                    payload: { event_id: row.original.id },
                     createdBy: user?.id,
                   });
                   success('נוצר Retry ל‑Morning ✅');
+                  invalidateEvents(currentAgency.id);
                 }}
               >
                 נסה שוב
@@ -1011,11 +973,12 @@ const EventsPage: React.FC = () => {
     }
     if (selectedIds.length === 0) return;
     if (!confirm(`למחוק ${selectedIds.length} אירועים?`)) return;
+    setBulkDeleting(true);
     try {
       if (isDemoMode()) {
         const next = demoGetEvents(currentAgency.id).filter((e) => !selectedIds.includes(e.id));
         demoSetEvents(currentAgency.id, next);
-        setEvents(next);
+        invalidateEvents(currentAgency.id);
         setRowSelection({});
         success('נמחקו אירועים נבחרים ✅');
         return;
@@ -1024,10 +987,12 @@ const EventsPage: React.FC = () => {
       if (error) throw error;
       setRowSelection({});
       success('נמחקו אירועים נבחרים ✅');
-      fetchEvents();
+      invalidateEvents(currentAgency?.id);
     } catch (e: any) {
       console.error(e);
       showError(e?.message || 'מחיקת האירועים נכשלה. אנא נסה שוב.');
+    } finally {
+      setBulkDeleting(false);
     }
   };
 
@@ -1087,11 +1052,20 @@ const EventsPage: React.FC = () => {
                       variant="outline"
                       className="border-red-500/40 text-red-600 hover:bg-red-500/10"
                       onClick={bulkDelete}
-                      disabled={!isOwner}
+                      disabled={!isOwner || bulkDeleting}
                       title={!isOwner ? 'אין הרשאה למחיקה' : undefined}
                     >
-                      <Trash2 className="w-4 h-4 mr-2" />
-                      מחק נבחרים
+                      {bulkDeleting ? (
+                        <span className="flex items-center gap-2">
+                          <span className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
+                          מוחק...
+                        </span>
+                      ) : (
+                        <>
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          מחק נבחרים
+                        </>
+                      )}
                     </Button>
                     <Button type="button" variant="outline" onClick={() => setRowSelection({})}>
                       נקה בחירה
@@ -1411,11 +1385,16 @@ const EventsPage: React.FC = () => {
             </div>
 
             <div className="flex gap-2 justify-end pt-4">
-              <Button type="button" variant="outline" onClick={closeDialog}>
+              <Button type="button" variant="outline" onClick={closeDialog} disabled={isSaving}>
                 ביטול
               </Button>
-              <Button type="submit" className="btn-magenta">
-                {editingEvent ? 'עדכן' : 'הוסף'}
+              <Button type="submit" className="btn-magenta" disabled={isSaving}>
+                {isSaving ? (
+                  <span className="flex items-center gap-2">
+                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    שומר...
+                  </span>
+                ) : editingEvent ? 'עדכן' : 'הוסף'}
               </Button>
             </div>
           </form>

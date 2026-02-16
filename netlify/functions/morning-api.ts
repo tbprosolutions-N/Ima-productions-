@@ -1,13 +1,10 @@
 /**
  * Netlify Function: Morning (Green Invoice) API proxy.
- * Keeps API Key and Secret server-side; frontend calls this function.
+ * Credentials are read from Supabase integration_secrets per agency (DB-driven).
+ * Fallback: MORNING_API_KEY, MORNING_API_SECRET env vars if no row for agencyId.
  *
- * Env (set in Netlify UI or .env for local):
- * - MORNING_API_KEY (Green Invoice API Key ID)
- * - MORNING_API_SECRET (Secret; use quotes in .env for special characters)
- * - MORNING_BASE_URL (optional, default https://api.greeninvoice.co.il/api/v1)
- * - MORNING_ENV (optional, e.g. sandbox)
- * - SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (to read event/client/artist and update event)
+ * Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (required).
+ * Optional fallback: MORNING_API_KEY, MORNING_API_SECRET, MORNING_BASE_URL
  */
 
 const DEFAULT_BASE_URL = 'https://api.greeninvoice.co.il/api/v1';
@@ -60,18 +57,8 @@ export const handler = async (event: { httpMethod: string; body?: string | null 
     return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed' }) };
   }
 
-  const apiKey = process.env.MORNING_API_KEY?.trim();
-  const apiSecret = process.env.MORNING_API_SECRET?.trim();
-  const baseUrl = (process.env.MORNING_BASE_URL || DEFAULT_BASE_URL).trim();
   const supabaseUrl = process.env.SUPABASE_URL?.trim();
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
-
-  if (!apiKey || !apiSecret) {
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: 'Morning credentials not configured (MORNING_API_KEY, MORNING_API_SECRET)' }),
-    };
-  }
   if (!supabaseUrl || !supabaseServiceKey) {
     return {
       statusCode: 500,
@@ -99,6 +86,37 @@ export const handler = async (event: { httpMethod: string; body?: string | null 
 
   const { createClient } = await import('@supabase/supabase-js');
   const supabase = createClient(supabaseUrl, supabaseServiceKey, { auth: { persistSession: false } });
+
+  // Fetch Morning credentials from DB (integration_secrets); fallback to env
+  let apiKey: string | undefined;
+  let apiSecret: string | undefined;
+  let baseUrl = (process.env.MORNING_BASE_URL || DEFAULT_BASE_URL).trim();
+
+  const { data: secretRow } = await supabase
+    .from('integration_secrets')
+    .select('secret')
+    .eq('agency_id', agencyId)
+    .eq('provider', 'morning')
+    .maybeSingle();
+
+  const secretPayload = secretRow as { secret?: { id?: string; secret?: string; base_url?: string } } | null;
+  if (secretPayload?.secret?.id && secretPayload?.secret?.secret) {
+    apiKey = String(secretPayload.secret.id).trim();
+    apiSecret = String(secretPayload.secret.secret).trim();
+    if (secretPayload.secret.base_url) baseUrl = String(secretPayload.secret.base_url).trim();
+  }
+  if (!apiKey || !apiSecret) {
+    apiKey = process.env.MORNING_API_KEY?.trim();
+    apiSecret = process.env.MORNING_API_SECRET?.trim();
+  }
+  if (!apiKey || !apiSecret) {
+    return {
+      statusCode: 500,
+      body: JSON.stringify({
+        error: 'Morning credentials not configured for this agency. Add Company ID and API Secret in Settings → גיבוי נתונים.',
+      }),
+    };
+  }
 
   if (action === 'getDocumentStatus') {
     const { data: ev, error: evErr } = await supabase
