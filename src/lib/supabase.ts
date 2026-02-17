@@ -97,7 +97,7 @@ const safeStorage: AuthStorage = {
 // Production: In Supabase Dashboard → Authentication → URL Configuration, set:
 // - Site URL: https://npc-am.com (or your production origin)
 // - Redirect URLs: https://npc-am.com, https://npc-am.com/login, https://npc-am.com/**
-// Client uses window.location.origin for redirects; no hardcoded origin.
+// Session persists in localStorage (storageKey: ima_os_auth) so users stay logged in across browser close/reopen (PWA).
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     autoRefreshToken: true,

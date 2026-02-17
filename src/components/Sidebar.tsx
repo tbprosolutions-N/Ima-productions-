@@ -9,15 +9,11 @@ import {
   DollarSign,
   FileText,
   Settings,
-  Activity,
   LogOut,
-  Moon,
-  Sun,
   type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRole } from '@/hooks/useRole';
-import { useTheme } from '@/contexts/ThemeContext';
 import { prefetchRoute } from '@/lib/prefetch';
 import { useLocale } from '@/contexts/LocaleContext';
 import { useAgency } from '@/contexts/AgencyContext';
@@ -42,7 +38,6 @@ const SIDEBAR_WIDTH_MOBILE = 256;
 const SidebarInner: React.FC<SidebarProps> = ({ mobileOpen = false, onClose }) => {
   const { user, signOut } = useAuth();
   const { role } = useRole();
-  const { theme, toggleTheme } = useTheme();
   const { t } = useLocale();
   const { currentAgency } = useAgency();
   const [isDesktop, setIsDesktop] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches);
@@ -86,21 +81,16 @@ const SidebarInner: React.FC<SidebarProps> = ({ mobileOpen = false, onClose }) =
     { to: '/events', Icon: Calendar, label: t('nav.events') },
     { to: '/artists', Icon: UserCircle, label: t('nav.artists') },
     { to: '/clients', Icon: Users, label: t('nav.clients') },
-    { to: '/finance', Icon: DollarSign, label: t('nav.finance'), roles: ['finance', 'manager', 'owner'] },
+    { to: '/finance', Icon: DollarSign, label: t('nav.finance'), roles: ['owner'] },
     { to: '/calendar', Icon: Calendar, label: t('nav.calendar') },
     { to: '/documents', Icon: FileText, label: t('nav.documents') },
-    { to: '/settings', Icon: Settings, label: t('nav.settings') },
-    { to: '/sync', Icon: Activity, label: 'Sync Monitor', roles: ['owner'] },
+    { to: '/settings', Icon: Settings, label: t('nav.settings'), roles: ['owner'] },
   ], [t]);
 
   const canAccessRoute = useCallback((roles?: string[]) => {
     if (!roles || !user) return true;
     const effectiveRole = role ?? user.role;
     if (!effectiveRole) return true;
-    if (roles.includes('finance')) {
-      if (user.permissions?.finance === true) return true;
-      if (user.permissions?.finance === false) return false;
-    }
     return roles.includes(effectiveRole);
   }, [user, role]);
 
@@ -173,10 +163,6 @@ const SidebarInner: React.FC<SidebarProps> = ({ mobileOpen = false, onClose }) =
       </nav>
 
       <div className="p-3 sm:p-4 border-t border-border space-y-1 sm:space-y-2">
-        <Button variant="ghost" onClick={toggleTheme} className="w-full justify-start modu-icon-text text-sm sm:text-base min-h-[40px] sm:min-h-[44px]">
-          {theme === 'dark' ? <Sun className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" /> : <Moon className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />}
-          {theme === 'dark' ? 'מצב בהיר' : 'מצב כהה'}
-        </Button>
         <Button
           type="button"
           variant="ghost"

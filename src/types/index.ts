@@ -82,6 +82,8 @@ export interface Event {
   google_artist_event_html_link?: string;
   google_sync_status?: MorningSyncStatus;
   google_synced_at?: string;
+  /** Event time (e.g. "14:30") */
+  event_time?: string | null;
 }
 
 export interface Artist {
@@ -94,6 +96,7 @@ export interface Artist {
   vat_id?: string;
   phone?: string;
   email?: string;
+  /** Single email used for Google Calendar and all integrations (no separate calendar_email) */
   calendar_email?: string;
   google_calendar_id?: string;
   bank_id?: string;
@@ -101,6 +104,8 @@ export interface Artist {
   bank_branch?: string;
   bank_account?: string;
   notes?: string;
+  /** סכום – optional amount/sum for artist context */
+  amount?: number | null;
   created_at: string;
   updated_at: string;
 }

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { UserCircle, Plus, Edit, Trash2, Search, ChevronDown, ChevronUp, Mail, Phone, Building, Palette, CreditCard } from 'lucide-react';
+import { UserCircle, Plus, Edit, Trash2, Search, ChevronDown, ChevronUp, Mail, Phone, Palette, CreditCard } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardContent } from '@/components/ui/Card';
@@ -33,23 +33,21 @@ const ArtistsPage: React.FC = () => {
     name: '',
     phone: '',
     email: '',
-    company_name: '',
     notes: '',
     color: '#3B82F6',
-    calendar_email: '',
     google_calendar_id: '',
     vat_id: '',
     bank_name: '',
     bank_branch: '',
     bank_account: '',
+    amount: '',
   });
   const [isSaving, setIsSaving] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
 
   const filteredArtists = artists.filter(a =>
     !searchQuery || a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (a.email || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (a.company_name || '').toLowerCase().includes(searchQuery.toLowerCase())
+    (a.email || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const stripPayoutMetadata = cleanNotes;
@@ -60,23 +58,22 @@ const ArtistsPage: React.FC = () => {
       setFormData({
         name: artist.name,
         phone: artist.phone || '',
-        email: artist.email || '',
-        company_name: artist.company_name || '',
+        email: artist.email || artist.calendar_email || '',
         notes: stripPayoutMetadata(artist.notes),
         color: artist.color || '#3B82F6',
-        calendar_email: artist.calendar_email || '',
         google_calendar_id: artist.google_calendar_id || '',
         vat_id: artist.vat_id || '',
         bank_name: artist.bank_name || '',
         bank_branch: artist.bank_branch || '',
         bank_account: artist.bank_account || '',
+        amount: artist.amount != null ? String(artist.amount) : '',
       });
     } else {
       setEditingArtist(null);
       setFormData({
-        name: '', phone: '', email: '', company_name: '', notes: '',
-        color: '#3B82F6', calendar_email: '', google_calendar_id: '',
-        vat_id: '', bank_name: '', bank_branch: '', bank_account: '',
+        name: '', phone: '', email: '', notes: '',
+        color: '#3B82F6', google_calendar_id: '',
+        vat_id: '', bank_name: '', bank_branch: '', bank_account: '', amount: '',
       });
     }
     setDialogOpen(true);
@@ -91,33 +88,30 @@ const ArtistsPage: React.FC = () => {
     e.preventDefault();
     setEmailError(null);
     const emailVal = formData.email?.trim();
-    const calendarEmailVal = formData.calendar_email?.trim();
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (emailVal && !emailRegex.test(emailVal)) {
       setEmailError('נא להזין כתובת אימייל תקינה');
-      return;
-    }
-    if (calendarEmailVal && !emailRegex.test(calendarEmailVal)) {
-      setEmailError('נא להזין כתובת אימייל תקינה (Google Calendar)');
       return;
     }
     if (!currentAgency) return;
     setIsSaving(true);
     try {
       const cleanNotes = stripPayoutMetadata(formData.notes);
+      const emailForDb = formData.email?.trim() || undefined;
+      const amountNum = formData.amount.trim() ? Number(formData.amount) : null;
       const payload = {
         name: formData.name.trim(),
         phone: formData.phone?.trim() || undefined,
-        email: formData.email?.trim() || undefined,
-        company_name: formData.company_name?.trim() || undefined,
+        email: emailForDb,
+        calendar_email: emailForDb,
         notes: cleanNotes || undefined,
         color: formData.color || undefined,
-        calendar_email: formData.calendar_email || undefined,
         google_calendar_id: formData.google_calendar_id || undefined,
         vat_id: formData.vat_id || undefined,
         bank_name: formData.bank_name || undefined,
         bank_branch: formData.bank_branch || undefined,
         bank_account: formData.bank_account || undefined,
+        amount: Number.isFinite(amountNum) ? amountNum : undefined,
       };
 
       if (isDemoMode()) {
@@ -133,10 +127,11 @@ const ArtistsPage: React.FC = () => {
           if (error) throw error;
           success('אמן עודכן בהצלחה');
         } else {
-          const { error } = await supabase.from('artists').insert({
-            agency_id: currentAgency.id,
-            ...payload,
-          });
+          const { data: _inserted, error } = await supabase
+            .from('artists')
+            .insert({ agency_id: currentAgency.id, ...payload })
+            .select('id')
+            .single();
           if (error) throw error;
           success('אמן נוסף בהצלחה');
         }
@@ -238,19 +233,13 @@ const ArtistsPage: React.FC = () => {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="font-semibold text-foreground">{artist.name}</span>
-                        {artist.company_name && (
-                          <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">{artist.company_name}</span>
-                        )}
                       </div>
                       <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
                         {artist.phone && (
                           <span className="flex items-center gap-1"><Phone className="w-3 h-3" />{artist.phone}</span>
                         )}
-                        {artist.email && (
-                          <span className="flex items-center gap-1"><Mail className="w-3 h-3" />{artist.email}</span>
-                        )}
-                        {artist.calendar_email && (
-                          <span className="flex items-center gap-1 text-blue-600"><Mail className="w-3 h-3" />Google: {artist.calendar_email}</span>
+                        {(artist.email || artist.calendar_email) && (
+                          <span className="flex items-center gap-1"><Mail className="w-3 h-3" />{artist.email || artist.calendar_email}</span>
                         )}
                       </div>
                     </div>
@@ -288,10 +277,9 @@ const ArtistsPage: React.FC = () => {
                       className="px-4 pb-4 bg-muted/10"
                     >
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pt-3 border-t border-gray-50 dark:border-gray-100">
-                        <DetailItem icon={<Mail className="w-4 h-4" />} label="אימייל" value={artist.email} />
+                        <DetailItem icon={<Mail className="w-4 h-4" />} label="אימייל (כולל Google / יומן)" value={artist.email || artist.calendar_email} />
                         <DetailItem icon={<Phone className="w-4 h-4" />} label="טלפון" value={artist.phone} />
-                        <DetailItem icon={<Building className="w-4 h-4" />} label="חברה / קטגוריה" value={artist.company_name} />
-                        <DetailItem icon={<Mail className="w-4 h-4 text-blue-500" />} label="Google Calendar Email" value={artist.calendar_email} />
+                        <DetailItem icon={<CreditCard className="w-4 h-4" />} label="סכום" value={artist.amount != null ? Number(artist.amount).toLocaleString('he-IL') : undefined} />
                         <DetailItem icon={<Palette className="w-4 h-4" />} label="צבע ביומן" value={
                           artist.color ? (
                             <span className="flex items-center gap-2">
@@ -344,14 +332,6 @@ const ArtistsPage: React.FC = () => {
                   />
                 </div>
                 <div className="flex flex-col gap-2">
-                  <Label htmlFor="artist-company">קטגוריה / חברה</Label>
-                  <Input
-                    id="artist-company"
-                    value={formData.company_name}
-                    onChange={(e) => setFormData((d) => ({ ...d, company_name: e.target.value }))}
-                  />
-                </div>
-                <div className="flex flex-col gap-2">
                   <Label htmlFor="artist-phone">טלפון</Label>
                   <Input
                     id="artist-phone"
@@ -361,33 +341,33 @@ const ArtistsPage: React.FC = () => {
                   />
                 </div>
                 <div className="flex flex-col gap-2">
-                  <Label htmlFor="artist-email">אימייל</Label>
+                  <Label htmlFor="artist-email">אימייל (גם ל־Google Calendar ויומן)</Label>
                   <Input
                     id="artist-email"
                     type="email"
+                    placeholder="artist@gmail.com"
                     value={formData.email}
                     onChange={(e) => { setFormData((d) => ({ ...d, email: e.target.value })); setEmailError(null); }}
+                  />
+                  <p className="text-xs text-muted-foreground">משמש לסנכרון יומן וכל שירותי Google</p>
+                  {emailError && <p className="text-xs text-red-500">{emailError}</p>}
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="artist-amount">סכום</Label>
+                  <Input
+                    id="artist-amount"
+                    type="number"
+                    step="0.01"
+                    value={formData.amount}
+                    onChange={(e) => setFormData((d) => ({ ...d, amount: e.target.value }))}
+                    placeholder="0"
                   />
                 </div>
               </div>
             </div>
 
-            {/* Google Integration */}
             <div className="space-y-1">
-              <h3 className="text-sm font-semibold text-foreground">ממשק Google</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="artist-google-email">Google Calendar Email</Label>
-                  <Input
-                    id="artist-google-email"
-                    type="email"
-                    placeholder="artist@gmail.com"
-                    value={formData.calendar_email}
-                    onChange={(e) => { setFormData((d) => ({ ...d, calendar_email: e.target.value })); setEmailError(null); }}
-                  />
-                  <p className="text-xs text-muted-foreground">כתובת Google של האמן לסנכרון יומן</p>
-                  {emailError && <p className="text-xs text-red-500">{emailError}</p>}
-                </div>
                 <div className="flex flex-col gap-2">
                   <Label>צבע ביומן</Label>
                   <div className="flex flex-wrap gap-2">

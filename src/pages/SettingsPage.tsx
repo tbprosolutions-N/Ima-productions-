@@ -708,8 +708,8 @@ const SettingsPage: React.FC = () => {
           </Card>
           </div>
 
-          {/* Branding — compact card to fit content only */}
-          <div>
+          {/* Branding / Company (מותג / חברה) removed from UI per client request */}
+          <div className="hidden" aria-hidden>
           <Card className="border-border modu-elevation-1 w-full max-w-xl">
             <CardHeader className="pb-2">
               <CardTitle className="flex items-center gap-2 text-base">

@@ -171,16 +171,12 @@ const AppRoutes: React.FC = () => {
         <Route
           path="finance"
           element={
-            user ? (
-              user.permissions?.finance === false ? (
-                <Navigate to="/dashboard" replace />
-              ) : user.permissions?.finance === true || (effectiveRole && ['finance', 'manager', 'owner'].includes(effectiveRole)) ? (
-                <Suspense fallback={<PageLoader label="טוען פיננסים…" />}>
-                  <FinancePage />
-                </Suspense>
-              ) : (
-                <Navigate to="/dashboard" replace />
-              )
+            user && effectiveRole === 'owner' ? (
+              <Suspense fallback={<PageLoader label="טוען פיננסים…" />}>
+                <FinancePage />
+              </Suspense>
+            ) : user ? (
+              <Navigate to="/dashboard" replace />
             ) : (
               <Navigate to="/login" replace />
             )
@@ -205,23 +201,16 @@ const AppRoutes: React.FC = () => {
         <Route
           path="settings"
           element={
-            <Suspense fallback={<PageLoader label="טוען הגדרות…" />}>
-              <SettingsPage />
-            </Suspense>
-          }
-        />
-        <Route
-          path="sync"
-          element={
             effectiveRole === 'owner' ? (
-              <Suspense fallback={<PageLoader label="טוען סנכרונים…" />}>
-                <SyncMonitorPage />
+              <Suspense fallback={<PageLoader label="טוען הגדרות…" />}>
+                <SettingsPage />
               </Suspense>
             ) : (
               <Navigate to="/dashboard" replace />
             )
           }
         />
+        <Route path="sync" element={<Navigate to="/dashboard" replace />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

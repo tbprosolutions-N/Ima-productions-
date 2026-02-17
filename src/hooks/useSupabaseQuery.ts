@@ -14,9 +14,9 @@ const CACHE_TIME = 10 * 60 * 1000; // 10 minutes in cache
 
 // ── Column selectors (fetch only what's needed for list views) ──────────────
 
-const EVENT_LIST_COLS = 'id,agency_id,event_date,weekday,business_name,invoice_name,amount,payment_date,artist_fee_type,artist_fee_value,artist_fee_amount,doc_type,doc_number,due_date,status,notes,morning_sync_status,morning_id,morning_document_id,morning_document_number,morning_document_url,morning_last_error,morning_doc_status,created_at,updated_at,client_id,artist_id,producer_id,approver,google_event_id,google_event_html_link,google_sync_status' as const;
+const EVENT_LIST_COLS = 'id,agency_id,event_date,event_time,weekday,business_name,invoice_name,amount,payment_date,artist_fee_type,artist_fee_value,artist_fee_amount,doc_type,doc_number,due_date,status,notes,morning_sync_status,morning_id,morning_document_id,morning_document_number,morning_document_url,morning_last_error,morning_doc_status,created_at,updated_at,client_id,artist_id,producer_id,approver,google_event_id,google_event_html_link,google_sync_status' as const;
 
-const ARTIST_LIST_COLS = 'id,agency_id,name,color,full_name,company_name,vat_id,phone,email,calendar_email,google_calendar_id,bank_id,bank_name,bank_branch,bank_account,notes,created_at,updated_at' as const;
+const ARTIST_LIST_COLS = 'id,agency_id,name,color,full_name,company_name,vat_id,phone,email,calendar_email,google_calendar_id,bank_id,bank_name,bank_branch,bank_account,notes,amount,created_at,updated_at' as const;
 
 const CLIENT_LIST_COLS = 'id,agency_id,name,contact_person,vat_id,phone,email,address,notes,created_at,updated_at' as const;
 

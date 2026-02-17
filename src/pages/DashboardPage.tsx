@@ -229,16 +229,18 @@ const QuickNewEventDialog: React.FC<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   agencyId: string;
+  userId: string | undefined;
   clients: Client[];
   artists: Artist[];
   onCreated: () => void;
-}> = ({ open, onOpenChange, agencyId, clients, artists, onCreated }) => {
+}> = ({ open, onOpenChange, agencyId, userId, clients, artists, onCreated }) => {
   const [form, setForm] = useState({
     business_name: '',
     event_date: new Date().toISOString().slice(0, 10),
+    event_time: '',
     amount: '',
-    client_id: '',
-    artist_id: '',
+    client_name: '',
+    artist_name: '',
     notes: '',
   });
   const [saving, setSaving] = useState(false);
@@ -250,9 +252,53 @@ const QuickNewEventDialog: React.FC<{
     try {
       const eventDate = new Date(form.event_date);
       const weekdays = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+      let clientId: string | undefined;
+      let artistId: string | undefined;
+
+      if (isDemoMode()) {
+        const { demoGetClients, demoGetArtists, demoUpsertClient, demoUpsertArtist, demoSetClients, demoSetArtists } = await import('@/lib/demoStore');
+        if (form.client_name.trim()) {
+          const existing = demoGetClients(agencyId);
+          const found = existing.find(c => c.name.toLowerCase() === form.client_name.trim().toLowerCase());
+          if (found) clientId = found.id;
+          else {
+            const created = demoUpsertClient(agencyId, { name: form.client_name.trim() });
+            demoSetClients(agencyId, [created, ...existing]);
+            clientId = created.id;
+          }
+        }
+        if (form.artist_name.trim()) {
+          const existing = demoGetArtists(agencyId);
+          const found = existing.find(a => a.name.toLowerCase() === form.artist_name.trim().toLowerCase());
+          if (found) artistId = found.id;
+          else {
+            const created = demoUpsertArtist(agencyId, { name: form.artist_name.trim() });
+            demoSetArtists(agencyId, [created, ...existing]);
+            artistId = created.id;
+          }
+        }
+      } else {
+        if (form.client_name.trim()) {
+          const { data: found } = await supabase.from('clients').select('id').eq('agency_id', agencyId).ilike('name', form.client_name.trim()).limit(1).maybeSingle();
+          if ((found as any)?.id) clientId = (found as any).id;
+          else {
+            const { data: inserted } = await supabase.from('clients').insert([{ agency_id: agencyId, name: form.client_name.trim() }]).select('id').single();
+            if ((inserted as any)?.id) clientId = (inserted as any).id;
+          }
+        }
+        if (form.artist_name.trim()) {
+          const { data: found } = await supabase.from('artists').select('id').eq('agency_id', agencyId).ilike('name', form.artist_name.trim()).limit(1).maybeSingle();
+          if ((found as any)?.id) artistId = (found as any).id;
+          else {
+            const { data: inserted } = await supabase.from('artists').insert([{ agency_id: agencyId, name: form.artist_name.trim() }]).select('id').single();
+            if ((inserted as any)?.id) artistId = (inserted as any).id;
+          }
+        }
+      }
+
       const payload = {
         agency_id: agencyId,
-        producer_id: agencyId,
+        producer_id: userId || agencyId,
         business_name: form.business_name.trim(),
         invoice_name: form.business_name.trim(),
         event_date: form.event_date,
@@ -260,9 +306,10 @@ const QuickNewEventDialog: React.FC<{
         amount: Number(form.amount) || 0,
         doc_type: 'tax_invoice' as const,
         status: 'draft' as const,
-        client_id: form.client_id || undefined,
-        artist_id: form.artist_id || undefined,
+        client_id: clientId || null,
+        artist_id: artistId || null,
         notes: form.notes || undefined,
+        event_time: form.event_time.trim() || null,
       };
 
       if (isDemoMode()) {
@@ -282,7 +329,7 @@ const QuickNewEventDialog: React.FC<{
 
       onCreated();
       onOpenChange(false);
-      setForm({ business_name: '', event_date: new Date().toISOString().slice(0, 10), amount: '', client_id: '', artist_id: '', notes: '' });
+      setForm({ business_name: '', event_date: new Date().toISOString().slice(0, 10), event_time: '', amount: '', client_name: '', artist_name: '', notes: '' });
     } catch (err: any) {
       console.error('Quick event creation failed:', err);
     } finally {
@@ -308,28 +355,38 @@ const QuickNewEventDialog: React.FC<{
               <Input type="date" value={form.event_date} onChange={e => setForm(f => ({ ...f, event_date: e.target.value }))} />
             </div>
             <div className="flex flex-col gap-2">
+              <Label>שעת אירוע</Label>
+              <Input type="time" value={form.event_time} onChange={e => setForm(f => ({ ...f, event_time: e.target.value }))} />
+            </div>
+            <div className="flex flex-col gap-2">
               <Label>סכום (₪)</Label>
               <Input type="number" min="0" step="0.01" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} placeholder="0.00" />
             </div>
             <div className="flex flex-col gap-2">
               <Label>לקוח</Label>
-              <Select value={form.client_id} onValueChange={v => setForm(f => ({ ...f, client_id: v }))}>
-                <SelectTrigger><SelectValue placeholder="בחר לקוח" /></SelectTrigger>
-                <SelectContent>
-                  {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <Input
+                value={form.client_name}
+                onChange={e => setForm(f => ({ ...f, client_name: e.target.value }))}
+                placeholder="בחר או הקלד שם"
+                list="quick-clients-list"
+              />
+              <datalist id="quick-clients-list">
+                {clients.slice(0, 50).map(c => <option key={c.id} value={c.name} />)}
+              </datalist>
             </div>
             <div className="flex flex-col gap-2">
               <Label>אמן</Label>
-              <Select value={form.artist_id} onValueChange={v => setForm(f => ({ ...f, artist_id: v }))}>
-                <SelectTrigger><SelectValue placeholder="בחר אמן" /></SelectTrigger>
-                <SelectContent>
-                  {artists.map(a => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <Input
+                value={form.artist_name}
+                onChange={e => setForm(f => ({ ...f, artist_name: e.target.value }))}
+                placeholder="בחר או הקלד שם"
+                list="quick-artists-list"
+              />
+              <datalist id="quick-artists-list">
+                {artists.slice(0, 50).map(a => <option key={a.id} value={a.name} />)}
+              </datalist>
             </div>
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-2 col-span-2">
               <Label>הערות</Label>
               <Input value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="הערות אופציונליות" />
             </div>
@@ -640,6 +697,7 @@ const DashboardPage: React.FC = () => {
         open={quickEventOpen}
         onOpenChange={setQuickEventOpen}
         agencyId={agencyId}
+        userId={user?.id}
         clients={clients}
         artists={artists}
         onCreated={handleQuickEventCreated}

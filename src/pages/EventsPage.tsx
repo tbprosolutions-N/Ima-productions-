@@ -85,10 +85,9 @@ const EventsPage: React.FC = () => {
     amount: string;
     payment_date: string;
     due_date: string;
-    // Snapshot of the artist default payout model at time of event creation/edit
+    event_time: string;
     artist_fee_type: 'fixed' | 'percent';
     artist_fee_value: string;
-    // Optional override amount for this specific event (owner only)
     artist_fee_amount_override: string;
     doc_type: DocumentType;
     doc_number: string;
@@ -107,6 +106,7 @@ const EventsPage: React.FC = () => {
     amount: '',
     payment_date: '',
     due_date: '',
+    event_time: '',
     artist_fee_type: 'fixed',
     artist_fee_value: '',
     artist_fee_amount_override: '',
@@ -222,20 +222,19 @@ const EventsPage: React.FC = () => {
       const payout = resolveArtistPayout(event.artist_id, artistName);
       setFormData({
         event_date: String(event.event_date || '').slice(0, 10),
-        business_name: event.business_name,
+        business_name: event.business_name || '',
         client_business_name: clientName,
         artist_name: artistName,
         invoice_name: event.invoice_name || '',
-        amount: event.amount.toString(),
+        amount: event.amount != null ? String(event.amount) : '',
         payment_date: event.payment_date ? String(event.payment_date).slice(0, 10) : '',
         due_date: event.due_date ? String(event.due_date).slice(0, 10) : '',
-        // If the event already has a snapshot, keep it; otherwise take the artist default.
+        event_time: (event as any).event_time || '',
         artist_fee_type: (event.artist_fee_type || payout.type) as any,
         artist_fee_value:
           event.artist_fee_value === undefined || event.artist_fee_value === null
             ? String(payout.value || 0)
             : String(event.artist_fee_value),
-        // Owner can override per-event payout amount (kept blank by default for new events).
         artist_fee_amount_override: isOwner ? (event.artist_fee_amount ? String(event.artist_fee_amount) : '') : '',
         doc_type: event.doc_type,
         doc_number: event.doc_number || '',
@@ -255,6 +254,7 @@ const EventsPage: React.FC = () => {
         amount: '',
         payment_date: '',
         due_date: '',
+        event_time: '',
         artist_fee_type: 'fixed',
         artist_fee_value: '',
         artist_fee_amount_override: '',
@@ -432,19 +432,19 @@ const EventsPage: React.FC = () => {
         return;
       }
 
+      const amountNum = Number(formData.amount);
       const eventData = {
-        // do not store UI-only fields
         event_date: formData.event_date,
         business_name: effectiveBusinessName,
-        invoice_name: formData.invoice_name,
+        invoice_name: (formData.invoice_name ?? '').trim() || effectiveBusinessName,
         payment_date: formData.payment_date || null,
         due_date: formData.due_date || null,
         artist_fee_type: isOwner ? payout.type : undefined,
         artist_fee_value: isOwner ? payout.value : undefined,
         artist_fee_amount: isOwner
           ? (() => {
-              const companyAmount = Number.isFinite(Number(formData.amount)) ? parseFloat(formData.amount) : 0;
-              const override = Number.isFinite(Number(formData.artist_fee_amount_override)) ? parseFloat(formData.artist_fee_amount_override) : NaN;
+              const companyAmount = Number.isFinite(amountNum) ? amountNum : 0;
+              const override = Number(formData.artist_fee_amount_override);
               if (Number.isFinite(override) && override >= 0) return override;
               return computeArtistFee(companyAmount, payout.type, payout.value);
             })()
@@ -453,11 +453,13 @@ const EventsPage: React.FC = () => {
         doc_number: formData.doc_number,
         status: editingEvent ? formData.status : 'pending',
         notes: formData.notes,
-        amount: parseFloat(formData.amount),
+        amount: Number.isFinite(amountNum) ? amountNum : 0,
         agency_id: currentAgency.id,
+        producer_id: user?.id ?? editingEvent?.producer_id ?? currentAgency.id,
         weekday: getWeekday(formData.event_date),
-        client_id: clientId,
-        artist_id: artistId,
+        client_id: clientId || null,
+        artist_id: artistId || null,
+        event_time: formData.event_time?.trim() || null,
       };
 
       let savedEventId: string | undefined = editingEvent?.id;
@@ -1214,7 +1216,26 @@ const EventsPage: React.FC = () => {
                   className="border-primary/30"
                 />
               </div>
-
+              <div className="flex flex-col gap-2 col-span-2">
+                <Label htmlFor="event_time" className="text-foreground">שעת אירוע</Label>
+                <Input
+                  id="event_time"
+                  type="time"
+                  value={formData.event_time}
+                  onChange={(e) => setFormData({ ...formData, event_time: e.target.value })}
+                  className="border-primary/30"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="business_name" className="text-foreground">שם עסק / שם אירוע</Label>
+                <Input
+                  id="business_name"
+                  value={formData.business_name}
+                  onChange={(e) => setFormData({ ...formData, business_name: e.target.value })}
+                  className="border-primary/30"
+                  placeholder="ניתן להשאיר ריק או להזין ידנית"
+                />
+              </div>
               <div className="flex flex-col gap-2">
                 <Label htmlFor="client_business_name" className="text-foreground">לקוח (שם עסק) *</Label>
                 <Input
