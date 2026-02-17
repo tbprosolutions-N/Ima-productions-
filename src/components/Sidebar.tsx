@@ -185,6 +185,12 @@ const SidebarInner: React.FC<SidebarProps> = ({ mobileOpen = false, onClose }) =
             </div>
           </div>
         )}
+        {/* Deploy version marker — confirms live build */}
+        <div className="pt-2 text-center">
+          <span className="text-[9px] text-muted-foreground/50 select-none tracking-wide">
+            v1.1 · P3
+          </span>
+        </div>
       </div>
     </motion.aside>
   );
