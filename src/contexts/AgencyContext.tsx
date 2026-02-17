@@ -20,17 +20,7 @@ export const AgencyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [agencies, setAgencies] = useState<Agency[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (user) {
-      fetchAgencies();
-    } else {
-      setCurrentAgency(null);
-      setAgencies([]);
-      setLoading(false);
-    }
-  }, [user]);
-
-  const fetchAgencies = async () => {
+  const fetchAgencies = React.useCallback(async () => {
     try {
       setLoading(true);
 
@@ -38,6 +28,7 @@ export const AgencyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (isDemoMode()) {
         setAgencies([DEMO_AGENCY]);
         setCurrentAgency(DEMO_AGENCY);
+        setLoading(false);
         return;
       }
 
@@ -45,6 +36,7 @@ export const AgencyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (!user?.agency_id) {
         setAgencies([]);
         setCurrentAgency(null);
+        setLoading(false);
         return;
       }
       
@@ -78,7 +70,17 @@ export const AgencyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    if (user) {
+      fetchAgencies();
+    } else {
+      setCurrentAgency(null);
+      setAgencies([]);
+      setLoading(false);
+    }
+  }, [user, fetchAgencies]);
 
   const switchAgency = (agencyId: string) => {
     const agency = agencies.find(a => a.id === agencyId);

@@ -89,6 +89,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const initAuthRef = React.useRef<() => void>(() => {});
+  const initialCheckDoneRef = React.useRef(false);
 
   // ── INIT: await getSession() before rendering. No band-aid timeouts. ───
   useEffect(() => {
@@ -156,10 +157,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUser(null);
           setSupabaseUser(null);
         }
-        if (mounted) { initResolved = true; setLoading(false); }
+        if (mounted) { initResolved = true; initialCheckDoneRef.current = true; setLoading(false); }
       } catch (err) {
         console.warn('Auth init error', err);
-        if (mounted) { initResolved = true; setUser(null); setSupabaseUser(null); setLoading(false); }
+        if (mounted) { initResolved = true; initialCheckDoneRef.current = true; setUser(null); setSupabaseUser(null); setLoading(false); }
       }
     };
 
@@ -171,6 +172,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (mounted && !initResolved) {
         if (import.meta.env.DEV) console.debug(`[Auth] getSession exceeded ${networkGuardMs}ms — treating as no session`);
         initResolved = true;
+        initialCheckDoneRef.current = true;
         setUser(null);
         setSupabaseUser(null);
         setLoading(false);
@@ -180,9 +182,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initAuth().catch(() => { if (mounted && !initResolved) { initResolved = true; setLoading(false); } });
 
     // Auth state listener: SIGNED_OUT / session expiry MUST clear user (no zombie state)
+    // Do NOT clear user/session until initial getSession() has completed (prevents logout on refresh race).
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!mounted) return;
       if (localStorage.getItem('demo_authenticated') === 'true') return;
+      if (!initialCheckDoneRef.current && !session) return; // Wait for init before reacting to "no session"
 
       if (session?.user) {
         if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && typeof window !== 'undefined' && window.history.replaceState) {
@@ -206,7 +210,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
 
-      // No session: retry once (token refresh race), then clear user on failure
+      // No session: only clear after initial check is done (avoids F5 race where listener fires before getSession)
+      if (!initialCheckDoneRef.current) return;
+
       try {
         const { data: r } = await withTimeout(supabase.auth.getSession(), 3000, 'listener retry');
         if (r?.session?.user && mounted) {
@@ -217,7 +223,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       } catch { /* timeout */ }
 
-      // SIGNED_OUT / session expiry: clear user immediately — no zombie state
+      // SIGNED_OUT / session expiry: clear user
       setUser(null);
       setSupabaseUser(null);
       setLoading(false);

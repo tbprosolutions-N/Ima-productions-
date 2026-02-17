@@ -134,8 +134,6 @@ const SettingsPage: React.FC = () => {
     }
   };
 
-  // Branding
-  const [companyName, setCompanyNameState] = useState('');
 
   // Users management (demo-first)
   const [managedUsers, setManagedUsersState] = useState<ManagedUser[]>([]);
@@ -152,12 +150,14 @@ const SettingsPage: React.FC = () => {
     permissions: { finance: false, users: false, integrations: false, events_create: true, events_delete: false },
   });
 
-  // Backup: sheets spreadsheet ID (from integrations table, if any)
+  // Backup: sheets spreadsheet ID and folder ID (from integrations table, if any)
   const [sheetsSpreadsheetId, setSheetsSpreadsheetId] = useState<string | null>(null);
+  const [savedBackupFolderId, setSavedBackupFolderId] = useState<string | null>(null);
 
   // Data backup link (e.g., Google Drive / Sheets)
   const [backupUrl, setBackupUrl] = useState('');
   const [sheetsSyncing, setSheetsSyncing] = useState(false);
+  const [manualBackupLoading, setManualBackupLoading] = useState(false);
 
   // Morning (Green Invoice): API credentials — stored in DB via Netlify function (not shown after save)
   const [morningCompanyId, setMorningCompanyId] = useState('');
@@ -204,13 +204,14 @@ const SettingsPage: React.FC = () => {
             .eq('agency_id', currentAgency.id);
           const list = (data as IntegrationConnection[]) || [];
           const sheetsConn = list.find((x: any) => x.provider === 'sheets');
-          setSheetsSpreadsheetId((sheetsConn as any)?.config?.spreadsheet_id ?? null);
+          const config = (sheetsConn as any)?.config;
+          setSheetsSpreadsheetId(config?.spreadsheet_id ?? null);
+          setSavedBackupFolderId(config?.folder_id ?? null);
         } catch (e) {
           console.warn('Integrations load failed', e);
         }
       })();
     }
-    setCompanyNameState(getCompanyName(agencyId) || currentAgency?.name || '');
     try {
       const raw = localStorage.getItem(`ima_backup_url_${agencyId}`);
       if (raw) setBackupUrl(raw);
@@ -359,38 +360,6 @@ const SettingsPage: React.FC = () => {
       console.error(e);
       toast.error(e?.message || 'שגיאה בעדכון פרופיל');
     }
-  };
-
-  const saveCompanyName = () => {
-    const name = companyName.trim();
-    if (!name) {
-      toast.error('נא להזין שם חברה');
-      return;
-    }
-    if (user?.role !== 'owner') {
-      toast.error('רק Owner יכול לערוך שם חברה');
-      return;
-    }
-    // Demo: localStorage only
-    if (isDemo()) {
-      setCompanyName(agencyId, name);
-      toast.success('שם החברה עודכן ✅');
-      return;
-    }
-    // Production: update agencies table (source of truth)
-    (async () => {
-      try {
-        if (!currentAgency?.id) throw new Error('אין סוכנות פעילה');
-        const { error } = await supabase.from('agencies').update({ name }).eq('id', currentAgency.id);
-        if (error) throw error;
-        // Keep UI consistent (Sidebar reads local settings too)
-        setCompanyName(agencyId, name);
-        toast.success('שם החברה עודכן ✅');
-      } catch (e: any) {
-        console.error(e);
-        toast.error(e?.message || 'עדכון שם חברה נכשל');
-      }
-    })();
   };
 
   const resetTutorial = () => {
@@ -588,7 +557,7 @@ const SettingsPage: React.FC = () => {
             {tabButton('general', 'כללי', SettingsIcon)}
             {canManageUsers ? tabButton('users', 'משתמשים', UsersIcon) : null}
             {user?.role === 'owner' ? tabButton('backup', 'גיבוי נתונים', Globe) : null}
-            {tabButton('training', 'הדרכה ומידע', KeyRound)}
+            {user?.role === 'owner' ? tabButton('training', 'הדרכה ומידע', KeyRound) : null}
           </div>
         </div>
         <div className="p-6">
@@ -708,35 +677,6 @@ const SettingsPage: React.FC = () => {
           </Card>
           </div>
 
-          {/* Branding / Company (מותג / חברה) removed from UI per client request */}
-          <div className="hidden" aria-hidden>
-          <Card className="border-border modu-elevation-1 w-full max-w-xl">
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Upload className="w-5 h-5 text-primary" />
-                מיתוג
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 pt-0">
-              <div className="space-y-2">
-                <Label className="text-foreground">שם חברה (מחליף “NPC”)</Label>
-                <div className="flex gap-2">
-                  <Input
-                    value={companyName}
-                    onChange={(e) => setCompanyNameState(e.target.value)}
-                    className="border-primary/30"
-                    placeholder="לדוגמה: NPC"
-                    disabled={user?.role !== 'owner'}
-                  />
-                  <Button type="button" className="btn-magenta shrink-0" onClick={saveCompanyName} disabled={user?.role !== 'owner'}>
-                    שמור
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          </div>
-
           {/* Notifications */}
           <div>
           <Card className="border-border modu-elevation-1">
@@ -838,7 +778,7 @@ const SettingsPage: React.FC = () => {
                 ) : (
                   <ul className="text-muted-foreground list-disc pr-5 space-y-1">
                     <li>גישה מלאה לכל הלשוניות והתוכן</li>
-                    <li>ניהול משתמשים, אינטגרציות, מיתוג, דוחות</li>
+                    <li>ניהול משתמשים, אינטגרציות, דוחות</li>
                   </ul>
                 )}
               </div>
@@ -849,7 +789,7 @@ const SettingsPage: React.FC = () => {
                   <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
                     <div className="text-sm font-semibold text-primary mb-2">בעלים (Owner)</div>
                     <ul className="list-disc pr-5 space-y-1">
-                      <li>הגדרת מיתוג (שם חברה/לוגו) וחוויית משתמש.</li>
+                      <li>חוויית משתמש והגדרות מערכת.</li>
                       <li>ניהול משתמשים והרשאות, שליחת לינקי התחברות.</li>
                       <li>חיבור אינטגרציות (Morning/Drive/Calendar) והגדרת מפתחות.</li>
                       <li>שליטה מלאה בכספים, דוחות, והיסטוריית פעילות.</li>
@@ -1220,9 +1160,9 @@ const SettingsPage: React.FC = () => {
         )
       )}
 
-      {tab === 'training' && (
+      {tab === 'training' && user?.role === 'owner' && (
         <div className="space-y-6 max-w-4xl">
-          {/* Training Files & Guides */}
+          {/* Training Files & Guides (owner only) */}
           <Card className="border-primary/20">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -1467,7 +1407,7 @@ const SettingsPage: React.FC = () => {
                             if (result.ok) {
                               toast.success(`סנכרון הושלם: ${result.counts!.events} אירועים, ${result.counts!.clients} לקוחות, ${result.counts!.artists} אמנים, ${result.counts!.expenses} הוצאות`);
                             } else {
-                              toast.error(result.error);
+                              toast.error(result.detail || result.error);
                             }
                           } catch (e: any) {
                             toast.error(e?.message || 'סנכרון נכשל');
@@ -1517,10 +1457,11 @@ const SettingsPage: React.FC = () => {
                           const result = await createSheetAndSync(currentAgency.id, folderId);
                           if (result.ok) {
                             setSheetsSpreadsheetId(result.spreadsheetId);
+                            setSavedBackupFolderId(folderId);
                             const c = result.counts!;
                             toast.success(`גיליון נוצר וסונכרן: ${c.events} אירועים, ${c.clients} לקוחות, ${c.artists} אמנים, ${c.expenses} הוצאות`);
                           } else {
-                            toast.error(result.error);
+                            toast.error(result.detail || result.error);
                           }
                         } catch (e: any) {
                           toast.error(e?.message || 'יצירת גיליון נכשלה');
@@ -1535,6 +1476,47 @@ const SettingsPage: React.FC = () => {
                           יוצר ומסנכרן...
                         </span>
                       ) : (sheetsSpreadsheetId ? 'צור גיליון חדש וסנכרן' : 'צור גיליון וסנכרן')}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={sheetsSyncing || manualBackupLoading}
+                      onClick={async () => {
+                        const url = backupUrl.trim();
+                        const fromUrl = url ? (url.match(/folders\/([a-zA-Z0-9_-]+)/)?.[1] ?? (/^[a-zA-Z0-9_-]{20,}$/.test(url) ? url : null) : null;
+                        const folderId = fromUrl || savedBackupFolderId;
+                        if (!folderId) {
+                          toast.error('הזן קישור לתיקיית Drive או צור גיליון פעם אחת כדי לשמור את התיקייה');
+                          return;
+                        }
+                        if (!currentAgency?.id) {
+                          toast.error('אין סוכנות פעילה');
+                          return;
+                        }
+                        setManualBackupLoading(true);
+                        try {
+                          const result = await createSheetAndSync(currentAgency.id, folderId);
+                          if (result.ok) {
+                            setSheetsSpreadsheetId(result.spreadsheetId);
+                            setSavedBackupFolderId(folderId);
+                            const c = result.counts!;
+                            toast.success(`גיבוי יזום הושלם: ${c.events} אירועים, ${c.clients} לקוחות, ${c.artists} אמנים, ${c.expenses} הוצאות`);
+                          } else {
+                            toast.error(result.detail || result.error);
+                          }
+                        } catch (e: any) {
+                          toast.error(e?.message || 'גיבוי יזום נכשל');
+                        } finally {
+                          setManualBackupLoading(false);
+                        }
+                      }}
+                    >
+                      {manualBackupLoading ? (
+                        <span className="flex items-center gap-2">
+                          <span className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                          גיבוי יזום...
+                        </span>
+                      ) : 'גיבוי יזום'}
                     </Button>
                     {backupUrl.trim() && (
                       <Button

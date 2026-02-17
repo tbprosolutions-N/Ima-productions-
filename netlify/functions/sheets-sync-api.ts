@@ -116,9 +116,13 @@ async function createSpreadsheetInFolder(token: string, title: string, folderId:
         token,
         body: {},
       });
-    } catch (e) {
+    } catch (e: any) {
       if (e instanceof GoogleAuthError) throw e;
-      console.warn('Could not move spreadsheet to folder:', e);
+      const msg = e?.message || String(e);
+      throw new Error(
+        `Spreadsheet was created but could not be moved to the folder. ` +
+        `Ensure the folder is shared with the Service Account email (GOOGLE_SA_CLIENT_EMAIL) with Editor access. Details: ${msg}`
+      );
     }
   }
 
@@ -240,101 +244,110 @@ function respond(statusCode: number, body: unknown) {
 }
 
 export const handler = async (event: { httpMethod: string; headers: Record<string, string>; body?: string | null }) => {
-  // CORS preflight
-  if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 204, headers: CORS_HEADERS, body: '' };
-  }
-  if (event.httpMethod !== 'POST') {
-    return respond(405, { error: 'Method not allowed' });
-  }
-
-  const supabaseUrl = process.env.SUPABASE_URL?.trim();
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
-  if (!supabaseUrl || !supabaseServiceKey) {
-    return respond(500, { error: 'Supabase not configured' });
-  }
-
-  let reqBody: { action?: string; agencyId?: string; folderId?: string; spreadsheetId?: string };
   try {
-    reqBody = typeof event.body === 'string' ? JSON.parse(event.body) : event.body || {};
-  } catch {
-    return respond(400, { error: 'Invalid JSON' });
-  }
-
-  const { action, agencyId, folderId, spreadsheetId } = reqBody;
-  if (!agencyId) {
-    return respond(400, { error: 'Missing agencyId' });
-  }
-
-  let token: string;
-  try {
-    token = await getServiceAccountAccessToken();
-  } catch (e: any) {
-    const msg = e?.message || String(e);
-    return respond(500, {
-      error: 'Google Service Account not configured',
-      detail: msg,
-    });
-  }
-
-  const { createClient } = await import('@supabase/supabase-js');
-  const supabase = createClient(supabaseUrl, supabaseServiceKey, { auth: { persistSession: false } });
-
-  // ── createAndSync ─────────────────────────────────────────────────────────
-  if (action === 'createAndSync') {
-    if (!folderId) {
-      return respond(400, { error: 'Missing folderId' });
+    // CORS preflight
+    if (event.httpMethod === 'OPTIONS') {
+      return { statusCode: 204, headers: CORS_HEADERS, body: '' };
+    }
+    if (event.httpMethod !== 'POST') {
+      return respond(405, { error: 'Method not allowed' });
     }
 
-    let result: { spreadsheetId: string; spreadsheetUrl: string };
-    try {
-      result = await createSpreadsheetInFolder(token, `NPC Sync — ${new Date().toISOString().slice(0, 10)}`, folderId);
-    } catch (e: any) {
-      return respond(502, { error: 'Failed to create spreadsheet', detail: e?.message });
+    const supabaseUrl = process.env.SUPABASE_URL?.trim();
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+    if (!supabaseUrl || !supabaseServiceKey) {
+      return respond(502, { error: 'Supabase not configured', detail: 'SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set' });
     }
 
-    let counts: { events: number; clients: number; artists: number; expenses: number };
+    let reqBody: { action?: string; agencyId?: string; folderId?: string; spreadsheetId?: string };
     try {
-      counts = await clearAndSyncAll({ token, spreadsheetId: result.spreadsheetId, supabase, agencyId });
+      reqBody = typeof event.body === 'string' ? JSON.parse(event.body) : event.body || {};
+    } catch {
+      return respond(400, { error: 'Invalid JSON' });
+    }
+
+    const { action, agencyId, folderId, spreadsheetId } = reqBody;
+    if (!agencyId) {
+      return respond(400, { error: 'Missing agencyId' });
+    }
+
+    let token: string;
+    try {
+      token = await getServiceAccountAccessToken();
     } catch (e: any) {
+      const msg = e?.message || String(e);
       return respond(502, {
-        error: 'Created spreadsheet but sync failed',
-        detail: e?.message,
-        spreadsheetId: result.spreadsheetId,
-        spreadsheetUrl: result.spreadsheetUrl,
+        error: 'Google Service Account not configured',
+        detail: msg,
       });
     }
 
-    try {
-      await supabase.from('integrations').upsert([{
-        agency_id: agencyId,
-        provider: 'sheets',
-        status: 'connected',
-        config: { spreadsheet_id: result.spreadsheetId, folder_id: folderId, sheet_name: 'Events' },
-        connected_at: new Date().toISOString(),
-      } as any], { onConflict: 'agency_id,provider' });
-    } catch (e) {
-      console.warn('Failed to save integration record:', e);
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabase = createClient(supabaseUrl, supabaseServiceKey, { auth: { persistSession: false } });
+
+    // ── createAndSync ─────────────────────────────────────────────────────────
+    if (action === 'createAndSync') {
+      if (!folderId) {
+        return respond(400, { error: 'Missing folderId' });
+      }
+
+      let result: { spreadsheetId: string; spreadsheetUrl: string };
+      try {
+        result = await createSpreadsheetInFolder(token, `NPC Sync — ${new Date().toISOString().slice(0, 10)}`, folderId);
+      } catch (e: any) {
+        return respond(502, { error: 'Failed to create spreadsheet', detail: e?.message });
+      }
+
+      let counts: { events: number; clients: number; artists: number; expenses: number };
+      try {
+        counts = await clearAndSyncAll({ token, spreadsheetId: result.spreadsheetId, supabase, agencyId });
+      } catch (e: any) {
+        return respond(502, {
+          error: 'Created spreadsheet but sync failed',
+          detail: e?.message,
+          spreadsheetId: result.spreadsheetId,
+          spreadsheetUrl: result.spreadsheetUrl,
+        });
+      }
+
+      try {
+        await supabase.from('integrations').upsert([{
+          agency_id: agencyId,
+          provider: 'sheets',
+          status: 'connected',
+          config: { spreadsheet_id: result.spreadsheetId, folder_id: folderId, sheet_name: 'Events' },
+          connected_at: new Date().toISOString(),
+        } as any], { onConflict: 'agency_id,provider' });
+      } catch (e) {
+        console.warn('Failed to save integration record:', e);
+      }
+
+      return respond(200, { ok: true, spreadsheetId: result.spreadsheetId, spreadsheetUrl: result.spreadsheetUrl, counts });
     }
 
-    return respond(200, { ok: true, spreadsheetId: result.spreadsheetId, spreadsheetUrl: result.spreadsheetUrl, counts });
+    // ── sync ──────────────────────────────────────────────────────────────────
+    if (action === 'sync') {
+      if (!spreadsheetId) {
+        return respond(400, { error: 'Missing spreadsheetId' });
+      }
+
+      let counts: { events: number; clients: number; artists: number; expenses: number };
+      try {
+        counts = await clearAndSyncAll({ token, spreadsheetId, supabase, agencyId });
+      } catch (e: any) {
+        return respond(502, { error: 'Sync failed', detail: e?.message });
+      }
+
+      return respond(200, { ok: true, spreadsheetId, spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`, counts });
+    }
+
+    return respond(400, { error: 'Unknown action. Use createAndSync or sync.' });
+  } catch (e: any) {
+    const msg = e?.message ?? String(e);
+    console.error('sheets-sync unhandled error:', e);
+    return respond(502, {
+      error: 'Backup request failed',
+      detail: msg,
+    });
   }
-
-  // ── sync ──────────────────────────────────────────────────────────────────
-  if (action === 'sync') {
-    if (!spreadsheetId) {
-      return respond(400, { error: 'Missing spreadsheetId' });
-    }
-
-    let counts: { events: number; clients: number; artists: number; expenses: number };
-    try {
-      counts = await clearAndSyncAll({ token, spreadsheetId, supabase, agencyId });
-    } catch (e: any) {
-      return respond(502, { error: 'Sync failed', detail: e?.message });
-    }
-
-    return respond(200, { ok: true, spreadsheetId, spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`, counts });
-  }
-
-  return respond(400, { error: 'Unknown action. Use createAndSync or sync.' });
 };

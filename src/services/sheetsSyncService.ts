@@ -21,9 +21,11 @@ async function sheetsFetch(bodyObj: Record<string, unknown>): Promise<SheetsSync
   const data = await res.json().catch(() => ({})) as any;
 
   if (!res.ok) {
+    const errorMsg = data?.error || `HTTP ${res.status}`;
+    const detailMsg = data?.detail ? ` — ${data.detail}` : '';
     return {
       ok: false,
-      error: data?.error || `HTTP ${res.status}`,
+      error: errorMsg + detailMsg,
       detail: data?.detail,
       spreadsheetId: data?.spreadsheetId,
       spreadsheetUrl: data?.spreadsheetUrl,
@@ -37,7 +39,9 @@ async function sheetsFetch(bodyObj: Record<string, unknown>): Promise<SheetsSync
       counts: data.counts ?? { events: 0, clients: 0, artists: 0, expenses: 0 },
     };
   }
-  return { ok: false, error: data?.error || 'Unknown error', detail: data?.detail };
+  const err = data?.error || 'Unknown error';
+  const detail = data?.detail ? ` — ${data.detail}` : '';
+  return { ok: false, error: err + detail, detail: data?.detail };
 }
 
 /**
