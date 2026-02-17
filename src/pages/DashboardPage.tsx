@@ -18,6 +18,7 @@ import { demoGetEvents, demoGetClients, demoGetArtists, isDemoMode } from '@/lib
 import { getFinanceExpenses } from '@/lib/financeStore';
 import { getActivity, type ActivityEntry } from '@/lib/activityLog';
 import { useSilentSheetsSync } from '@/hooks/useSilentSheetsSync';
+import { useToast } from '@/contexts/ToastContext';
 import type { Event, Artist, Client } from '@/types';
 
 /* ─── Dashboard Stats Hook ─── */
@@ -234,8 +235,8 @@ const QuickNewEventDialog: React.FC<{
   artists: Artist[];
   onCreated: () => void;
 }> = ({ open, onOpenChange, agencyId, userId, clients, artists, onCreated }) => {
+  const { success, error: showError } = useToast();
   const [form, setForm] = useState({
-    business_name: '',
     event_date: new Date().toISOString().slice(0, 10),
     event_time: '',
     amount: '',
@@ -247,7 +248,6 @@ const QuickNewEventDialog: React.FC<{
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.business_name.trim()) return;
     setSaving(true);
     try {
       const eventDate = new Date(form.event_date);
@@ -296,11 +296,12 @@ const QuickNewEventDialog: React.FC<{
         }
       }
 
+      const displayName = form.client_name.trim() || form.artist_name.trim() || 'אירוע';
       const payload = {
         agency_id: agencyId,
         producer_id: userId || agencyId,
-        business_name: form.business_name.trim(),
-        invoice_name: form.business_name.trim(),
+        business_name: displayName,
+        invoice_name: displayName,
         event_date: form.event_date,
         weekday: weekdays[eventDate.getDay()],
         amount: Number(form.amount) || 0,
@@ -308,7 +309,7 @@ const QuickNewEventDialog: React.FC<{
         status: 'draft' as const,
         client_id: clientId || null,
         artist_id: artistId || null,
-        notes: form.notes || undefined,
+        notes: form.notes.trim() || undefined,
         event_time: form.event_time.trim() || null,
       };
 
@@ -327,11 +328,13 @@ const QuickNewEventDialog: React.FC<{
         if (error) throw error;
       }
 
+      success('אירוע נוצר בהצלחה');
       onCreated();
       onOpenChange(false);
-      setForm({ business_name: '', event_date: new Date().toISOString().slice(0, 10), event_time: '', amount: '', client_name: '', artist_name: '', notes: '' });
+      setForm({ event_date: new Date().toISOString().slice(0, 10), event_time: '', amount: '', client_name: '', artist_name: '', notes: '' });
     } catch (err: any) {
       console.error('Quick event creation failed:', err);
+      showError(err?.message || 'יצירת אירוע נכשלה. נסה שוב.');
     } finally {
       setSaving(false);
     }
@@ -346,10 +349,6 @@ const QuickNewEventDialog: React.FC<{
         </DialogHeader>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="flex flex-col gap-2">
-              <Label>שם עסק / אירוע *</Label>
-              <Input value={form.business_name} onChange={e => setForm(f => ({ ...f, business_name: e.target.value }))} required />
-            </div>
             <div className="flex flex-col gap-2">
               <Label>תאריך</Label>
               <Input type="date" value={form.event_date} onChange={e => setForm(f => ({ ...f, event_date: e.target.value }))} />
@@ -367,24 +366,26 @@ const QuickNewEventDialog: React.FC<{
               <Input
                 value={form.client_name}
                 onChange={e => setForm(f => ({ ...f, client_name: e.target.value }))}
-                placeholder="בחר או הקלד שם"
+                placeholder="הקלד או בחר מהרשימה"
                 list="quick-clients-list"
               />
               <datalist id="quick-clients-list">
                 {clients.slice(0, 50).map(c => <option key={c.id} value={c.name} />)}
               </datalist>
+              <p className="text-xs text-muted-foreground">ניתן להקליד שם חדש — ייווצר אוטומטית</p>
             </div>
             <div className="flex flex-col gap-2">
               <Label>אמן</Label>
               <Input
                 value={form.artist_name}
                 onChange={e => setForm(f => ({ ...f, artist_name: e.target.value }))}
-                placeholder="בחר או הקלד שם"
+                placeholder="הקלד או בחר מהרשימה"
                 list="quick-artists-list"
               />
               <datalist id="quick-artists-list">
                 {artists.slice(0, 50).map(a => <option key={a.id} value={a.name} />)}
               </datalist>
+              <p className="text-xs text-muted-foreground">ניתן להקליד שם חדש — ייווצר אוטומטית</p>
             </div>
             <div className="flex flex-col gap-2 col-span-2">
               <Label>הערות</Label>
@@ -488,9 +489,8 @@ const DashboardPage: React.FC = () => {
   ], [stats, canSeeMoney]);
 
   const handleQuickEventCreated = useCallback(() => {
-    // Refresh page data
-    window.location.reload();
-  }, []);
+    retry();
+  }, [retry]);
 
   // Upcoming events table (next 10)
   const upcomingEvents = useMemo(() => {

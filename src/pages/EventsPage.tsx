@@ -582,7 +582,7 @@ const EventsPage: React.FC = () => {
       invalidateEvents(currentAgency?.id);
       closeDialog();
     } catch (err: any) {
-      showError(err.message || 'אירעה שגיאה בשמירת האירוע. אנא נסה שוב.');
+      showError(err?.message || 'אירעה שגיאה בשמירת האירוע. אנא נסה שוב.');
     } finally {
       setIsSaving(false);
     }
