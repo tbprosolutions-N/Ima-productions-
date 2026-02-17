@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect } from 'react';
 import { updateFaviconForPalette } from '@/lib/favicon';
 
 type Theme = 'dark' | 'light';
@@ -12,19 +12,16 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Production default: Light Mode. No system preference — explicit light unless user toggled.
-  const [theme, setThemeState] = useState<Theme>(() => {
-    const stored = localStorage.getItem('theme') as Theme | null;
-    return (stored === 'dark' || stored === 'light') ? stored : 'light';
-  });
+  // Light mode only; dark mode removed per product requirement.
+  const theme: Theme = 'light';
 
   useEffect(() => {
     const root = window.document.documentElement;
-    root.classList.remove('light', 'dark');
-    root.classList.add(theme);
-    root.style.colorScheme = theme;
-    localStorage.setItem('theme', theme);
-  }, [theme]);
+    root.classList.remove('dark');
+    root.classList.add('light');
+    root.style.colorScheme = 'light';
+    try { localStorage.setItem('theme', 'light'); } catch { }
+  }, []);
 
   useEffect(() => {
     let palette = localStorage.getItem('ima_palette') || 'bw';
@@ -37,13 +34,8 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     updateFaviconForPalette(palette);
   }, []);
 
-  const toggleTheme = () => {
-    setThemeState(prev => prev === 'dark' ? 'light' : 'dark');
-  };
-
-  const setTheme = (newTheme: Theme) => {
-    setThemeState(newTheme);
-  };
+  const toggleTheme = () => { /* no-op: light only */ };
+  const setTheme = (_newTheme: Theme) => { /* no-op: light only */ };
 
   return (
     <ThemeContext.Provider value={{ theme, toggleTheme, setTheme }}>

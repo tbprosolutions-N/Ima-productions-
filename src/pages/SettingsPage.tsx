@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Settings as SettingsIcon, User, Bell, Lock, Palette, Globe, Users as UsersIcon, Upload, KeyRound, ClipboardCheck, Download, Edit, Trash2 } from 'lucide-react';
+import { Settings as SettingsIcon, User, Bell, Lock, Palette, Globe, Users as UsersIcon, KeyRound, ClipboardCheck, Download, Edit, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/Dialog';
@@ -10,7 +10,6 @@ import { Label } from '@/components/ui/Label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRole } from '@/hooks/useRole';
-import { useTheme } from '@/contexts/ThemeContext';
 import { useLocale } from '@/contexts/LocaleContext';
 import { useToast } from '@/contexts/ToastContext';
 import { useAgency } from '@/contexts/AgencyContext';
@@ -18,7 +17,6 @@ import {
   getCompanyName,
   getManagedUsers,
   setManagedUsers,
-  setCompanyName,
   type ManagedUser,
 } from '@/lib/settingsStore';
 import { supabase } from '@/lib/supabase';
@@ -32,7 +30,6 @@ import jsPDF from 'jspdf';
 const SettingsPage: React.FC = () => {
   const { user, updateProfile, updateCurrentUser } = useAuth();
   const { currentAgency } = useAgency();
-  const { theme, toggleTheme } = useTheme();
   const { locale: _locale, setLocale: _setLocale } = useLocale();
   const toast = useToast();
   const [fullName, setFullName] = useState(user?.full_name || '');
@@ -421,7 +418,7 @@ const SettingsPage: React.FC = () => {
         role: 'producer',
         permissions: { finance: false, users: false, integrations: false, events_create: true, events_delete: false },
       });
-      loadUsers();
+      await loadUsers();
     } catch (e: any) {
       console.error(e);
       toast.error(e?.message || 'הוספת משתמש נכשלה');
@@ -629,28 +626,6 @@ const SettingsPage: React.FC = () => {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label className="text-foreground">ערכת צבעים</Label>
-                <div className="flex gap-2">
-                  <Button
-                    variant={theme === 'dark' ? 'default' : 'outline'}
-                    onClick={() => { if (theme !== 'dark') toggleTheme(); toast.success('עברת למצב כהה'); }}
-                    className={theme === 'dark' ? 'btn-magenta flex-1' : 'flex-1'}
-                    type="button"
-                  >
-                    כהה
-                  </Button>
-                  <Button
-                    variant={theme === 'light' ? 'default' : 'outline'}
-                    onClick={() => { if (theme !== 'light') toggleTheme(); toast.success('עברת למצב בהיר'); }}
-                    className={theme === 'light' ? 'btn-magenta flex-1' : 'flex-1'}
-                    type="button"
-                  >
-                    בהיר
-                  </Button>
-                </div>
-              </div>
-
               <div className="space-y-2">
                 <Label className="text-foreground">צבע דגש (כמו Chrome)</Label>
                 <div className="flex gap-2 items-center">
@@ -1117,7 +1092,7 @@ const SettingsPage: React.FC = () => {
                 <Button
                   type="button"
                   variant="destructive"
-                  onClick={(e) => {
+                  onClick={(e: React.MouseEvent) => {
                     e.preventDefault();
                     e.stopPropagation();
                     if (deleteUserTarget) handleDeleteUser(deleteUserTarget);
@@ -1177,7 +1152,6 @@ const SettingsPage: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {[
                   { title: 'מדריך למשתמש חדש', desc: 'צעדים ראשונים במערכת: הגדרת פרופיל, יצירת אירוע ראשון, חיבור יומן.', action: 'הפעל הדרכה', onClick: () => { resetTutorial(); window.location.assign('/dashboard?tour=1'); } },
-                  { title: 'מדריך לפי תפקיד', desc: 'הרשאות ויכולות לפי תפקיד — בעלים, מנהל, כספים, מפיק.', action: 'קרא עוד', onClick: () => setTab('general') },
                   { title: 'גיבוי ויצוא נתונים', desc: 'איך לגבות את כל הנתונים ולייצא דוחות ל-Excel.', action: 'גיבוי נתונים', onClick: () => setTab('backup') },
                 ].map((item) => (
                   <div key={item.title} className="rounded-lg border border-border bg-card p-4 flex flex-col gap-2 hover:bg-primary/5 transition-colors">
@@ -1202,7 +1176,6 @@ const SettingsPage: React.FC = () => {
                     pdf.text('NPC — מדריך משתמש', 200, 20, { align: 'right' });
                     pdf.setFontSize(10);
                     const sections = [
-                      { h: 'מדריך לפי תפקיד', lines: ['בעלים: מיתוג, ניהול משתמשים, כספים.', 'מנהל: ניהול תפעולי, משתמשים, דוחות.', 'כספים: הוצאות, Excel/Sheets.', 'מפיק: אירועים, יומן, אמנים, לקוחות (ללא סכומים).'] },
                       { h: 'גיבוי ויצוא', lines: ['הגדרות > גיבוי נתונים.', 'ייצוא ל-Excel מדף פיננסים.'] },
                     ];
                     let y = 30;
@@ -1483,7 +1456,7 @@ const SettingsPage: React.FC = () => {
                       disabled={sheetsSyncing || manualBackupLoading}
                       onClick={async () => {
                         const url = backupUrl.trim();
-                        const fromUrl = url ? (url.match(/folders\/([a-zA-Z0-9_-]+)/)?.[1] ?? (/^[a-zA-Z0-9_-]{20,}$/.test(url) ? url : null) : null;
+                                const fromUrl = url ? (url.match(/folders\/([a-zA-Z0-9_-]+)/)?.[1] ?? (/^[a-zA-Z0-9_-]{20,}$/.test(url) ? url : null)) : null;
                         const folderId = fromUrl || savedBackupFolderId;
                         if (!folderId) {
                           toast.error('הזן קישור לתיקיית Drive או צור גיליון פעם אחת כדי לשמור את התיקייה');

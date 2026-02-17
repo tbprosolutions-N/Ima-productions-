@@ -47,7 +47,7 @@ const CalendarPage: React.FC = () => {
   const { currentAgency } = useAgency();
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [view, setView] = useState<'list' | 'calendar'>('list');
+  const [view, setView] = useState<'list' | 'calendar'>('calendar');
   const [events, setEvents] = useState<Event[]>([]);
   const [artists, setArtists] = useState<Artist[]>([]);
   const [loading, setLoading] = useState(true);

@@ -18,7 +18,7 @@ const EVENT_LIST_COLS = 'id,agency_id,event_date,event_time,weekday,business_nam
 
 const ARTIST_LIST_COLS = 'id,agency_id,name,color,full_name,company_name,vat_id,phone,email,calendar_email,google_calendar_id,bank_id,bank_name,bank_branch,bank_account,notes,amount,created_at,updated_at' as const;
 
-const CLIENT_LIST_COLS = 'id,agency_id,name,contact_person,vat_id,phone,email,address,notes,created_at,updated_at' as const;
+const CLIENT_LIST_COLS = 'id,agency_id,name,contact_person,vat_id,phone,email,address,notes,color,created_at,updated_at' as const;
 
 // ── Events ──────────────────────────────────────────────────────────────────
 

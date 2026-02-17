@@ -31,7 +31,6 @@ const FinancePage = lazy(() => import('./pages/FinancePage'));
 const CalendarPage = lazy(() => import('./pages/CalendarPage'));
 const DocumentsPage = lazy(() => import('./pages/DocumentsPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
-const SyncMonitorPage = lazy(() => import('./pages/SyncMonitorPage'));
 const SystemHealthPage = lazy(() => import('./pages/SystemHealthPage'));
 
 const AuthRescueScreen: React.FC = () => {

@@ -10,7 +10,7 @@ import { useAgency } from '@/contexts/AgencyContext';
 import { useToast } from '@/contexts/ToastContext';
 import { supabase } from '@/lib/supabase';
 import { demoGetDocuments, demoSetDocuments, demoUpsertDocument, isDemoMode } from '@/lib/demoStore';
-import type { Document, DocumentTemplateType } from '@/types';
+import type { Document, DocumentTemplateType, DocumentSendTo } from '@/types';
 
 const DB_TYPE_MAP: Record<string, DocumentTemplateType> = {
   agreement: 'client_agreement',
@@ -33,7 +33,7 @@ const DocumentsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingDoc, setEditingDoc] = useState<Document | null>(null);
-  const [formData, setFormData] = useState({ title: '', type: 'other' as DocumentTemplateType, content: '' });
+  const [formData, setFormData] = useState({ title: '', type: 'other' as DocumentTemplateType, content: '', send_to: 'both' as DocumentSendTo });
 
   useEffect(() => {
     if (!currentAgency) return;
@@ -44,7 +44,7 @@ const DocumentsPage: React.FC = () => {
       } else {
         const { data, error } = await supabase
           .from('documents')
-          .select('*')
+          .select('id,agency_id,name,type,template,send_to,created_at,updated_at')
           .eq('agency_id', currentAgency.id)
           .order('created_at', { ascending: false });
         if (error) {
@@ -52,12 +52,13 @@ const DocumentsPage: React.FC = () => {
           setDocuments([]);
         } else {
           setDocuments(
-            ((data || []) as { id: string; agency_id: string; name: string; type: string; template: string; created_at: string; updated_at: string }[]).map((r) => ({
+            ((data || []) as { id: string; agency_id: string; name: string; type: string; template: string; send_to?: string; created_at: string; updated_at: string }[]).map((r) => ({
               id: r.id,
               agency_id: r.agency_id,
               title: r.name,
               type: (DB_TYPE_MAP[r.type] || 'other') as DocumentTemplateType,
               content: r.template || '',
+              send_to: (r.send_to === 'artist' || r.send_to === 'client' || r.send_to === 'both' ? r.send_to : 'both') as DocumentSendTo,
               created_at: r.created_at,
               updated_at: r.updated_at,
             }))
@@ -72,10 +73,10 @@ const DocumentsPage: React.FC = () => {
   const openDialog = (doc?: Document) => {
     if (doc) {
       setEditingDoc(doc);
-      setFormData({ title: doc.title, type: doc.type, content: doc.content });
+      setFormData({ title: doc.title, type: doc.type, content: doc.content, send_to: doc.send_to || 'both' });
     } else {
       setEditingDoc(null);
-      setFormData({ title: '', type: 'other', content: '' });
+      setFormData({ title: '', type: 'other', content: '', send_to: 'both' });
     }
     setDialogOpen(true);
   };
@@ -92,7 +93,7 @@ const DocumentsPage: React.FC = () => {
       if (isDemoMode()) {
         const updated = demoUpsertDocument(
           currentAgency.id,
-          { title: formData.title, type: formData.type, content: formData.content },
+          { title: formData.title, type: formData.type, content: formData.content, send_to: formData.send_to },
           editingDoc?.id
         );
         const list = editingDoc
@@ -110,6 +111,7 @@ const DocumentsPage: React.FC = () => {
               name: formData.title,
               type: dbType,
               template: formData.content,
+              send_to: formData.send_to || 'both',
               updated_at: new Date().toISOString(),
             })
             .eq('id', editingDoc.id);
@@ -121,6 +123,7 @@ const DocumentsPage: React.FC = () => {
             name: formData.title,
             type: dbType,
             template: formData.content,
+            send_to: formData.send_to || 'both',
           });
           if (error) throw error;
           success('תבנית נוספה');
@@ -131,12 +134,13 @@ const DocumentsPage: React.FC = () => {
           .eq('agency_id', currentAgency.id)
           .order('created_at', { ascending: false });
         setDocuments(
-          ((data || []) as { id: string; agency_id: string; name: string; type: string; template: string; created_at: string; updated_at: string }[]).map((r) => ({
+          ((data || []) as { id: string; agency_id: string; name: string; type: string; template: string; send_to?: string; created_at: string; updated_at: string }[]).map((r) => ({
             id: r.id,
             agency_id: r.agency_id,
             title: r.name,
             type: (DB_TYPE_MAP[r.type] || 'other') as DocumentTemplateType,
             content: r.template || '',
+            send_to: (r.send_to === 'artist' || r.send_to === 'client' || r.send_to === 'both' ? r.send_to : 'both') as DocumentSendTo,
             created_at: r.created_at,
             updated_at: r.updated_at,
           }))
@@ -258,6 +262,20 @@ const DocumentsPage: React.FC = () => {
                 <option value="invoice_template">תבנית חשבונית</option>
                 <option value="other">אחר</option>
               </select>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="doc-send-to">שלח ל</Label>
+              <select
+                id="doc-send-to"
+                value={formData.send_to}
+                onChange={(e) => setFormData((d) => ({ ...d, send_to: e.target.value as DocumentSendTo }))}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value="artist">אמן</option>
+                <option value="client">לקוח</option>
+                <option value="both">אמן ולקוח (שניהם)</option>
+              </select>
+              <p className="text-xs text-muted-foreground">למי לשלוח את המסמך המופק מהתבנית</p>
             </div>
             <div className="flex flex-col gap-2">
               <Label htmlFor="doc-content">תוכן (משתנים: {'{{שם}}'})</Label>

@@ -11,6 +11,7 @@ import { useToast } from '@/contexts/ToastContext';
 import { supabase } from '@/lib/supabase';
 import { demoSetArtists, demoUpsertArtist, isDemoMode } from '@/lib/demoStore';
 import { useArtistsQuery, useInvalidateArtists } from '@/hooks/useSupabaseQuery';
+import { useQueryClient } from '@tanstack/react-query';
 import { cleanNotes } from '@/lib/notesCleanup';
 import type { Artist } from '@/types';
 
@@ -25,6 +26,7 @@ const ArtistsPage: React.FC = () => {
   const { success, error: showError } = useToast();
   const { data: artists = [], isLoading: loading } = useArtistsQuery(currentAgency?.id);
   const invalidateArtists = useInvalidateArtists();
+  const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingArtist, setEditingArtist] = useState<Artist | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -147,6 +149,7 @@ const ArtistsPage: React.FC = () => {
         }
       }
       invalidateArtists(currentAgency.id);
+      await queryClient.refetchQueries({ queryKey: ['artists', currentAgency.id] });
       closeDialog();
     } catch (err: any) {
       showError(err?.message || 'אירעה שגיאה. אנא נסה שוב.');

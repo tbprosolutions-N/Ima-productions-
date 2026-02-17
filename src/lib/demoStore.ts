@@ -1,4 +1,4 @@
-import type { Agency, Artist, Client, Document, DocumentTemplateType, Event, EventStatus, DocumentType } from '@/types';
+import type { Agency, Artist, Client, Document, DocumentTemplateType, DocumentSendTo, Event, EventStatus, DocumentType } from '@/types';
 
 export function isDemoMode(): boolean {
   // Production: never enable demo. Ensures live site always uses real Supabase.
@@ -93,7 +93,7 @@ export function demoUpsertClient(agencyId: string, partial: Omit<Client, 'id' | 
 
 export function demoUpsertDocument(
   agencyId: string,
-  partial: { title: string; type: DocumentTemplateType; content: string },
+  partial: { title: string; type: DocumentTemplateType; content: string; send_to?: DocumentSendTo },
   id?: string
 ): Document {
   const now = new Date().toISOString();

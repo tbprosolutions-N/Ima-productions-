@@ -120,9 +120,13 @@ export interface Client {
   email?: string;
   address?: string;
   notes?: string;
+  /** Hex color for UI (e.g. cards, calendar) */
+  color?: string;
   created_at: string;
   updated_at: string;
 }
+
+export type DocumentSendTo = 'artist' | 'client' | 'both';
 
 export interface Document {
   id: string;
@@ -130,6 +134,8 @@ export interface Document {
   title: string;
   type: DocumentTemplateType;
   content: string;
+  /** Who receives the generated document when dispatching */
+  send_to?: DocumentSendTo;
   created_at: string;
   updated_at: string;
 }

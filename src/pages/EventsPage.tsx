@@ -47,6 +47,7 @@ import { createEventDocument, checkEventDocumentStatus } from '@/services/mornin
 import { agreementService } from '@/services/agreementService';
 import { getCollectionStatus } from '@/lib/collectionStatus';
 import { useSilentSheetsSync } from '@/hooks/useSilentSheetsSync';
+import { createSheetAndSync } from '@/services/sheetsSyncService';
 
 const EventsPage: React.FC = () => {
   const { currentAgency } = useAgency();
@@ -279,24 +280,29 @@ const EventsPage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const clientName = formData.client_business_name.trim();
-    const businessName = formData.business_name.trim();
-    const effectiveName = clientName || businessName;
+    const artistName = formData.artist_name.trim();
     const err: Record<string, string> = {};
     if (!formData.event_date?.trim()) err.event_date = 'נא לבחור תאריך אירוע';
-    if (!effectiveName) err.business_name = 'נא להזין שם לקוח או שם עסק';
+    if (!clientName) err.client_business_name = 'נא להזין שם לקוח';
+    if (!artistName) err.artist_name = 'נא להזין שם אמן';
     if (Object.keys(err).length > 0) {
       setFormErrors(err);
-      showError('נא למלא את השדות החובה');
+      const parts = [];
+      if (err.event_date) parts.push('תאריך אירוע');
+      if (err.client_business_name) parts.push('לקוח');
+      if (err.artist_name) parts.push('אמן');
+      showError('נא למלא את השדות החובה: ' + parts.join(', '));
       return;
     }
     setFormErrors({});
     setIsSaving(true);
+    const effectiveBusinessName = clientName || artistName || 'אירוע';
     try {
       if (!currentAgency) {
-        throw new Error('לא נמצאה סוכנות פעילה. רענן את הדף ונסה שוב.');
+        showError('לא נמצאה סוכנות פעילה. רענן את הדף ונסה שוב.');
+        setIsSaving(false);
+        return;
       }
-      const artistName = formData.artist_name.trim();
-      const effectiveBusinessName = clientName || businessName;
 
       type EnsureResult = { id?: string; existed: boolean };
 
@@ -379,7 +385,7 @@ const EventsPage: React.FC = () => {
           event_date: isoEventDate,
           weekday: getWeekday(formData.event_date),
           business_name: effectiveBusinessName,
-          invoice_name: formData.invoice_name,
+          invoice_name: effectiveBusinessName,
           amount: companyAmount,
           payment_date: isoPaymentDate,
           due_date: formData.due_date ? new Date(formData.due_date).toISOString().slice(0, 10) : undefined,
@@ -448,7 +454,7 @@ const EventsPage: React.FC = () => {
       const eventData = {
         event_date: formData.event_date,
         business_name: effectiveBusinessName,
-        invoice_name: (formData.invoice_name ?? '').trim() || effectiveBusinessName,
+        invoice_name: effectiveBusinessName,
         payment_date: formData.payment_date || null,
         due_date: formData.due_date || null,
         artist_fee_type: isOwner ? payout.type : undefined,
@@ -505,6 +511,23 @@ const EventsPage: React.FC = () => {
         if (error) throw error;
         savedEventId = (inserted as any)?.id;
         success('אירוע נוסף בהצלחה! 🎉');
+
+        // First event: auto-create Drive backup sheet if user has set backup folder URL
+        if (events.length === 0) {
+          try {
+            const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(`ima_backup_url_${currentAgency.id}`) : null;
+            const url = (raw || '').trim();
+            const folderId = url?.match(/folders\/([a-zA-Z0-9_-]+)/)?.[1] ?? (/^[a-zA-Z0-9_-]{20,}$/.test(url) ? url : null);
+            if (folderId) {
+              const result = await createSheetAndSync(currentAgency.id, folderId);
+              if (result.ok) {
+                success('גיליון גיבוי נוצר ב־Drive ✅');
+              }
+            }
+          } catch (_) {
+            // Non-blocking; user can trigger backup from Settings
+          }
+        }
 
         // Agreement engine: when artist & client emails present, send agreement + calendar invite
         let clientEmail = (clients.find(c => c.id === clientId) || {} as Client).email?.trim();
@@ -952,6 +975,7 @@ const EventsPage: React.FC = () => {
   const table = useReactTable({
     data: events,
     columns,
+    initialState: { pagination: { pageSize: 25, pageIndex: 0 } },
     state: {
       sorting,
       columnFilters,
@@ -1240,27 +1264,17 @@ const EventsPage: React.FC = () => {
                 />
               </div>
               <div className="flex flex-col gap-2">
-                <Label htmlFor="business_name" className="text-foreground">שם עסק / שם אירוע</Label>
-                <Input
-                  id="business_name"
-                  value={formData.business_name}
-                  onChange={(e) => { setFormData({ ...formData, business_name: e.target.value }); setFormErrors((prev) => ({ ...prev, business_name: '' })); }}
-                  className={formErrors.business_name ? 'border-red-500 border-2' : 'border-primary/30'}
-                  placeholder="ניתן להשאיר ריק או להזין ידנית"
-                />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="client_business_name" className="text-foreground">לקוח (שם עסק) *</Label>
+                <Label htmlFor="client_business_name" className="text-foreground">לקוח *</Label>
                 <Input
                   id="client_business_name"
                   value={formData.client_business_name}
-                  onChange={(e) => { setFormData({ ...formData, client_business_name: e.target.value }); setFormErrors((prev) => ({ ...prev, business_name: '' })); }}
+                  onChange={(e) => { setFormData({ ...formData, client_business_name: e.target.value }); setFormErrors((p) => ({ ...p, client_business_name: '' })); }}
                   required
-                  className={formErrors.business_name ? 'border-red-500 border-2' : 'border-primary/30'}
-                  placeholder="לדוגמה: הבאר הקוקטייל"
+                  className={formErrors.client_business_name ? 'border-red-500 border-2' : 'border-primary/30'}
+                  placeholder="לדוגמה: הבאר הקוקטייל (ניתן להקליד שם חדש)"
                   list="clients-list"
                 />
-                {formErrors.business_name && <p className="text-xs text-red-500">{formErrors.business_name}</p>}
+                {formErrors.client_business_name && <p className="text-xs text-red-500">{formErrors.client_business_name}</p>}
                 <datalist id="clients-list">
                   {clients.slice(0, 50).map(c => (
                     <option key={c.id} value={c.name} />
@@ -1273,9 +1287,9 @@ const EventsPage: React.FC = () => {
                 <Input
                   id="artist_name"
                   value={formData.artist_name}
-                  onChange={(e) => setFormData({ ...formData, artist_name: e.target.value })}
+                  onChange={(e) => { setFormData({ ...formData, artist_name: e.target.value }); setFormErrors((p) => ({ ...p, artist_name: '' })); }}
                   required
-                  className="border-primary/30"
+                  className={formErrors.artist_name ? 'border-red-500 border-2' : 'border-primary/30'}
                   placeholder="לדוגמה: Static & Ben El"
                   list="artists-list"
                 />
@@ -1284,16 +1298,7 @@ const EventsPage: React.FC = () => {
                     <option key={a.id} value={a.name} />
                   ))}
                 </datalist>
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="invoice_name" className="text-foreground">שם בחשבונית</Label>
-                <Input
-                  id="invoice_name"
-                  value={formData.invoice_name}
-                  onChange={(e) => setFormData({ ...formData, invoice_name: e.target.value })}
-                  className="border-primary/30"
-                />
+                {formErrors.artist_name && <p className="text-xs text-red-500">{formErrors.artist_name}</p>}
               </div>
 
               <div className="flex flex-col gap-2">

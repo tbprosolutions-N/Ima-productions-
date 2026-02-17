@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Plus, Search, Edit, Trash2, UserCircle, Phone, Mail, Building, MapPin, LayoutGrid, Table as TableIcon, Eye, FileDown, FolderOpen, Send } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, UserCircle, Phone, Mail, Building, MapPin, LayoutGrid, Table as TableIcon, Eye, FileDown, FolderOpen, Send, Palette } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardContent, CardHeader } from '@/components/ui/Card';
@@ -18,6 +18,12 @@ import { demoGetClients, demoGetEvents, demoSetClients, demoUpsertClient, isDemo
 import { useClientsQuery, useInvalidateClients } from '@/hooks/useSupabaseQuery';
 import { cleanNotes } from '@/lib/notesCleanup';
 
+const CLIENT_COLORS = [
+  '#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6',
+  '#EC4899', '#06B6D4', '#F97316', '#6366F1', '#14B8A6',
+  '#E11D48', '#84CC16',
+];
+
 const ClientsPage: React.FC = () => {
   const { currentAgency } = useAgency();
   const { success, error: showError } = useToast();
@@ -26,7 +32,7 @@ const ClientsPage: React.FC = () => {
   const { data: clients = [], isLoading: loading } = useClientsQuery(currentAgency?.id);
   const invalidateClients = useInvalidateClients();
   const [searchQuery, setSearchQuery] = useState('');
-  const [view, setView] = useState<'grid' | 'table'>('grid');
+  const [view, setView] = useState<'grid' | 'table'>('table');
   const [showExtra, setShowExtra] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
@@ -48,6 +54,7 @@ const ClientsPage: React.FC = () => {
     address: '',
     vat_id: '',
     notes: '',
+    color: '#3B82F6',
   });
   const [isSaving, setIsSaving] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
@@ -76,6 +83,7 @@ const ClientsPage: React.FC = () => {
             address: formData.address || undefined,
             vat_id: formData.vat_id || undefined,
             notes: formData.notes || undefined,
+            color: formData.color || undefined,
           },
           editingClient?.id
         );
@@ -100,6 +108,7 @@ const ClientsPage: React.FC = () => {
           address: formData.address || null,
           vat_id: formData.vat_id || null,
           notes: formData.notes || null,
+          color: formData.color?.trim() || null,
         };
         const { error } = await supabase
           .from('clients')
@@ -118,6 +127,7 @@ const ClientsPage: React.FC = () => {
           address: formData.address || null,
           vat_id: formData.vat_id || null,
           notes: formData.notes || null,
+          color: formData.color?.trim() || null,
         };
         const { error } = await supabase
           .from('clients')
@@ -174,6 +184,7 @@ const ClientsPage: React.FC = () => {
         address: client.address || '',
         vat_id: client.vat_id || '',
         notes: client.notes || '',
+        color: client.color || '#3B82F6',
       });
     } else {
       setEditingClient(null);
@@ -185,6 +196,7 @@ const ClientsPage: React.FC = () => {
         address: '',
         vat_id: '',
         notes: '',
+        color: '#3B82F6',
       });
     }
     setIsDialogOpen(true);
@@ -737,6 +749,25 @@ const ClientsPage: React.FC = () => {
                   onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                   className="border-primary/30"
                 />
+              </div>
+
+              <div className="space-y-2 col-span-2">
+                <Label className="text-foreground flex items-center gap-2">
+                  <Palette className="w-4 h-4" />
+                  צבע (לכרטיסים ויומן)
+                </Label>
+                <div className="flex flex-wrap gap-2">
+                  {CLIENT_COLORS.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      className={`w-8 h-8 rounded-full border-2 transition-all ${formData.color === c ? 'border-foreground scale-110' : 'border-transparent hover:scale-105'}`}
+                      style={{ backgroundColor: c }}
+                      onClick={() => setFormData((d) => ({ ...d, color: c }))}
+                      aria-label={c}
+                    />
+                  ))}
+                </div>
               </div>
 
               <div className="space-y-2 col-span-2">

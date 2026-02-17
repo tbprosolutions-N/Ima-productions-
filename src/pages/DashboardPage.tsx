@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Sparkles, Calendar, DollarSign, FileText, TrendingUp, ClipboardList,
   Plus, Bell, Activity, AlertTriangle, CheckCircle, Clock, Users, ChevronRight,
@@ -10,68 +11,62 @@ import { Button } from '@/components/ui/Button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/Dialog';
 import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAgency } from '@/contexts/AgencyContext';
 import { supabase } from '@/lib/supabase';
-import { demoGetEvents, demoGetClients, demoGetArtists, isDemoMode } from '@/lib/demoStore';
+import { isDemoMode } from '@/lib/demoStore';
 import { getFinanceExpenses } from '@/lib/financeStore';
 import { getActivity, type ActivityEntry } from '@/lib/activityLog';
 import { useSilentSheetsSync } from '@/hooks/useSilentSheetsSync';
 import { useToast } from '@/contexts/ToastContext';
+import {
+  useEventsQuery,
+  useArtistsQuery,
+  useClientsQuery,
+} from '@/hooks/useSupabaseQuery';
 import type { Event, Artist, Client } from '@/types';
 
-/* ─── Dashboard Stats Hook ─── */
-function useDashboardStats(agencyId: string | undefined) {
-  const [events, setEvents] = useState<Event[]>([]);
-  const [artists, setArtists] = useState<Artist[]>([]);
-  const [clients, setClients] = useState<Client[]>([]);
-  const [clientsCount, setClientsCount] = useState(0);
-  const [expensesTotal, setExpensesTotal] = useState(0);
-  const [activityLog, setActivityLog] = useState<ActivityEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+/* ─── Dashboard auxiliary queries (expenses total + activity log) ─── */
 
-  const fetchStats = useCallback(async () => {
-    if (!agencyId) {
-      setLoading(false);
-      setLoadError(null);
-      return;
-    }
-    setLoadError(null);
-    setLoading(true);
-    if (isDemoMode()) {
-      const ev = demoGetEvents(agencyId);
-      const cl = demoGetClients(agencyId);
-      const ar = demoGetArtists(agencyId);
-      const expenses = getFinanceExpenses(agencyId);
-      setEvents(ev);
-      setClients(cl);
-      setArtists(ar);
-      setClientsCount(cl.length);
-      setExpensesTotal(expenses.reduce((s, x) => s + (Number(x.amount) || 0), 0));
-      setActivityLog(getActivity(agencyId));
-      setLoading(false);
-      return;
-    }
-    try {
-      const [evRes, clientsRes, artistsRes, expRes, auditRes] = await Promise.all([
-        supabase.from('events').select('*').eq('agency_id', agencyId).order('event_date', { ascending: false }).limit(500),
-        supabase.from('clients').select('*').eq('agency_id', agencyId).order('name', { ascending: true }),
-        supabase.from('artists').select('*').eq('agency_id', agencyId).order('name', { ascending: true }),
-        supabase.from('finance_expenses').select('amount').eq('agency_id', agencyId),
-        supabase.from('audit_logs').select('*').eq('agency_id', agencyId).order('created_at', { ascending: false }).limit(20),
-      ]);
-      const evList = (evRes.data || []) as Event[];
-      const clList = (clientsRes.data || []) as Client[];
-      const arList = (artistsRes.data || []) as Artist[];
-      setEvents(evList);
-      setClients(clList);
-      setArtists(arList);
-      setClientsCount(clList.length);
-      const expTotal = ((expRes.data || []) as { amount: number }[]).reduce((s, x) => s + (Number(x?.amount) || 0), 0);
-      setExpensesTotal(expTotal);
-      const auditData = (auditRes.data || []).map((r: any) => ({
+const STALE_5MIN = 5 * 60 * 1000;
+
+function useExpensesTotalQuery(agencyId: string | undefined) {
+  return useQuery<number>({
+    queryKey: ['expenses-total', agencyId],
+    queryFn: async () => {
+      if (!agencyId) return 0;
+      if (isDemoMode()) {
+        const expenses = getFinanceExpenses(agencyId);
+        return expenses.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+      }
+      const { data, error } = await supabase
+        .from('finance_expenses')
+        .select('amount')
+        .eq('agency_id', agencyId);
+      if (error) throw error;
+      return ((data || []) as { amount: number }[]).reduce((s, x) => s + (Number(x?.amount) || 0), 0);
+    },
+    enabled: !!agencyId,
+    staleTime: STALE_5MIN,
+    gcTime: STALE_5MIN * 2,
+    refetchOnWindowFocus: false,
+  });
+}
+
+function useActivityLogQuery(agencyId: string | undefined) {
+  return useQuery<ActivityEntry[]>({
+    queryKey: ['activity-log', agencyId],
+    queryFn: async () => {
+      if (!agencyId) return [];
+      if (isDemoMode()) return getActivity(agencyId);
+      const { data, error } = await supabase
+        .from('audit_logs')
+        .select('*')
+        .eq('agency_id', agencyId)
+        .order('created_at', { ascending: false })
+        .limit(20);
+      if (error) throw error;
+      return ((data || []) as any[]).map((r) => ({
         id: r.id,
         agency_id: r.agency_id,
         created_at: r.created_at,
@@ -81,59 +76,44 @@ function useDashboardStats(agencyId: string | undefined) {
         message: r.message || r.action,
         meta: r.meta,
       }));
-      setActivityLog(auditData);
-    } catch (e: any) {
-      setLoadError(e?.message || 'טעינת הדשבורד נכשלה');
-      setEvents([]);
-      setClients([]);
-      setArtists([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [agencyId]);
+    },
+    enabled: !!agencyId,
+    staleTime: STALE_5MIN,
+    gcTime: STALE_5MIN * 2,
+    refetchOnWindowFocus: false,
+  });
+}
 
-  useEffect(() => {
-    fetchStats();
-  }, [fetchStats]);
+/* ─── Computed stats from React Query data ─── */
+function computeStats(
+  events: Event[],
+  clients: Client[],
+  expensesTotal: number,
+) {
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+  const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const nextMonthEnd   = new Date(now.getFullYear(), now.getMonth() + 2, 0);
+  const nextMonthFrom  = nextMonthStart.toISOString().slice(0, 10);
+  const nextMonthTo    = nextMonthEnd.toISOString().slice(0, 10);
 
-  const stats = useMemo(() => {
-    const now = new Date();
-    const today = now.toISOString().slice(0, 10);
-    const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    const nextMonthEnd = new Date(now.getFullYear(), now.getMonth() + 2, 0);
-    const nextMonthFrom = nextMonthStart.toISOString().slice(0, 10);
-    const nextMonthTo = nextMonthEnd.toISOString().slice(0, 10);
-    const eventsNextMonth = events.filter(e => {
-      const d = (e.event_date || '').toString().slice(0, 10);
-      return d >= nextMonthFrom && d <= nextMonthTo;
-    });
-    const activeEvents = events.filter(e => {
-      const d = (e.event_date || '').toString().slice(0, 10);
-      return d >= today && e.status !== 'cancelled';
-    });
-    const pendingEvents = events.filter(e => e.status === 'pending' || e.status === 'approved');
-    const collectedEvents = events.filter(e => e.status === 'paid');
-    const expectedIncome = events.filter(e => e.status !== 'cancelled').reduce((s, e) => s + (Number(e.amount) || 0), 0);
-    const collectedTotal = collectedEvents.reduce((s, e) => s + (Number(e.amount) || 0), 0);
-    const pendingTotal = pendingEvents.reduce((s, e) => s + (Number(e.amount) || 0), 0);
-    const nextMonthIncome = eventsNextMonth.reduce((s, e) => s + (Number(e.amount) || 0), 0);
-    const activeTotal = activeEvents.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const eventsNextMonth  = events.filter(e => { const d = (e.event_date || '').toString().slice(0, 10); return d >= nextMonthFrom && d <= nextMonthTo; });
+  const activeEvents     = events.filter(e => { const d = (e.event_date || '').toString().slice(0, 10); return d >= today && e.status !== 'cancelled'; });
+  const pendingEvents    = events.filter(e => e.status === 'pending' || e.status === 'approved');
+  const collectedEvents  = events.filter(e => e.status === 'paid');
 
-    return {
-      eventsNextMonthCount: eventsNextMonth.length,
-      eventsNextMonthIncome: nextMonthIncome,
-      activeEventsCount: activeEvents.length,
-      activeEventsTotal: activeTotal,
-      expensesTotal,
-      pendingCount: pendingEvents.length,
-      pendingTotal,
-      collectedTotal,
-      expectedIncome,
-      clientsCount,
-    };
-  }, [events, expensesTotal, clientsCount]);
-
-  return { stats, events, artists, clients, activityLog, loading, loadError, retry: fetchStats };
+  return {
+    eventsNextMonthCount:  eventsNextMonth.length,
+    eventsNextMonthIncome: eventsNextMonth.reduce((s, e) => s + (Number(e.amount) || 0), 0),
+    activeEventsCount:     activeEvents.length,
+    activeEventsTotal:     activeEvents.reduce((s, e)  => s + (Number(e.amount) || 0), 0),
+    expensesTotal,
+    pendingCount:   pendingEvents.length,
+    pendingTotal:   pendingEvents.reduce((s, e)   => s + (Number(e.amount) || 0), 0),
+    collectedTotal: collectedEvents.reduce((s, e) => s + (Number(e.amount) || 0), 0),
+    expectedIncome: events.filter(e => e.status !== 'cancelled').reduce((s, e) => s + (Number(e.amount) || 0), 0),
+    clientsCount:   clients.length,
+  };
 }
 
 /* ─── Notification Generator ─── */
@@ -248,6 +228,22 @@ const QuickNewEventDialog: React.FC<{
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!form.event_date?.trim()) {
+      showError('נא לבחור תאריך אירוע');
+      return;
+    }
+    if (!form.client_name?.trim()) {
+      showError('נא להזין שם לקוח');
+      return;
+    }
+    if (!form.artist_name?.trim()) {
+      showError('נא להזין שם אמן');
+      return;
+    }
+    if (!agencyId) {
+      showError('אין סוכנות פעילה. רענן את הדף.');
+      return;
+    }
     setSaving(true);
     try {
       const eventDate = new Date(form.event_date);
@@ -307,12 +303,11 @@ const QuickNewEventDialog: React.FC<{
         amount: Number(form.amount) || 0,
         doc_type: 'tax_invoice' as const,
         status: 'draft' as const,
-        client_id: clientId || null,
-        artist_id: artistId || null,
+        client_id: clientId || undefined,
+        artist_id: artistId || undefined,
         notes: form.notes.trim() || undefined,
-        event_time: form.event_time.trim() || null,
+        event_time: form.event_time.trim() || undefined,
       };
-
       if (isDemoMode()) {
         const { demoSetEvents, demoGetEvents } = await import('@/lib/demoStore');
         const existing = demoGetEvents(agencyId);
@@ -362,7 +357,7 @@ const QuickNewEventDialog: React.FC<{
               <Input type="number" min="0" step="0.01" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} placeholder="0.00" />
             </div>
             <div className="flex flex-col gap-2">
-              <Label>לקוח</Label>
+              <Label>לקוח *</Label>
               <Input
                 value={form.client_name}
                 onChange={e => setForm(f => ({ ...f, client_name: e.target.value }))}
@@ -375,7 +370,7 @@ const QuickNewEventDialog: React.FC<{
               <p className="text-xs text-muted-foreground">ניתן להקליד שם חדש — ייווצר אוטומטית</p>
             </div>
             <div className="flex flex-col gap-2">
-              <Label>אמן</Label>
+              <Label>אמן *</Label>
               <Input
                 value={form.artist_name}
                 onChange={e => setForm(f => ({ ...f, artist_name: e.target.value }))}
@@ -463,12 +458,27 @@ const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { currentAgency } = useAgency();
+  const queryClient = useQueryClient();
   useSilentSheetsSync();
-  const { stats, events, artists, clients, activityLog, loading, loadError, retry } = useDashboardStats(currentAgency?.id);
+
+  const agencyId = currentAgency?.id;
+
+  // ── Shared React Query hooks (cache-first, no duplicate fetches across pages) ──
+  const { data: events = [], isLoading: eventsLoading, error: eventsError, refetch: refetchEvents } = useEventsQuery(agencyId);
+  const { data: artists = [], isLoading: artistsLoading } = useArtistsQuery(agencyId);
+  const { data: clients = [], isLoading: clientsLoading } = useClientsQuery(agencyId);
+  const { data: expensesTotal = 0, isLoading: expensesLoading } = useExpensesTotalQuery(agencyId);
+  const { data: activityLog = [], isLoading: activityLoading } = useActivityLogQuery(agencyId);
+
+  const loading = eventsLoading || artistsLoading || clientsLoading || expensesLoading;
+  const loadError = eventsError ? (eventsError as any)?.message || 'טעינת הדשבורד נכשלה' : null;
+
   const displayName = user?.full_name || user?.email?.split('@')[0] || 'משתמש';
   const canSeeMoney = user?.role !== 'producer';
   const [quickEventOpen, setQuickEventOpen] = useState(false);
-  const agencyId = currentAgency?.id || '';
+
+  // Computed stats from cached data
+  const stats = useMemo(() => computeStats(events, clients, expensesTotal), [events, clients, expensesTotal]);
 
   // Notifications
   const notifications = useMemo(() => generateNotifications(events, artists), [events, artists]);
@@ -488,9 +498,14 @@ const DashboardPage: React.FC = () => {
     { title: 'הכנסה צפויה', value: canSeeMoney ? fmt(stats.expectedIncome) : '•••', count: 'לא כולל מבוטלים', icon: ClipboardList, color: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-50 dark:bg-indigo-500/15' },
   ], [stats, canSeeMoney]);
 
+  // After quick-event creation, invalidate events cache so Dashboard + EventsPage both update
   const handleQuickEventCreated = useCallback(() => {
-    retry();
-  }, [retry]);
+    if (agencyId) {
+      queryClient.invalidateQueries({ queryKey: ['events', agencyId] });
+    }
+  }, [queryClient, agencyId]);
+
+  const retry = useCallback(() => { refetchEvents(); }, [refetchEvents]);
 
   // Upcoming events table (next 10)
   const upcomingEvents = useMemo(() => {
@@ -603,7 +618,7 @@ const DashboardPage: React.FC = () => {
             </Card>
 
             {/* Activity Log */}
-            <ActivityLogSection activityLog={activityLog} loadingLog={loading} />
+            <ActivityLogSection activityLog={activityLog} loadingLog={activityLoading} />
           </div>
 
           {/* Upcoming Events Table */}
@@ -703,15 +718,17 @@ const DashboardPage: React.FC = () => {
       )}
 
       {/* Quick New Event Dialog */}
-      <QuickNewEventDialog
-        open={quickEventOpen}
-        onOpenChange={setQuickEventOpen}
-        agencyId={agencyId}
-        userId={user?.id}
-        clients={clients}
-        artists={artists}
-        onCreated={handleQuickEventCreated}
-      />
+      {agencyId && (
+        <QuickNewEventDialog
+          open={quickEventOpen}
+          onOpenChange={setQuickEventOpen}
+          agencyId={agencyId}
+          userId={user?.id}
+          clients={clients}
+          artists={artists}
+          onCreated={handleQuickEventCreated}
+        />
+      )}
     </div>
   );
 };

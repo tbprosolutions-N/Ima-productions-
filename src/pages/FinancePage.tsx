@@ -169,6 +169,8 @@ const FinancePageContent: React.FC = () => {
   const [fileManagerPeriod, setFileManagerPeriod] = useState<'day' | 'month' | 'quarter' | 'year' | 'custom'>('month');
   const [fileManagerFrom, setFileManagerFrom] = useState('');
   const [fileManagerTo, setFileManagerTo] = useState('');
+  type PreviewState = { exp: ExpenseItem; url: string; isBlobUrl: boolean };
+  const [filePreview, setFilePreview] = useState<PreviewState | null>(null);
 
   useEffect(() => {
     // load checklist
@@ -980,8 +982,7 @@ const FinancePageContent: React.FC = () => {
         if (exp.file_store === 'supabase' && exp.storage_path) {
           const { data, error } = await supabase.storage.from('expenses').createSignedUrl(exp.storage_path, 60);
           if (error) throw error;
-          const w = window.open(data.signedUrl, '_blank', 'noopener,noreferrer');
-          if (!w) downloadExpenseFile(exp);
+          setFilePreview({ exp, url: data.signedUrl, isBlobUrl: false });
           return;
         }
         if (exp.file_store === 'idb') {
@@ -991,22 +992,25 @@ const FinancePageContent: React.FC = () => {
             return;
           }
           const url = URL.createObjectURL(stored.blob);
-          const w = window.open(url, '_blank', 'noopener,noreferrer');
-          if (!w) downloadExpenseFile(exp);
-          window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+          setFilePreview({ exp, url, isBlobUrl: true });
           return;
         }
         if (!exp.dataUrl) return;
         const blob = dataUrlToBlobUrl(exp.dataUrl);
         const url = blob?.url || exp.dataUrl;
-        const w = window.open(url, '_blank', 'noopener,noreferrer');
-        if (!w) downloadExpenseFile(exp);
-        if (blob?.url) window.setTimeout(() => URL.revokeObjectURL(blob.url), 30_000);
+        setFilePreview({ exp, url, isBlobUrl: !!blob?.url });
       } catch (e: any) {
         console.error(e);
         showError(e?.message || 'אירעה שגיאה בפתיחת הקובץ. אנא נסה שוב.');
       }
     })();
+  };
+
+  const closeFilePreview = () => {
+    if (filePreview?.isBlobUrl && filePreview?.url) {
+      try { URL.revokeObjectURL(filePreview.url); } catch { }
+    }
+    setFilePreview(null);
   };
 
   const downloadExpenseFile = (exp: ExpenseItem) => {
@@ -2051,6 +2055,40 @@ const FinancePageContent: React.FC = () => {
             </div>
           ) : (
             <div className="text-sm text-muted-foreground">לא נבחרה הוצאה.</div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* File preview modal: view in browser, download only inside preview */}
+      <Dialog open={!!filePreview} onOpenChange={(open) => { if (!open) closeFilePreview(); }}>
+        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="text-foreground">תצוגת קובץ</DialogTitle>
+            <DialogDescription>צפייה בקובץ. להורדה השתמש בכפתור למטה.</DialogDescription>
+          </DialogHeader>
+          {filePreview && (
+            <>
+              <div className="flex-1 min-h-[50vh] rounded-lg border border-border overflow-hidden bg-muted/30">
+                <iframe
+                  title="תצוגת קובץ"
+                  src={filePreview.url}
+                  className="w-full h-full min-h-[50vh] border-0"
+                />
+              </div>
+              <div className="flex justify-between items-center pt-3 border-t">
+                <Button type="button" variant="outline" onClick={closeFilePreview}>
+                  סגור
+                </Button>
+                <Button
+                  type="button"
+                  className="btn-magenta"
+                  onClick={() => { downloadExpenseFile(filePreview.exp); }}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  הורד קובץ
+                </Button>
+              </div>
+            </>
           )}
         </DialogContent>
       </Dialog>

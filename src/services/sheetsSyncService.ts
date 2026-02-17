@@ -10,14 +10,20 @@ export type SheetsSyncResult =
   | { ok: true; spreadsheetId: string; spreadsheetUrl: string; counts: { events: number; clients: number; artists: number; expenses: number } }
   | { ok: false; error: string; detail?: string; code?: string; spreadsheetId?: string; spreadsheetUrl?: string };
 
+const SHEETS_REQUEST_TIMEOUT_MS = 90_000; // 90s for large syncs; reduce 500/timeout failures
+
 async function sheetsFetch(bodyObj: Record<string, unknown>): Promise<SheetsSyncResult> {
   const base = typeof window !== 'undefined' ? window.location.origin : '';
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), SHEETS_REQUEST_TIMEOUT_MS);
 
   const res = await fetch(`${base}${SHEETS_API_PATH}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(bodyObj),
-  });
+    signal: controller.signal,
+  }).finally(() => clearTimeout(timeoutId));
   const data = await res.json().catch(() => ({})) as any;
 
   if (!res.ok) {
