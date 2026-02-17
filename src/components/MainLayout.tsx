@@ -1,14 +1,18 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Outlet } from 'react-router-dom';
 import { Menu } from 'lucide-react';
 import Sidebar from './Sidebar';
 import { Button } from './ui/Button';
+import RouteErrorBoundary from './RouteErrorBoundary';
 import { appName } from '@/lib/appConfig';
 import { onInstallPrompt, triggerInstallPrompt } from '@/lib/pwa';
+import { useToast } from '@/contexts/ToastContext';
 
 const MainLayoutInner: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
+  const { warning } = useToast();
+  const offlineToastShown = useRef(false);
 
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const toggleSidebar = useCallback(() => setSidebarOpen(prev => !prev), []);
@@ -16,6 +20,23 @@ const MainLayoutInner: React.FC = () => {
   useEffect(() => {
     onInstallPrompt(() => setShowInstallBanner(true));
   }, []);
+
+  useEffect(() => {
+    const onOffline = () => {
+      if (!offlineToastShown.current) {
+        offlineToastShown.current = true;
+        warning('אין חיבור לאינטרנט. חלק מהפעולות לא יהיו זמינות.');
+      }
+    };
+    const onOnline = () => { offlineToastShown.current = false; };
+    window.addEventListener('offline', onOffline);
+    window.addEventListener('online', onOnline);
+    if (!navigator.onLine) onOffline();
+    return () => {
+      window.removeEventListener('offline', onOffline);
+      window.removeEventListener('online', onOnline);
+    };
+  }, [warning]);
 
   return (
     <div className="flex flex-row h-screen min-h-[100dvh] w-full max-w-[100vw] overflow-x-hidden overflow-y-auto md:overflow-hidden bg-background ima-bg-vertical">
@@ -51,7 +72,9 @@ const MainLayoutInner: React.FC = () => {
               </div>
             </div>
           )}
-          <Outlet />
+          <RouteErrorBoundary>
+            <Outlet />
+          </RouteErrorBoundary>
         </div>
       </main>
 

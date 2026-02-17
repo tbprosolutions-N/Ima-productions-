@@ -44,6 +44,7 @@ const ArtistsPage: React.FC = () => {
   });
   const [isSaving, setIsSaving] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   const filteredArtists = artists.filter(a =>
     !searchQuery || a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -82,6 +83,7 @@ const ArtistsPage: React.FC = () => {
   const closeDialog = () => {
     setDialogOpen(false);
     setEditingArtist(null);
+    setFormErrors({});
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -93,6 +95,14 @@ const ArtistsPage: React.FC = () => {
       setEmailError('נא להזין כתובת אימייל תקינה');
       return;
     }
+    const err: Record<string, string> = {};
+    if (!formData.name?.trim()) err.name = 'נא להזין שם אמן';
+    if (Object.keys(err).length > 0) {
+      setFormErrors(err);
+      showError('נא למלא את השדות החובה');
+      return;
+    }
+    setFormErrors({});
     if (!currentAgency) return;
     setIsSaving(true);
     try {
@@ -327,9 +337,11 @@ const ArtistsPage: React.FC = () => {
                   <Input
                     id="artist-name"
                     value={formData.name}
-                    onChange={(e) => setFormData((d) => ({ ...d, name: e.target.value }))}
+                    onChange={(e) => { setFormData((d) => ({ ...d, name: e.target.value })); setFormErrors((prev) => ({ ...prev, name: '' })); }}
                     required
+                    className={formErrors.name ? 'border-red-500 border-2' : undefined}
                   />
+                  {formErrors.name && <p className="text-xs text-red-500">{formErrors.name}</p>}
                 </div>
                 <div className="flex flex-col gap-2">
                   <Label htmlFor="artist-phone">טלפון</Label>

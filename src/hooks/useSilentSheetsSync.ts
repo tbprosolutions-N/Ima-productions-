@@ -30,6 +30,9 @@ export function useSilentSheetsSync(): void {
       onTokenError: () => {
         showError('נדרש חיבור מחדש ל־Google. עבור/י להגדרות → גיבוי נתונים.');
       },
+      onError: (message) => {
+        showError(message + ' — נסה גיבוי יזום בהגדרות → גיבוי נתונים.');
+      },
     });
   }, [location.pathname, currentAgency?.id, showToast, showError]);
 }

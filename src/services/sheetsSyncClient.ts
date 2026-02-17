@@ -288,7 +288,7 @@ const SILENT_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
  */
 export async function checkAndTriggerSilentSync(
   agencyId: string,
-  callbacks: { onSuccess?: () => void; onTokenError?: () => void }
+  callbacks: { onSuccess?: () => void; onTokenError?: () => void; onError?: (message: string) => void }
 ): Promise<void> {
   if (!agencyId || !hasGoogleToken()) return;
   if (isDemoMode()) return;
@@ -316,8 +316,12 @@ export async function checkAndTriggerSilentSync(
       callbacks.onSuccess?.();
     } else if (result.code === 'TOKEN_EXPIRED' || result.code === 'NO_TOKEN') {
       callbacks.onTokenError?.();
+    } else {
+      callbacks.onError?.(result.error || 'גיבוי אוטומטי נכשל');
     }
-  } catch {
-    // Silent failure — don't disturb the user for transient errors
+  } catch (e: any) {
+    const msg = e?.message || String(e);
+    console.warn('[Sheets] Silent sync failed:', msg);
+    callbacks.onError?.(msg || 'גיבוי אוטומטי נכשל');
   }
 }

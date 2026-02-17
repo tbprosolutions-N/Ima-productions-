@@ -29,71 +29,71 @@ function useDashboardStats(agencyId: string | undefined) {
   const [expensesTotal, setExpensesTotal] = useState(0);
   const [activityLog, setActivityLog] = useState<ActivityEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const fetchStats = useCallback(async () => {
     if (!agencyId) {
       setLoading(false);
+      setLoadError(null);
       return;
     }
-    let cancelled = false;
-
+    setLoadError(null);
+    setLoading(true);
     if (isDemoMode()) {
       const ev = demoGetEvents(agencyId);
       const cl = demoGetClients(agencyId);
       const ar = demoGetArtists(agencyId);
       const expenses = getFinanceExpenses(agencyId);
-      if (!cancelled) {
-        setEvents(ev);
-        setClients(cl);
-        setArtists(ar);
-        setClientsCount(cl.length);
-        setExpensesTotal(expenses.reduce((s, x) => s + (Number(x.amount) || 0), 0));
-        setActivityLog(getActivity(agencyId));
-      }
+      setEvents(ev);
+      setClients(cl);
+      setArtists(ar);
+      setClientsCount(cl.length);
+      setExpensesTotal(expenses.reduce((s, x) => s + (Number(x.amount) || 0), 0));
+      setActivityLog(getActivity(agencyId));
       setLoading(false);
       return;
     }
-
-    (async () => {
-      try {
-        const [evRes, clientsRes, artistsRes, expRes, auditRes] = await Promise.all([
-          supabase.from('events').select('*').eq('agency_id', agencyId).order('event_date', { ascending: false }).limit(500),
-          supabase.from('clients').select('*').eq('agency_id', agencyId).order('name', { ascending: true }),
-          supabase.from('artists').select('*').eq('agency_id', agencyId).order('name', { ascending: true }),
-          supabase.from('finance_expenses').select('amount').eq('agency_id', agencyId),
-          supabase.from('audit_logs').select('*').eq('agency_id', agencyId).order('created_at', { ascending: false }).limit(20),
-        ]);
-
-        if (cancelled) return;
-        const evList = (evRes.data || []) as Event[];
-        const clList = (clientsRes.data || []) as Client[];
-        const arList = (artistsRes.data || []) as Artist[];
-        setEvents(evList);
-        setClients(clList);
-        setArtists(arList);
-        setClientsCount(clList.length);
-        const expTotal = ((expRes.data || []) as { amount: number }[]).reduce((s, x) => s + (Number(x?.amount) || 0), 0);
-        setExpensesTotal(expTotal);
-        const auditData = (auditRes.data || []).map((r: any) => ({
-          id: r.id,
-          agency_id: r.agency_id,
-          created_at: r.created_at,
-          actor_name: r.actor_name || 'מערכת',
-          actor_email: r.actor_email,
-          action: r.action,
-          message: r.message || r.action,
-          meta: r.meta,
-        }));
-        setActivityLog(auditData);
-      } catch {
-        if (!cancelled) setEvents([]);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-
-    return () => { cancelled = true; };
+    try {
+      const [evRes, clientsRes, artistsRes, expRes, auditRes] = await Promise.all([
+        supabase.from('events').select('*').eq('agency_id', agencyId).order('event_date', { ascending: false }).limit(500),
+        supabase.from('clients').select('*').eq('agency_id', agencyId).order('name', { ascending: true }),
+        supabase.from('artists').select('*').eq('agency_id', agencyId).order('name', { ascending: true }),
+        supabase.from('finance_expenses').select('amount').eq('agency_id', agencyId),
+        supabase.from('audit_logs').select('*').eq('agency_id', agencyId).order('created_at', { ascending: false }).limit(20),
+      ]);
+      const evList = (evRes.data || []) as Event[];
+      const clList = (clientsRes.data || []) as Client[];
+      const arList = (artistsRes.data || []) as Artist[];
+      setEvents(evList);
+      setClients(clList);
+      setArtists(arList);
+      setClientsCount(clList.length);
+      const expTotal = ((expRes.data || []) as { amount: number }[]).reduce((s, x) => s + (Number(x?.amount) || 0), 0);
+      setExpensesTotal(expTotal);
+      const auditData = (auditRes.data || []).map((r: any) => ({
+        id: r.id,
+        agency_id: r.agency_id,
+        created_at: r.created_at,
+        actor_name: r.actor_name || 'מערכת',
+        actor_email: r.actor_email,
+        action: r.action,
+        message: r.message || r.action,
+        meta: r.meta,
+      }));
+      setActivityLog(auditData);
+    } catch (e: any) {
+      setLoadError(e?.message || 'טעינת הדשבורד נכשלה');
+      setEvents([]);
+      setClients([]);
+      setArtists([]);
+    } finally {
+      setLoading(false);
+    }
   }, [agencyId]);
+
+  useEffect(() => {
+    fetchStats();
+  }, [fetchStats]);
 
   const stats = useMemo(() => {
     const now = new Date();
@@ -132,7 +132,7 @@ function useDashboardStats(agencyId: string | undefined) {
     };
   }, [events, expensesTotal, clientsCount]);
 
-  return { stats, events, artists, clients, activityLog, loading };
+  return { stats, events, artists, clients, activityLog, loading, loadError, retry: fetchStats };
 }
 
 /* ─── Notification Generator ─── */
@@ -463,7 +463,7 @@ const DashboardPage: React.FC = () => {
   const { user } = useAuth();
   const { currentAgency } = useAgency();
   useSilentSheetsSync();
-  const { stats, events, artists, clients, activityLog, loading } = useDashboardStats(currentAgency?.id);
+  const { stats, events, artists, clients, activityLog, loading, loadError, retry } = useDashboardStats(currentAgency?.id);
   const displayName = user?.full_name || user?.email?.split('@')[0] || 'משתמש';
   const canSeeMoney = user?.role !== 'producer';
   const [quickEventOpen, setQuickEventOpen] = useState(false);
@@ -526,6 +526,16 @@ const DashboardPage: React.FC = () => {
           אירוע חדש
         </Button>
       </motion.div>
+
+      {/* Data load error with retry */}
+      {loadError && !loading && (
+        <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 px-4 py-3 text-amber-800 dark:text-amber-200 text-sm flex items-center justify-between gap-2">
+          <span>טעינת הדשבורד נכשלה: {loadError}</span>
+          <Button type="button" variant="outline" size="sm" onClick={() => retry()}>
+            נסה שוב
+          </Button>
+        </div>
+      )}
 
       {/* KPI Cards */}
       {loading ? (

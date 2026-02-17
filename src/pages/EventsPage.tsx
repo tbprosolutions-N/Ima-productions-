@@ -75,6 +75,7 @@ const EventsPage: React.FC = () => {
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const isOwner = user?.role === 'owner';
   type EventFormData = {
     event_date: string;
@@ -272,19 +273,30 @@ const EventsPage: React.FC = () => {
   const closeDialog = () => {
     setIsDialogOpen(false);
     setEditingEvent(null);
+    setFormErrors({});
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const clientName = formData.client_business_name.trim();
+    const businessName = formData.business_name.trim();
+    const effectiveName = clientName || businessName;
+    const err: Record<string, string> = {};
+    if (!formData.event_date?.trim()) err.event_date = 'נא לבחור תאריך אירוע';
+    if (!effectiveName) err.business_name = 'נא להזין שם לקוח או שם עסק';
+    if (Object.keys(err).length > 0) {
+      setFormErrors(err);
+      showError('נא למלא את השדות החובה');
+      return;
+    }
+    setFormErrors({});
     setIsSaving(true);
     try {
       if (!currentAgency) {
         throw new Error('לא נמצאה סוכנות פעילה. רענן את הדף ונסה שוב.');
       }
-
-      const clientName = formData.client_business_name.trim();
       const artistName = formData.artist_name.trim();
-      const effectiveBusinessName = clientName || formData.business_name.trim();
+      const effectiveBusinessName = clientName || businessName;
 
       type EnsureResult = { id?: string; existed: boolean };
 
@@ -1211,10 +1223,11 @@ const EventsPage: React.FC = () => {
                   id="event_date"
                   type="date"
                   value={formData.event_date}
-                  onChange={(e) => setFormData({ ...formData, event_date: e.target.value })}
+                  onChange={(e) => { setFormData({ ...formData, event_date: e.target.value }); setFormErrors((prev) => ({ ...prev, event_date: '' })); }}
                   required
-                  className="border-primary/30"
+                  className={formErrors.event_date ? 'border-red-500 border-2' : 'border-primary/30'}
                 />
+                {formErrors.event_date && <p className="text-xs text-red-500">{formErrors.event_date}</p>}
               </div>
               <div className="flex flex-col gap-2 col-span-2">
                 <Label htmlFor="event_time" className="text-foreground">שעת אירוע</Label>
@@ -1231,8 +1244,8 @@ const EventsPage: React.FC = () => {
                 <Input
                   id="business_name"
                   value={formData.business_name}
-                  onChange={(e) => setFormData({ ...formData, business_name: e.target.value })}
-                  className="border-primary/30"
+                  onChange={(e) => { setFormData({ ...formData, business_name: e.target.value }); setFormErrors((prev) => ({ ...prev, business_name: '' })); }}
+                  className={formErrors.business_name ? 'border-red-500 border-2' : 'border-primary/30'}
                   placeholder="ניתן להשאיר ריק או להזין ידנית"
                 />
               </div>
@@ -1241,12 +1254,13 @@ const EventsPage: React.FC = () => {
                 <Input
                   id="client_business_name"
                   value={formData.client_business_name}
-                  onChange={(e) => setFormData({ ...formData, client_business_name: e.target.value })}
+                  onChange={(e) => { setFormData({ ...formData, client_business_name: e.target.value }); setFormErrors((prev) => ({ ...prev, business_name: '' })); }}
                   required
-                  className="border-primary/30"
+                  className={formErrors.business_name ? 'border-red-500 border-2' : 'border-primary/30'}
                   placeholder="לדוגמה: הבאר הקוקטייל"
                   list="clients-list"
                 />
+                {formErrors.business_name && <p className="text-xs text-red-500">{formErrors.business_name}</p>}
                 <datalist id="clients-list">
                   {clients.slice(0, 50).map(c => (
                     <option key={c.id} value={c.name} />
