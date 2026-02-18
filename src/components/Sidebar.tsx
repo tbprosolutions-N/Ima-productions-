@@ -120,7 +120,7 @@ const SidebarInner: React.FC<SidebarProps> = ({ mobileOpen = false, onClose }) =
             {logo ? (
               <img src={logo} alt="Agency logo" className="w-full h-full object-cover" />
             ) : (
-              <img src="/logo.svg?v=2" alt="NPC" className="w-full h-full object-contain p-1 sm:p-1.5" />
+              <img src="/logo.svg" alt="NPC" className="w-full h-full object-contain p-1 sm:p-1.5" />
             )}
           </div>
           <div className="min-w-0">

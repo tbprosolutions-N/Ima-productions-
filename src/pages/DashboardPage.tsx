@@ -221,6 +221,7 @@ const QuickNewEventDialog: React.FC<{
     event_time: '',
     amount: '',
     client_name: '',
+    client_email: '',
     artist_name: '',
     notes: '',
   });
@@ -276,9 +277,18 @@ const QuickNewEventDialog: React.FC<{
       } else {
         if (form.client_name.trim()) {
           const { data: found } = await supabase.from('clients').select('id').eq('agency_id', agencyId).ilike('name', form.client_name.trim()).limit(1).maybeSingle();
-          if ((found as any)?.id) clientId = (found as any).id;
-          else {
-            const { data: inserted } = await supabase.from('clients').insert([{ agency_id: agencyId, name: form.client_name.trim() }]).select('id').single();
+          if ((found as any)?.id) {
+            clientId = (found as any).id;
+            // Update email if provided and not already set
+            if (form.client_email.trim()) {
+              await supabase.from('clients').update({ email: form.client_email.trim() }).eq('id', clientId).is('email', null);
+            }
+          } else {
+            const { data: inserted } = await supabase.from('clients').insert([{
+              agency_id: agencyId,
+              name: form.client_name.trim(),
+              ...(form.client_email.trim() ? { email: form.client_email.trim() } : {}),
+            }]).select('id').single();
             if ((inserted as any)?.id) clientId = (inserted as any).id;
           }
         }
@@ -326,7 +336,7 @@ const QuickNewEventDialog: React.FC<{
       success('אירוע נוצר בהצלחה');
       onCreated();
       onOpenChange(false);
-      setForm({ event_date: new Date().toISOString().slice(0, 10), event_time: '', amount: '', client_name: '', artist_name: '', notes: '' });
+      setForm({ event_date: new Date().toISOString().slice(0, 10), event_time: '', amount: '', client_name: '', client_email: '', artist_name: '', notes: '' });
     } catch (err: any) {
       console.error('Quick event creation failed:', err);
       showError(err?.message || 'יצירת אירוע נכשלה. נסה שוב.');
@@ -368,6 +378,16 @@ const QuickNewEventDialog: React.FC<{
                 {clients.slice(0, 50).map(c => <option key={c.id} value={c.name} />)}
               </datalist>
               <p className="text-xs text-muted-foreground">ניתן להקליד שם חדש — ייווצר אוטומטית</p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label>אימייל לקוח</Label>
+              <Input
+                type="email"
+                value={form.client_email}
+                onChange={e => setForm(f => ({ ...f, client_email: e.target.value }))}
+                placeholder="client@example.com (אופציונלי)"
+                dir="ltr"
+              />
             </div>
             <div className="flex flex-col gap-2">
               <Label>אמן *</Label>

@@ -42,30 +42,33 @@ export const AgencyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       // Use a local mutable reference so we can update agency_id without mutating the context object.
       let resolvedUser = user;
       if (!resolvedUser?.agency_id) {
+        // Attempt to provision profile via RPC (handles first-time users / bootstrap).
+        // If the RPC doesn't exist in this DB environment yet, we fall through to
+        // the "no agency" error path rather than crashing — non-fatal by design.
         try {
-          if (import.meta.env.DEV) console.debug('[Agency] user.agency_id missing — attempting ensure_user_profile bootstrap');
+          if (import.meta.env.DEV) console.debug('[Agency] agency_id missing — trying ensure_user_profile');
           await withTimeout<any>(
             supabase.rpc('ensure_user_profile', { company_code: null }) as any,
             8000,
-            'ensure_user_profile (agency bootstrap)'
+            'ensure_user_profile'
           );
-          // Re-fetch profile after provisioning
+          // Re-fetch profile to get the newly assigned agency_id
           const { data: refreshed } = await withTimeout<any>(
             supabase.from('users').select('agency_id').eq('id', resolvedUser!.id).single() as any,
             5000,
             'Re-fetch user after bootstrap'
           );
-          if (!refreshed?.agency_id) {
-            setAgencies([]);
-            setCurrentAgency(null);
-            setAgencyError('לחשבון שלך לא משויכת סוכנות. פנה למנהל המערכת.');
-            setLoading(false);
-            return;
+          if (refreshed?.agency_id) {
+            resolvedUser = { ...resolvedUser!, agency_id: refreshed.agency_id };
           }
-          // Provisioned — update the local reference so the rest of this function can proceed
-          resolvedUser = { ...resolvedUser!, agency_id: refreshed.agency_id };
-        } catch (provErr) {
-          console.warn('[Agency] Bootstrap provisioning failed:', provErr);
+        } catch (provErr: any) {
+          // RPC may not exist in this environment yet — log but don't block
+          const msg = String(provErr?.message || provErr || '');
+          const isRpcMissing = msg.includes('Could not find') || msg.includes('does not exist') || msg.includes('42883');
+          if (!isRpcMissing) console.warn('[Agency] ensure_user_profile error:', msg);
+        }
+        // If still no agency_id after best-effort provisioning, show error banner
+        if (!resolvedUser?.agency_id) {
           setAgencies([]);
           setCurrentAgency(null);
           setAgencyError('לחשבון שלך לא משויכת סוכנות. פנה למנהל המערכת.');

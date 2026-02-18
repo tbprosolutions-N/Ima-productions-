@@ -12,13 +12,14 @@ import type { Event, Artist, Client } from '@/types';
 const STALE_TIME = 2 * 60 * 1000; // 2 minutes before background refetch
 const CACHE_TIME = 10 * 60 * 1000; // 10 minutes in cache
 
-// ── Column selectors (fetch only what's needed for list views) ──────────────
+// ── Column selectors ────────────────────────────────────────────────────────
+// Using '*' ensures queries work regardless of which migrations have been applied
+// to the production database. Specific column lists can be restored once the
+// consolidated migration (20260224000000) is confirmed applied in all environments.
 
-const EVENT_LIST_COLS = 'id,agency_id,event_date,event_time,weekday,business_name,invoice_name,amount,payment_date,artist_fee_type,artist_fee_value,artist_fee_amount,doc_type,doc_number,due_date,status,notes,morning_sync_status,morning_id,morning_document_id,morning_document_number,morning_document_url,morning_last_error,morning_doc_status,created_at,updated_at,client_id,artist_id,producer_id,approver,google_event_id,google_event_html_link,google_sync_status' as const;
-
-const ARTIST_LIST_COLS = 'id,agency_id,name,color,full_name,company_name,vat_id,phone,email,calendar_email,google_calendar_id,bank_id,bank_name,bank_branch,bank_account,notes,amount,created_at,updated_at' as const;
-
-const CLIENT_LIST_COLS = 'id,agency_id,name,contact_person,vat_id,phone,email,address,notes,color,created_at,updated_at' as const;
+const EVENT_LIST_COLS  = '*' as const;
+const ARTIST_LIST_COLS = '*' as const;
+const CLIENT_LIST_COLS = '*' as const;
 
 // ── Events ──────────────────────────────────────────────────────────────────
 
