@@ -105,7 +105,10 @@ const ArtistsPage: React.FC = () => {
       return;
     }
     setFormErrors({});
-    if (!currentAgency) return;
+    if (!currentAgency) {
+      showError('אין סוכנות פעילה. נא לרענן את הדף או לפנות למנהל.');
+      return;
+    }
     setIsSaving(true);
     try {
       const cleanNotes = stripPayoutMetadata(formData.notes);

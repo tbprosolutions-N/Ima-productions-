@@ -49,13 +49,12 @@ export const AgencyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           if (import.meta.env.DEV) console.debug('[Agency] agency_id missing — trying ensure_user_profile');
           await withTimeout<any>(
             supabase.rpc('ensure_user_profile', { company_code: null }) as any,
-            8000,
+            12000,
             'ensure_user_profile'
           );
-          // Re-fetch profile to get the newly assigned agency_id
           const { data: refreshed } = await withTimeout<any>(
             supabase.from('users').select('agency_id').eq('id', resolvedUser!.id).single() as any,
-            5000,
+            8000,
             'Re-fetch user after bootstrap'
           );
           if (refreshed?.agency_id) {
@@ -81,7 +80,7 @@ export const AgencyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       // Fast path: this schema is single-agency-per-user (users.agency_id).
       const { data, error } = await withTimeout<any>(
         supabase.from('agencies').select('*').eq('id', resolvedUser!.agency_id).maybeSingle() as any,
-        5000,
+        10000,
         'Fetch agency'
       );
 

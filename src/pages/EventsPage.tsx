@@ -74,6 +74,10 @@ const EventsPage: React.FC = () => {
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [globalFilter, setGlobalFilter] = useState('');
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+  const [filterDateFrom, setFilterDateFrom] = useState('');
+  const [filterDateTo, setFilterDateTo] = useState('');
+  const [filterArtistId, setFilterArtistId] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
@@ -972,8 +976,17 @@ const EventsPage: React.FC = () => {
     },
   ];
 
+  const filteredEvents = useMemo(() => {
+    let list = events;
+    if (filterDateFrom) list = list.filter((e) => String(e.event_date || '').slice(0, 10) >= filterDateFrom);
+    if (filterDateTo) list = list.filter((e) => String(e.event_date || '').slice(0, 10) <= filterDateTo);
+    if (filterArtistId) list = list.filter((e) => e.artist_id === filterArtistId);
+    if (filterStatus) list = list.filter((e) => e.status === filterStatus);
+    return list;
+  }, [events, filterDateFrom, filterDateTo, filterArtistId, filterStatus]);
+
   const table = useReactTable({
-    data: events,
+    data: filteredEvents,
     columns,
     initialState: { pagination: { pageSize: 25, pageIndex: 0 } },
     state: {
@@ -1058,7 +1071,52 @@ const EventsPage: React.FC = () => {
       </motion.div>
 
       <Card className="border-gray-100 dark:border-gray-800 shadow-sm">
-        <CardHeader className="p-5 md:p-6">
+        <CardHeader className="p-5 md:p-6 space-y-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <Input
+              type="date"
+              placeholder="מתאריך"
+              value={filterDateFrom}
+              onChange={(e) => setFilterDateFrom(e.target.value)}
+              className="w-40 border-gray-200 dark:border-gray-700"
+            />
+            <Input
+              type="date"
+              placeholder="עד תאריך"
+              value={filterDateTo}
+              onChange={(e) => setFilterDateTo(e.target.value)}
+              className="w-40 border-gray-200 dark:border-gray-700"
+            />
+            <Select value={filterArtistId || '_all'} onValueChange={(v) => setFilterArtistId(v === '_all' ? '' : v)}>
+              <SelectTrigger className="w-44 border-gray-200 dark:border-gray-700">
+                <SelectValue placeholder="אמן" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_all">כל האמנים</SelectItem>
+                {artists.map((a) => (
+                  <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={filterStatus || '_all'} onValueChange={(v) => setFilterStatus(v === '_all' ? '' : v)}>
+              <SelectTrigger className="w-36 border-gray-200 dark:border-gray-700">
+                <SelectValue placeholder="סטטוס" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_all">כל הסטטוסים</SelectItem>
+                <SelectItem value="draft">טיוטה</SelectItem>
+                <SelectItem value="pending">ממתין</SelectItem>
+                <SelectItem value="partial">חלקי</SelectItem>
+                <SelectItem value="collected">נגבה</SelectItem>
+                <SelectItem value="cancelled">בוטל</SelectItem>
+              </SelectContent>
+            </Select>
+            {(filterDateFrom || filterDateTo || filterArtistId || filterStatus) && (
+              <Button type="button" variant="ghost" size="sm" onClick={() => { setFilterDateFrom(''); setFilterDateTo(''); setFilterArtistId(''); setFilterStatus(''); }}>
+                נקה סינון
+              </Button>
+            )}
+          </div>
           <div className="flex items-center gap-4">
             <div className="relative flex-1 min-w-0">
               <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />

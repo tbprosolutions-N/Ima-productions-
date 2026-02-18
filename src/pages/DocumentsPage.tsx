@@ -6,10 +6,12 @@ import { Input } from '@/components/ui/Input';
 import { Card, CardContent, CardHeader } from '@/components/ui/Card';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/Dialog';
 import { Label } from '@/components/ui/Label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select';
 import { useAgency } from '@/contexts/AgencyContext';
 import { useToast } from '@/contexts/ToastContext';
 import { supabase } from '@/lib/supabase';
 import { demoGetDocuments, demoSetDocuments, demoUpsertDocument, isDemoMode } from '@/lib/demoStore';
+import { useArtistsQuery, useClientsQuery } from '@/hooks/useSupabaseQuery';
 import type { Document, DocumentTemplateType, DocumentSendTo } from '@/types';
 
 const DB_TYPE_MAP: Record<string, DocumentTemplateType> = {
@@ -29,11 +31,13 @@ const TYPE_TO_DB: Record<DocumentTemplateType, string> = {
 const DocumentsPage: React.FC = () => {
   const { currentAgency } = useAgency();
   const { success, error: showError } = useToast();
+  const { data: artists = [] } = useArtistsQuery(currentAgency?.id);
+  const { data: clients = [] } = useClientsQuery(currentAgency?.id);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingDoc, setEditingDoc] = useState<Document | null>(null);
-  const [formData, setFormData] = useState({ title: '', type: 'other' as DocumentTemplateType, content: '', send_to: 'both' as DocumentSendTo });
+  const [formData, setFormData] = useState({ title: '', type: 'other' as DocumentTemplateType, content: '', send_to: 'both' as DocumentSendTo, recipientId: '' });
 
   useEffect(() => {
     if (!currentAgency) return;
@@ -73,10 +77,10 @@ const DocumentsPage: React.FC = () => {
   const openDialog = (doc?: Document) => {
     if (doc) {
       setEditingDoc(doc);
-      setFormData({ title: doc.title, type: doc.type, content: doc.content, send_to: doc.send_to || 'both' });
+      setFormData({ title: doc.title, type: doc.type, content: doc.content, send_to: doc.send_to || 'both', recipientId: '' });
     } else {
       setEditingDoc(null);
-      setFormData({ title: '', type: 'other', content: '', send_to: 'both' });
+      setFormData({ title: '', type: 'other', content: '', send_to: 'both', recipientId: '' });
     }
     setDialogOpen(true);
   };
@@ -268,7 +272,7 @@ const DocumentsPage: React.FC = () => {
               <select
                 id="doc-send-to"
                 value={formData.send_to}
-                onChange={(e) => setFormData((d) => ({ ...d, send_to: e.target.value as DocumentSendTo }))}
+                onChange={(e) => setFormData((d) => ({ ...d, send_to: e.target.value as DocumentSendTo, recipientId: '' }))}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               >
                 <option value="artist">אמן</option>
@@ -276,6 +280,20 @@ const DocumentsPage: React.FC = () => {
                 <option value="both">אמן ולקוח (שניהם)</option>
               </select>
               <p className="text-xs text-muted-foreground">למי לשלוח את המסמך המופק מהתבנית</p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label>נמען ספציפי (לשליחה)</Label>
+              <Select value={formData.recipientId || '_none'} onValueChange={(v) => setFormData((d) => ({ ...d, recipientId: v === '_none' ? '' : v }))}>
+                <SelectTrigger className="w-full border-primary/30">
+                  <SelectValue placeholder="בחר נמען (אופציונלי)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_none">ללא נמען ספציפי</SelectItem>
+                  {(formData.send_to === 'artist' || formData.send_to === 'both') && artists.map((a) => <SelectItem key={a.id} value={`artist:${a.id}`}>{a.name} (אמן)</SelectItem>)}
+                  {(formData.send_to === 'client' || formData.send_to === 'both') && clients.map((c) => <SelectItem key={c.id} value={`client:${c.id}`}>{c.name} (לקוח)</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">בחר אמן או לקוח כיעד לשליחה לפי הקשר המסמך</p>
             </div>
             <div className="flex flex-col gap-2">
               <Label htmlFor="doc-content">תוכן (משתנים: {'{{שם}}'})</Label>

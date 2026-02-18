@@ -19,17 +19,15 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const IS_PROD = typeof window !== 'undefined' && window.location?.hostname !== 'localhost';
-
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [supabaseUser, setSupabaseUser] = useState<SupabaseUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [authConnectionFailed, setAuthConnectionFailed] = useState(false);
 
-  // ── Profile fetch (used AFTER login or on confirmed session) ──────────
+  // ── Profile fetch (used AFTER login or on confirmed session). Resilient: no aggressive timeout that logs out. ──────────
   const fetchUserProfile = async (authUser: SupabaseUser): Promise<User | null> => {
-    const timeout = IS_PROD ? 10000 : 8000;
+    const timeout = 15000; // Single longer timeout so slow networks don't lose session
     try {
       const { data, error } = await withTimeout<any>(
         supabase.from('users').select('*').eq('id', authUser.id).single() as any,
@@ -41,20 +39,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err) {
       const msg = String((err as any)?.message || '');
       const isMissing = String((err as any)?.code || '') === 'PGRST116' || msg.includes('0 rows');
+      const isTimeout = msg.includes('timed out');
 
       // Only try provisioning on explicit missing row (NOT on timeout)
       if (isMissing) {
         try {
           const cc = (() => { try { return (localStorage.getItem('ima:last_company_id') || '').trim() || null; } catch { return null; } })();
-          await withTimeout<any>(supabase.rpc('ensure_user_profile', { company_code: cc }) as any, 8000, 'Provision profile');
+          await withTimeout<any>(supabase.rpc('ensure_user_profile', { company_code: cc }) as any, 12000, 'Provision profile');
           const { data: d2, error: e2 } = await withTimeout<any>(
-            supabase.from('users').select('*').eq('id', authUser.id).single() as any, 8000, 'Re-fetch profile');
+            supabase.from('users').select('*').eq('id', authUser.id).single() as any, 10000, 'Re-fetch profile');
           if (!e2 && d2) { setUser(d2); return d2; }
         } catch (pe) {
           console.warn('Auth: profile provisioning failed', pe);
         }
       }
-      console.warn('Auth: profile fetch failed', err);
+      if (isTimeout) console.warn('Auth: profile fetch timed out — session kept, will retry on focus');
+      else console.warn('Auth: profile fetch failed', err);
     }
     return null;
   };
@@ -112,11 +112,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Session restore: give Supabase time to hydrate from localStorage (critical on F5 refresh)
         let authUser: SupabaseUser | null = null;
         try {
-          const r = await withTimeout(getSessionUserFast(), 5000, 'getSession (init)');
+          const r = await withTimeout(getSessionUserFast(), 8000, 'getSession (init)');
           authUser = r.user ?? null;
           if (!authUser) {
-            await new Promise((res) => setTimeout(res, 300));
-            const r2 = await withTimeout(getSessionUserFast(), 3000, 'getSession (retry)');
+            await new Promise((res) => setTimeout(res, 500));
+            const r2 = await withTimeout(getSessionUserFast(), 6000, 'getSession (retry)');
             authUser = r2.user ?? null;
           }
         } catch {
@@ -141,17 +141,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         if (authUser) {
           setSupabaseUser(authUser);
-          const profile = await Promise.race([
-            fetchUserProfile(authUser),
-            new Promise<null>((res) => setTimeout(() => res(null), 5000)),
-          ]);
+          const profile = await fetchUserProfile(authUser);
           if (!mounted) return;
+          // Only redirect to unauthorized when profile row is missing (not on timeout) — prevents logout on refresh
           if (!profile) {
-            setUser(null);
-            setSupabaseUser(null);
-            try { await supabaseSignOut(); } catch { /* ignore */ }
-            const base = typeof window !== 'undefined' ? window.location.origin : '';
-            if (typeof window !== 'undefined') window.location.href = `${base}/login?unauthorized=1`;
+            const { data: recheck } = await supabase.from('users').select('*').eq('id', authUser.id).maybeSingle();
+            if (recheck) {
+              setUser(recheck as User);
+            } else {
+              setUser(null);
+              setSupabaseUser(null);
+              try { await supabaseSignOut(); } catch { /* ignore */ }
+              const base = typeof window !== 'undefined' ? window.location.origin : '';
+              if (typeof window !== 'undefined') window.location.href = `${base}/login?unauthorized=1`;
+            }
           }
         } else {
           setUser(null);
@@ -166,8 +169,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     initAuthRef.current = () => initAuth();
 
-    // Network-failure guard: if getSession hangs >12s, treat as no session and stop loading
-    const networkGuardMs = 12000;
+    // Network-failure guard: if getSession hangs >20s, treat as no session and stop loading (avoids infinite spinner)
+    const networkGuardMs = 20000;
     const guardTimer = setTimeout(() => {
       if (mounted && !initResolved) {
         if (import.meta.env.DEV) console.debug(`[Auth] getSession exceeded ${networkGuardMs}ms — treating as no session`);

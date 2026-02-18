@@ -197,6 +197,7 @@ const AppRoutes: React.FC = () => {
             </Suspense>
           }
         />
+        <Route path="settings/users" element={<Navigate to="/settings?tab=users" replace />} />
         <Route
           path="settings"
           element={

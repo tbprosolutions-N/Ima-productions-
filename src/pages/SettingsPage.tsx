@@ -721,8 +721,8 @@ const SettingsPage: React.FC = () => {
 
           </div>
 
-          {/* Help / Guides */}
-          <div className="md:col-span-2">
+          {/* Training-by-role card removed per request */}
+          {false && <div className="md:col-span-2">
           <Card className="border-primary/20">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -815,7 +815,7 @@ const SettingsPage: React.FC = () => {
               </div>
             </CardContent>
           </Card>
-          </div>
+          </div>}
 
           {/* Security */}
           <div className="md:col-span-2">
