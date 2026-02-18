@@ -283,6 +283,47 @@ export async function fetchSyncDataForAgency(agencyId: string): Promise<SyncData
 const SILENT_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 /**
+ * Trigger an immediate resync (no 24h cooldown check).
+ * Call this after every event create/update/delete so the sheet stays live.
+ * Silently skips if no Google token or no spreadsheet is configured.
+ */
+export async function triggerImmediateSync(
+  agencyId: string,
+  callbacks: { onSuccess?: () => void; onTokenError?: () => void; onError?: (message: string) => void } = {}
+): Promise<void> {
+  if (!agencyId || !hasGoogleToken()) return;
+  if (isDemoMode()) return;
+
+  try {
+    const { data } = await supabase
+      .from('integrations')
+      .select('config')
+      .eq('agency_id', agencyId)
+      .eq('provider', 'sheets')
+      .maybeSingle();
+
+    const spreadsheetId = (data as any)?.config?.spreadsheet_id;
+    if (!spreadsheetId) return; // No sheet configured — nothing to sync
+
+    console.log('[Sheets] Live sync triggered for spreadsheet:', spreadsheetId.slice(0, 12) + '...');
+    const syncData = await fetchSyncDataForAgency(agencyId);
+    const result = await resyncSheetClient(agencyId, spreadsheetId, syncData);
+
+    if (result.ok) {
+      console.log('[Sheets] Live sync OK — rows:', result.counts);
+      callbacks.onSuccess?.();
+    } else if (result.code === 'TOKEN_EXPIRED' || result.code === 'NO_TOKEN') {
+      callbacks.onTokenError?.();
+    } else {
+      console.warn('[Sheets] Live sync failed:', result.error);
+      callbacks.onError?.(result.error || 'גיבוי אוטומטי נכשל');
+    }
+  } catch (e: any) {
+    console.warn('[Sheets] Live sync exception:', e?.message);
+  }
+}
+
+/**
  * Check last_sync_at and trigger resync if >24h or never. Runs in background.
  * Call from Dashboard/Events on load. No loaders — subtle toast on success, prompt on token error only.
  */

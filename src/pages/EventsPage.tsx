@@ -48,6 +48,7 @@ import { agreementService } from '@/services/agreementService';
 import { getCollectionStatus } from '@/lib/collectionStatus';
 import { useSilentSheetsSync } from '@/hooks/useSilentSheetsSync';
 import { createSheetAndSync } from '@/services/sheetsSyncService';
+import { triggerImmediateSync } from '@/services/sheetsSyncClient';
 
 const EventsPage: React.FC = () => {
   const { currentAgency } = useAgency();
@@ -194,6 +195,8 @@ const EventsPage: React.FC = () => {
       if (error) throw error;
       success('אירוע נמחק בהצלחה! ✅');
       invalidateEvents(currentAgency?.id);
+      // Live sheets sync — fire-and-forget
+      triggerImmediateSync(currentAgency?.id ?? '');
     } catch (error) {
       console.error('Error deleting event:', error);
       showError('מחיקת האירוע נכשלה. אנא נסה שוב.');
@@ -213,6 +216,8 @@ const EventsPage: React.FC = () => {
       const { error } = await supabase.from('events').update(patch as any).eq('id', eventId);
       if (error) throw error;
       invalidateEvents(currentAgency.id);
+      // Live sheets sync after inline edit — fire-and-forget
+      triggerImmediateSync(currentAgency.id);
     } catch (e: any) {
       console.error(e);
       showError(e?.message || 'אירעה שגיאה בעדכון. אנא נסה שוב.');
@@ -493,14 +498,8 @@ const EventsPage: React.FC = () => {
 
         if (error) throw error;
         success('אירוע עודכן בהצלחה! ✅');
-        // Sheets backup job (processed server-side)
-        await queueSyncJob({
-          agencyId: currentAgency.id,
-          provider: 'sheets',
-          kind: 'events_upsert',
-          payload: { operation: 'update', event_id: editingEvent.id },
-          createdBy: user?.id,
-        });
+        // Live sheets sync — fire-and-forget (replaces dead queueSyncJob)
+        triggerImmediateSync(currentAgency.id);
         // Google Calendar sync job (company calendar + invite email flow)
         await queueSyncJob({
           agencyId: currentAgency.id,
@@ -523,12 +522,19 @@ const EventsPage: React.FC = () => {
             const url = (raw || '').trim();
             const folderId = url?.match(/folders\/([a-zA-Z0-9_-]+)/)?.[1] ?? (/^[a-zA-Z0-9_-]{20,}$/.test(url) ? url : null);
             if (folderId) {
+              console.log('[Sheets] First event — creating backup sheet in folder:', folderId.slice(0, 12) + '...');
               const result = await createSheetAndSync(currentAgency.id, folderId);
               if (result.ok) {
                 success('גיליון גיבוי נוצר ב־Drive ✅');
+                console.log('[Sheets] Backup sheet created:', result.spreadsheetUrl);
+              } else {
+                const errMsg = result.detail || result.error || 'שגיאה לא ידועה';
+                console.error('[Sheets] Auto-create failed:', result.error, result.detail);
+                showError(`גיבוי Drive נכשל: ${errMsg}. ניתן ליצור ידנית בהגדרות → גיבוי נתונים.`);
               }
             }
-          } catch (_) {
+          } catch (sheetErr: any) {
+            console.error('[Sheets] Auto-create exception:', sheetErr?.message);
             // Non-blocking; user can trigger backup from Settings
           }
         }
@@ -547,13 +553,9 @@ const EventsPage: React.FC = () => {
         const shouldSendAgreement = !!(clientEmail && artistEmail);
         const sendInvites = shouldSendAgreement || formData.send_calendar_invite;
 
-        await queueSyncJob({
-          agencyId: currentAgency.id,
-          provider: 'sheets',
-          kind: 'events_upsert',
-          payload: { operation: 'insert', event_id: savedEventId },
-          createdBy: user?.id,
-        });
+        // Live sheets sync — fire-and-forget on event creation (skips if no spreadsheet configured)
+        triggerImmediateSync(currentAgency.id);
+
         await queueSyncJob({
           agencyId: currentAgency.id,
           provider: 'google',

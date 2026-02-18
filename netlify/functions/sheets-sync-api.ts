@@ -157,7 +157,8 @@ async function createSpreadsheetInFolder(
     method: 'POST',
     token,
     body: {
-      properties: { title, locale: 'he_IL' },
+      // Omit locale — 'he_IL' is not accepted by Google Sheets API and causes a 400 error.
+      properties: { title },
       sheets: sheetTabs.map(t => ({ properties: { title: t } })),
     },
   }) as { spreadsheetId: string; spreadsheetUrl: string };
