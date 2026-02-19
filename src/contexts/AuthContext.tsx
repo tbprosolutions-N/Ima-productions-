@@ -60,18 +60,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const refreshUser = async () => {
+    // Background refresh — NEVER clears the session on failure.
+    // Only an explicit signOut() should clear the user.
     try {
       const { user: au } = await withTimeout(getSessionUserFast(), 3000, 'getSession (refresh)');
       if (au) {
         setSupabaseUser(au);
         await fetchUserProfile(au);
-      } else {
-        setUser(null);
-        setSupabaseUser(null);
       }
+      // If au is null on a background check we ignore it — the session may simply
+      // have been slow to restore from localStorage. The next explicit action will
+      // re-validate properly.
     } catch {
-      setUser(null);
-      setSupabaseUser(null);
+      console.warn('Auth: background refresh failed — session preserved');
     }
   };
 
@@ -235,12 +236,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => { mounted = false; clearTimeout(guardTimer); subscription.unsubscribe(); };
   }, []);
 
-  // Refetch profile (including role) on window focus so UI reflects DB after role changes
+  // Refetch profile on window focus — debounced to at most once every 5 minutes
+  // to avoid hammering Supabase on rapid tab switches.
   const refreshUserRef = React.useRef(refreshUser);
   refreshUserRef.current = refreshUser;
+  const lastFocusRefreshRef = React.useRef(0);
   useEffect(() => {
     const onFocus = () => {
       if (localStorage.getItem('demo_authenticated') === 'true') return;
+      const now = Date.now();
+      if (now - lastFocusRefreshRef.current < 5 * 60 * 1000) return; // max once per 5 min
+      lastFocusRefreshRef.current = now;
       refreshUserRef.current();
     };
     window.addEventListener('focus', onFocus);

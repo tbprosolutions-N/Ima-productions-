@@ -24,7 +24,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
 import { supabase } from '@/lib/supabase';
 import { formatDate, getWeekday } from '@/lib/utils';
-import { exportEventsToExcel } from '@/lib/exportUtils';
+// exportUtils (xlsx ~643KB) is loaded lazily on first export click
 import type { Client, Artist, DocumentType, Event, EventStatus } from '@/types';
 import {
   demoGetArtists,
@@ -1008,8 +1008,9 @@ const EventsPage: React.FC = () => {
     getSortedRowModel: getSortedRowModel(),
   });
 
-  const handleExport = () => {
+  const handleExport = async () => {
     const filteredEvents = table.getFilteredRowModel().rows.map(row => row.original);
+    const { exportEventsToExcel } = await import('@/lib/exportUtils');
     exportEventsToExcel(filteredEvents, 'events-export');
   };
 

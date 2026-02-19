@@ -1,4 +1,4 @@
-import jsPDF from 'jspdf';
+// jsPDF (~200KB) is loaded lazily inside generateAgreement — not on module import
 import { supabase } from '@/lib/supabase';
 import { parseTemplateVariables } from '@/lib/utils';
 
@@ -80,7 +80,8 @@ class AgreementService {
       // Parse template with variables
       const content = parseTemplateVariables(templateContent, variables);
 
-      // Generate PDF
+      // Generate PDF — jsPDF is loaded lazily here to avoid bundling it into EventsPage
+      const { default: jsPDF } = await import('jspdf');
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',

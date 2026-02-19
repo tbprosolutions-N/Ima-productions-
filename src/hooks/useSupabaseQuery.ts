@@ -13,13 +13,35 @@ const STALE_TIME = 2 * 60 * 1000; // 2 minutes before background refetch
 const CACHE_TIME = 10 * 60 * 1000; // 10 minutes in cache
 
 // ── Column selectors ────────────────────────────────────────────────────────
-// Using '*' ensures queries work regardless of which migrations have been applied
-// to the production database. Specific column lists can be restored once the
-// consolidated migration (20260224000000) is confirmed applied in all environments.
+// Explicit columns instead of SELECT * — avoids fetching large/unused fields
+// and makes query payloads smaller as data scales.
 
-const EVENT_LIST_COLS  = '*' as const;
-const ARTIST_LIST_COLS = '*' as const;
-const CLIENT_LIST_COLS = '*' as const;
+const EVENT_LIST_COLS = [
+  'id', 'agency_id', 'producer_id', 'event_date', 'event_time', 'weekday',
+  'business_name', 'invoice_name', 'amount', 'payment_date',
+  'artist_fee_type', 'artist_fee_value', 'artist_fee_amount', 'approver',
+  'doc_type', 'doc_number', 'due_date', 'status', 'notes',
+  'morning_sync_status', 'morning_id', 'morning_document_id',
+  'morning_document_number', 'morning_document_url', 'morning_last_error', 'morning_doc_status',
+  'client_id', 'artist_id',
+  'google_event_id', 'google_event_html_link',
+  'google_artist_event_id', 'google_artist_event_html_link',
+  'google_sync_status', 'google_synced_at',
+  'created_at', 'updated_at',
+].join(',');
+
+const ARTIST_LIST_COLS = [
+  'id', 'agency_id', 'name', 'color', 'full_name', 'company_name', 'vat_id',
+  'phone', 'email', 'calendar_email', 'google_calendar_id',
+  'bank_id', 'bank_name', 'bank_branch', 'bank_account',
+  'notes', 'amount', 'created_at', 'updated_at',
+].join(',');
+
+const CLIENT_LIST_COLS = [
+  'id', 'agency_id', 'name', 'contact_person', 'vat_id',
+  'phone', 'email', 'address', 'notes', 'color',
+  'created_at', 'updated_at',
+].join(',');
 
 // ── Events ──────────────────────────────────────────────────────────────────
 
@@ -35,7 +57,7 @@ export function useEventsQuery(agencyId: string | undefined) {
         .eq('agency_id', agencyId)
         .order('event_date', { ascending: false });
       if (error) throw error;
-      return (data || []) as Event[];
+      return (data || []) as unknown as Event[];
     },
     enabled: !!agencyId,
     staleTime: STALE_TIME,
@@ -58,7 +80,7 @@ export function useArtistsQuery(agencyId: string | undefined) {
         .eq('agency_id', agencyId)
         .order('name', { ascending: true });
       if (error) throw error;
-      return (data || []) as Artist[];
+      return (data || []) as unknown as Artist[];
     },
     enabled: !!agencyId,
     staleTime: STALE_TIME,
@@ -81,7 +103,7 @@ export function useClientsQuery(agencyId: string | undefined) {
         .eq('agency_id', agencyId)
         .order('name', { ascending: true });
       if (error) throw error;
-      return (data || []) as Client[];
+      return (data || []) as unknown as Client[];
     },
     enabled: !!agencyId,
     staleTime: STALE_TIME,

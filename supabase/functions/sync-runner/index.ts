@@ -1061,7 +1061,9 @@ async function sheetsFullSync(args: {
     args.accessToken,
     `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/Finance!A1?valueInputOption=RAW`,
     { method: "PUT", body: JSON.stringify({ values: finValues }) },
-  ).catch(() => {}); // Non-fatal if finance_expenses table missing
+  ).catch((err: unknown) => {
+    console.warn('[sync-runner] Finance sheet write failed (non-fatal):', err);
+  });
 
   return { spreadsheetId, sheetName: "Events", count: events.length, artists: artists.length, clients: clients.length, finance: finance.length };
 }
