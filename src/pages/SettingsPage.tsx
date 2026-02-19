@@ -25,7 +25,7 @@ import type { IntegrationConnection } from '@/types';
 import { demoGetEvents, demoGetClients, demoGetArtists, isDemoMode } from '@/lib/demoStore';
 import { getFinanceExpenses } from '@/lib/financeStore';
 import { createSheetAndSync, resyncSheet } from '@/services/sheetsSyncService';
-import jsPDF from 'jspdf';
+// jsPDF is loaded lazily inside the PDF generation handler — not on module import
 
 const SettingsPage: React.FC = () => {
   const { user, updateProfile, updateCurrentUser } = useAuth();
@@ -1168,7 +1168,8 @@ const SettingsPage: React.FC = () => {
                 <Button
                   type="button"
                   className="btn-magenta"
-                  onClick={() => {
+                  onClick={async () => {
+                    const { default: jsPDF } = await import('jspdf');
                     const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
                     pdf.setFont('helvetica');
                     pdf.setFontSize(14);

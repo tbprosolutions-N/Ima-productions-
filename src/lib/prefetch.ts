@@ -16,7 +16,6 @@ export function prefetchRoute(path: string): void {
     '/calendar': () => import('@/pages/CalendarPage'),
     '/documents': () => import('@/pages/DocumentsPage'),
     '/settings': () => import('@/pages/SettingsPage'),
-    '/sync': () => import('@/pages/SyncMonitorPage'),
   };
   const load = pathToImport[path];
   if (load) {
