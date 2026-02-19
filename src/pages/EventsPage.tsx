@@ -284,6 +284,7 @@ const EventsPage: React.FC = () => {
     setIsDialogOpen(false);
     setEditingEvent(null);
     setFormErrors({});
+    setFormData({ event_date: '', business_name: '', client_business_name: '', artist_name: '', invoice_name: '', amount: '', payment_date: '', due_date: '', event_time: '', artist_fee_type: 'fixed', artist_fee_value: '', artist_fee_amount_override: '', doc_type: 'tax_invoice', doc_number: '', status: 'pending', notes: '', send_calendar_invite: true, send_agreement: false });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {

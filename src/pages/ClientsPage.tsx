@@ -205,6 +205,7 @@ const ClientsPage: React.FC = () => {
   const closeDialog = () => {
     setIsDialogOpen(false);
     setEditingClient(null);
+    setFormData({ name: '', contact_person: '', email: '', phone: '', address: '', vat_id: '', notes: '', color: '#3B82F6' });
   };
 
   const filteredClients = clients.filter(client =>

@@ -79,7 +79,7 @@ export const AgencyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setAgencyError(null);
       // Fast path: this schema is single-agency-per-user (users.agency_id).
       const { data, error } = await withTimeout<any>(
-        supabase.from('agencies').select('*').eq('id', resolvedUser!.agency_id).maybeSingle() as any,
+        supabase.from('agencies').select('id,name,type,settings,created_at,updated_at').eq('id', resolvedUser!.agency_id).maybeSingle() as any,
         10000,
         'Fetch agency'
       );

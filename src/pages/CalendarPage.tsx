@@ -12,6 +12,7 @@ import { demoGetArtists, demoGetEvents, isDemoMode } from '@/lib/demoStore';
 import { buildGoogleCalendarUrl } from '@/lib/googleCalendar';
 import { getCompanyName } from '@/lib/settingsStore';
 import { useNavigate } from 'react-router-dom';
+import { useToast } from '@/contexts/ToastContext';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
@@ -46,6 +47,7 @@ const MemoizedFullCalendar = memo(function MemoizedFullCalendar({
 const CalendarPage: React.FC = () => {
   const { currentAgency } = useAgency();
   const { user } = useAuth();
+  const { error: showError } = useToast();
   const navigate = useNavigate();
   const [view, setView] = useState<'list' | 'calendar'>('calendar');
   const [events, setEvents] = useState<Event[]>([]);
@@ -99,6 +101,7 @@ const CalendarPage: React.FC = () => {
       setArtists((ar as Artist[]) || []);
     } catch (err) {
       console.error('Error fetching events:', err);
+      showError('שגיאה בטעינת היומן. אנא רענן את הדף.');
     } finally {
       setLoading(false);
     }

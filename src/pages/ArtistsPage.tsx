@@ -86,6 +86,7 @@ const ArtistsPage: React.FC = () => {
     setDialogOpen(false);
     setEditingArtist(null);
     setFormErrors({});
+    setFormData({ name: '', phone: '', email: '', notes: '', color: '#3B82F6', google_calendar_id: '', vat_id: '', bank_name: '', bank_branch: '', bank_account: '', amount: '' });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
