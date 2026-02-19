@@ -84,15 +84,18 @@ const CalendarPage: React.FC = () => {
         return;
       }
 
+      const EVENT_COLS = 'id,agency_id,event_date,event_time,business_name,invoice_name,amount,status,notes,artist_id,client_id';
+      const ARTIST_COLS = 'id,agency_id,name,full_name,color';
       const [{ data: ev, error: evErr }, { data: ar, error: arErr }] = await Promise.all([
         supabase
           .from('events')
-          .select('*')
+          .select(EVENT_COLS)
           .eq('agency_id', currentAgency.id)
           .gte('event_date', start.toISOString())
           .lte('event_date', end.toISOString())
-          .order('event_date', { ascending: true }),
-        supabase.from('artists').select('*').eq('agency_id', currentAgency.id).order('name', { ascending: true }),
+          .order('event_date', { ascending: true })
+          .limit(500),
+        supabase.from('artists').select(ARTIST_COLS).eq('agency_id', currentAgency.id).order('name', { ascending: true }).limit(500),
       ]);
 
       if (evErr) throw evErr;

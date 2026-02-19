@@ -197,7 +197,7 @@ const SettingsPage: React.FC = () => {
         try {
           const { data } = await supabase
             .from('integrations')
-            .select('*')
+            .select('id,agency_id,provider,status,config,connected_at')
             .eq('agency_id', currentAgency.id);
           const list = (data as IntegrationConnection[]) || [];
           const sheetsConn = list.find((x: any) => x.provider === 'sheets');
@@ -240,7 +240,7 @@ const SettingsPage: React.FC = () => {
     if (tab !== 'backup' || isDemo() || !currentAgency?.id) return;
     (async () => {
       try {
-        const { data } = await supabase.from('integrations').select('*').eq('agency_id', currentAgency.id);
+        const { data } = await supabase.from('integrations').select('id,agency_id,provider,status,config,connected_at').eq('agency_id', currentAgency.id);
         const list = (data as any[]) || [];
         const sheetsConn = list.find((x: any) => x.provider === 'sheets');
         setSheetsSpreadsheetId((sheetsConn as any)?.config?.spreadsheet_id ?? null);

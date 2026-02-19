@@ -209,9 +209,10 @@ const FinancePageContent: React.FC = () => {
 
         // NOTE: We intentionally fetch without date constraints to keep period logic correct when
         // payment_date differs from event_date. We then apply the period filter on (payment_date || event_date).
+        const FINANCE_EVENT_COLS = 'id,agency_id,event_date,payment_date,due_date,business_name,invoice_name,amount,status,doc_type,doc_number,artist_id,client_id,artist_fee_type,artist_fee_value,artist_fee_amount,notes,morning_sync_status,morning_id,morning_document_id,morning_document_url,morning_last_error,morning_doc_status,created_at,updated_at';
         const { data, error } = await supabase
           .from('events')
-          .select('*')
+          .select(FINANCE_EVENT_COLS)
           .eq('agency_id', currentAgency.id)
           .order('event_date', { ascending: false })
           .limit(500);
@@ -247,7 +248,7 @@ const FinancePageContent: React.FC = () => {
           setEventsLoading(true);
           supabase
             .from('events')
-            .select('*')
+            .select('id,agency_id,event_date,payment_date,due_date,business_name,invoice_name,amount,status,doc_type,doc_number,artist_id,client_id,artist_fee_type,artist_fee_value,artist_fee_amount,notes,morning_sync_status,morning_id,morning_document_id,morning_document_url,morning_last_error,morning_doc_status,created_at,updated_at')
             .eq('agency_id', agencyId)
             .order('event_date', { ascending: false })
             .limit(500)
@@ -293,8 +294,8 @@ const FinancePageContent: React.FC = () => {
           return;
         }
         const [aRes, cRes] = await Promise.all([
-          supabase.from('artists').select('*').eq('agency_id', currentAgency.id).order('name', { ascending: true }),
-          supabase.from('clients').select('*').eq('agency_id', currentAgency.id).order('name', { ascending: true }),
+          supabase.from('artists').select('id,agency_id,name,full_name,color,vat_id,bank_name,bank_branch,bank_account,phone,email,amount').eq('agency_id', currentAgency.id).order('name', { ascending: true }),
+          supabase.from('clients').select('id,agency_id,name,contact_person,phone,email,vat_id,address,notes,color').eq('agency_id', currentAgency.id).order('name', { ascending: true }),
         ]);
         setArtists(((aRes.data as Artist[]) || []).filter(Boolean));
         setClients(((cRes.data as Client[]) || []).filter(Boolean));
