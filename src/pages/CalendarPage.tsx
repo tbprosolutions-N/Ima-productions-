@@ -1,15 +1,14 @@
-import React, { useState, useEffect, useMemo, useCallback, memo } from 'react';
+import React, { useState, useMemo, useCallback, memo } from 'react';
 import { motion } from 'framer-motion';
 import { Calendar as CalendarIcon, List, Grid, ChevronLeft, ChevronRight, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { useAgency } from '@/contexts/AgencyContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabase';
 import { formatCurrency } from '@/lib/utils';
 import type { Artist, Event } from '@/types';
-import { demoGetArtists, demoGetEvents, isDemoMode } from '@/lib/demoStore';
 import { buildGoogleCalendarUrl } from '@/lib/googleCalendar';
+import { useEventsQuery, useArtistsQuery } from '@/hooks/useSupabaseQuery';
 import { getCompanyName } from '@/lib/settingsStore';
 import { useNavigate } from 'react-router-dom';
 import { useToast } from '@/contexts/ToastContext';
@@ -50,9 +49,11 @@ const CalendarPage: React.FC = () => {
   const { error: showError } = useToast();
   const navigate = useNavigate();
   const [view, setView] = useState<'list' | 'calendar'>('calendar');
-  const [events, setEvents] = useState<Event[]>([]);
-  const [artists, setArtists] = useState<Artist[]>([]);
-  const [loading, setLoading] = useState(true);
+  // React Query — shared cache with EventsPage/DashboardPage, so navigating to Calendar is instant.
+  const { data: allEvents = [], isLoading: eventsLoading, isError: eventsError } = useEventsQuery(currentAgency?.id);
+  const { data: artists = [], isLoading: artistsLoading } = useArtistsQuery(currentAgency?.id);
+  const loading = eventsLoading || artistsLoading;
+
   const [currentMonth, setCurrentMonth] = useState(new Date());
   // Date filter bar: default = real-time (current month). Optional from/to override.
   const [filterFrom, setFilterFrom] = useState<string>('');
@@ -60,55 +61,31 @@ const CalendarPage: React.FC = () => {
   const companyName = currentAgency ? (getCompanyName(currentAgency.id) || currentAgency.name) : 'NPC';
   const canEditDaybook = user?.role === 'owner';
 
-  useEffect(() => {
-    fetchEvents();
-  }, [currentAgency, currentMonth, filterFrom, filterTo]);
-
-  const fetchEvents = async () => {
-    if (!currentAgency) return;
-
-    try {
-      setLoading(true);
-      const start = filterFrom ? new Date(filterFrom) : new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
-      const end = filterTo ? new Date(filterTo) : new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0);
-      end.setHours(23, 59, 59, 999);
-
-      if (isDemoMode()) {
-        const all = demoGetEvents(currentAgency.id);
-        const filtered = all.filter(e => {
-          const d = new Date(e.event_date);
-          return d >= start && d <= end;
-        });
-        setEvents(filtered);
-        setArtists(demoGetArtists(currentAgency.id));
-        return;
-      }
-
-      const EVENT_COLS = 'id,agency_id,event_date,event_time,business_name,invoice_name,amount,status,notes,artist_id,client_id';
-      const ARTIST_COLS = 'id,agency_id,name,full_name,color';
-      const [{ data: ev, error: evErr }, { data: ar, error: arErr }] = await Promise.all([
-        supabase
-          .from('events')
-          .select(EVENT_COLS)
-          .eq('agency_id', currentAgency.id)
-          .gte('event_date', start.toISOString())
-          .lte('event_date', end.toISOString())
-          .order('event_date', { ascending: true })
-          .limit(500),
-        supabase.from('artists').select(ARTIST_COLS).eq('agency_id', currentAgency.id).order('name', { ascending: true }).limit(500),
-      ]);
-
-      if (evErr) throw evErr;
-      if (arErr) throw arErr;
-      setEvents((ev as Event[]) || []);
-      setArtists((ar as Artist[]) || []);
-    } catch (err) {
-      console.error('Error fetching events:', err);
+  // Surface a toast if the background React Query fetch errors
+  const prevEventsError = React.useRef(false);
+  React.useEffect(() => {
+    if (eventsError && !prevEventsError.current) {
       showError('שגיאה בטעינת היומן. אנא רענן את הדף.');
-    } finally {
-      setLoading(false);
     }
-  };
+    prevEventsError.current = !!eventsError;
+  }, [eventsError, showError]);
+
+  // Client-side date filter over the React Query cache — zero extra Supabase calls when month changes
+  const events = useMemo(() => {
+    const start = filterFrom
+      ? new Date(filterFrom)
+      : new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
+    const end = filterTo
+      ? new Date(filterTo)
+      : new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0);
+    end.setHours(23, 59, 59, 999);
+    return allEvents
+      .filter(e => {
+        const d = new Date(e.event_date);
+        return d >= start && d <= end;
+      })
+      .sort((a, b) => a.event_date.localeCompare(b.event_date));
+  }, [allEvents, currentMonth, filterFrom, filterTo]);
 
   const nextMonth = () => {
     setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1));
