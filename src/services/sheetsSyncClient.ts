@@ -305,12 +305,12 @@ export async function triggerImmediateSync(
     const spreadsheetId = (data as any)?.config?.spreadsheet_id;
     if (!spreadsheetId) return; // No sheet configured — nothing to sync
 
-    console.log('[Sheets] Live sync triggered for spreadsheet:', spreadsheetId.slice(0, 12) + '...');
+    if (import.meta.env.DEV) console.log('[Sheets] Live sync triggered for spreadsheet:', spreadsheetId.slice(0, 12) + '...');
     const syncData = await fetchSyncDataForAgency(agencyId);
     const result = await resyncSheetClient(agencyId, spreadsheetId, syncData);
 
     if (result.ok) {
-      console.log('[Sheets] Live sync OK — rows:', result.counts);
+      if (import.meta.env.DEV) console.log('[Sheets] Live sync OK — rows:', result.counts);
       callbacks.onSuccess?.();
     } else if (result.code === 'TOKEN_EXPIRED' || result.code === 'NO_TOKEN') {
       callbacks.onTokenError?.();

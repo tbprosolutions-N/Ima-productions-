@@ -206,6 +206,7 @@ const SettingsPage: React.FC = () => {
           setSavedBackupFolderId(config?.folder_id ?? null);
         } catch (e) {
           console.warn('Integrations load failed', e);
+          toast.warning('לא ניתן לטעון את הגדרות האינטגרציה. אנא רענן את הדף.');
         }
       })();
     }
@@ -243,8 +244,8 @@ const SettingsPage: React.FC = () => {
         const list = (data as any[]) || [];
         const sheetsConn = list.find((x: any) => x.provider === 'sheets');
         setSheetsSpreadsheetId((sheetsConn as any)?.config?.spreadsheet_id ?? null);
-      } catch {
-        // ignore
+      } catch (e) {
+        console.warn('[Settings] Backup tab integrations refetch failed:', e);
       }
     })();
   }, [tab, currentAgency?.id]);

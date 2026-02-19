@@ -523,11 +523,11 @@ const EventsPage: React.FC = () => {
             const url = (raw || '').trim();
             const folderId = url?.match(/folders\/([a-zA-Z0-9_-]+)/)?.[1] ?? (/^[a-zA-Z0-9_-]{20,}$/.test(url) ? url : null);
             if (folderId) {
-              console.log('[Sheets] First event — creating backup sheet in folder:', folderId.slice(0, 12) + '...');
+              if (import.meta.env.DEV) console.log('[Sheets] First event — creating backup sheet in folder:', folderId.slice(0, 12) + '...');
               const result = await createSheetAndSync(currentAgency.id, folderId);
               if (result.ok) {
                 success('גיליון גיבוי נוצר ב־Drive ✅');
-                console.log('[Sheets] Backup sheet created:', result.spreadsheetUrl);
+                if (import.meta.env.DEV) console.log('[Sheets] Backup sheet created:', result.spreadsheetUrl);
               } else {
                 const errMsg = result.detail || result.error || 'שגיאה לא ידועה';
                 console.error('[Sheets] Auto-create failed:', result.error, result.detail);
@@ -543,13 +543,18 @@ const EventsPage: React.FC = () => {
         // Agreement engine: when artist & client emails present, send agreement + calendar invite
         let clientEmail = (clients.find(c => c.id === clientId) || {} as Client).email?.trim();
         let artistEmail = (artists.find(a => a.id === artistId) || {} as Artist).email?.trim();
-        if (!clientEmail && clientId) {
-          const { data: c } = await supabase.from('clients').select('email').eq('id', clientId).maybeSingle();
-          clientEmail = (c as { email?: string })?.email?.trim();
-        }
-        if (!artistEmail && artistId) {
-          const { data: a } = await supabase.from('artists').select('email').eq('id', artistId).maybeSingle();
-          artistEmail = (a as { email?: string })?.email?.trim();
+        // Fetch any missing emails in parallel to avoid sequential waterfall latency
+        if ((!clientEmail && clientId) || (!artistEmail && artistId)) {
+          const [clientRes, artistRes] = await Promise.all([
+            (!clientEmail && clientId)
+              ? supabase.from('clients').select('email').eq('id', clientId).maybeSingle()
+              : Promise.resolve({ data: null }),
+            (!artistEmail && artistId)
+              ? supabase.from('artists').select('email').eq('id', artistId).maybeSingle()
+              : Promise.resolve({ data: null }),
+          ]);
+          if (!clientEmail && clientId) clientEmail = (clientRes.data as { email?: string })?.email?.trim();
+          if (!artistEmail && artistId) artistEmail = (artistRes.data as { email?: string })?.email?.trim();
         }
         const shouldSendAgreement = !!(clientEmail && artistEmail);
         const sendInvites = shouldSendAgreement || formData.send_calendar_invite;
