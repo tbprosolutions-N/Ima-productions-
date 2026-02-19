@@ -29,30 +29,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const fetchUserProfile = async (authUser: SupabaseUser): Promise<User | null> => {
     const timeout = 15000; // Single longer timeout so slow networks don't lose session
     try {
+      // maybeSingle() returns { data: null, error: null } when no row exists — never throws PGRST116.
+      // This prevents accidental logouts triggered by the missing-row exception path.
       const { data, error } = await withTimeout<any>(
-        supabase.from('users').select('*').eq('id', authUser.id).single() as any,
+        supabase.from('users').select('*').eq('id', authUser.id).maybeSingle() as any,
         timeout,
         'Fetch user profile'
       );
       if (error) throw error;
       if (data) { setUser(data); return data; }
+
+      // data === null means no row yet — try auto-provisioning (new invite / first login)
+      try {
+        const cc = (() => { try { return (localStorage.getItem('ima:last_company_id') || '').trim() || null; } catch { return null; } })();
+        await withTimeout<any>(supabase.rpc('ensure_user_profile', { company_code: cc }) as any, 12000, 'Provision profile');
+        const { data: d2, error: e2 } = await withTimeout<any>(
+          supabase.from('users').select('*').eq('id', authUser.id).maybeSingle() as any, 10000, 'Re-fetch profile');
+        if (!e2 && d2) { setUser(d2); return d2; }
+      } catch (pe) {
+        console.warn('Auth: profile provisioning failed', pe);
+      }
     } catch (err) {
       const msg = String((err as any)?.message || '');
-      const isMissing = String((err as any)?.code || '') === 'PGRST116' || msg.includes('0 rows');
       const isTimeout = msg.includes('timed out');
-
-      // Only try provisioning on explicit missing row (NOT on timeout)
-      if (isMissing) {
-        try {
-          const cc = (() => { try { return (localStorage.getItem('ima:last_company_id') || '').trim() || null; } catch { return null; } })();
-          await withTimeout<any>(supabase.rpc('ensure_user_profile', { company_code: cc }) as any, 12000, 'Provision profile');
-          const { data: d2, error: e2 } = await withTimeout<any>(
-            supabase.from('users').select('*').eq('id', authUser.id).single() as any, 10000, 'Re-fetch profile');
-          if (!e2 && d2) { setUser(d2); return d2; }
-        } catch (pe) {
-          console.warn('Auth: profile provisioning failed', pe);
-        }
-      }
       if (isTimeout) console.warn('Auth: profile fetch timed out — session kept, will retry on focus');
       else console.warn('Auth: profile fetch failed', err);
     }

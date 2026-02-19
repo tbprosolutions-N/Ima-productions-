@@ -94,37 +94,3 @@ const getStatusLabel = (status: string): string => {
   return statusMap[status] || status;
 };
 
-export const exportToCSV = (events: Event[], filename: string = 'events') => {
-  const headers = ['תאריך', 'יום', 'שם עסק', 'שם בחשבונית', 'סכום', 'סוג מסמך', 'מספר מסמך', 'תאריך תשלום', 'סטטוס', 'הערות'];
-  
-  const rows = events.map(event => [
-    formatDate(event.event_date),
-    event.weekday,
-    event.business_name,
-    event.invoice_name,
-    event.amount.toString(),
-    event.doc_type === 'tax_invoice' ? 'חשבונית מס' : event.doc_type === 'receipt' ? 'קבלה' : 'חשבון עסקה',
-    event.doc_number || '',
-    event.due_date ? formatDate(event.due_date) : '',
-    getStatusLabel(event.status),
-    cleanNotes(event.notes),
-  ]);
-
-  const csv = [
-    headers.join(','),
-    ...rows.map(row => row.map(cell => `"${cell}"`).join(',')),
-  ].join('\n');
-
-  // Add BOM for Excel UTF-8 support
-  const BOM = '\uFEFF';
-  const blob = new Blob([BOM + csv], { type: 'text/csv;charset=utf-8;' });
-  const link = document.createElement('a');
-  const url = URL.createObjectURL(blob);
-  
-  link.setAttribute('href', url);
-  link.setAttribute('download', `${filename}_${new Date().toISOString().split('T')[0]}.csv`);
-  link.style.visibility = 'hidden';
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-};
