@@ -266,11 +266,17 @@ export async function fetchSyncDataForAgency(agencyId: string): Promise<SyncData
       expenses: getFinanceExpenses(agencyId),
     };
   }
+  // Columns derived from the row-mapper functions above — only what gets written to the sheet.
+  const EVENT_SYNC_COLS    = 'id,agency_id,event_date,business_name,invoice_name,amount,status,doc_type,payment_date,notes,artist_id,client_id,morning_sync_status,updated_at';
+  const CLIENT_SYNC_COLS   = 'id,agency_id,name,contact_person,phone,email,vat_id,address,notes';
+  const ARTIST_SYNC_COLS   = 'id,agency_id,name,full_name,company_name,phone,email,vat_id,bank_name,bank_branch,bank_account,notes';
+  const EXPENSE_SYNC_COLS  = 'id,agency_id,filename,vendor,supplier_name,amount,vat,expense_date,morning_status,notes';
+
   const [eventsRes, clientsRes, artistsRes, expensesRes] = await Promise.all([
-    supabase.from('events').select('*').eq('agency_id', agencyId).order('event_date', { ascending: false }),
-    supabase.from('clients').select('*').eq('agency_id', agencyId).order('name'),
-    supabase.from('artists').select('*').eq('agency_id', agencyId).order('name'),
-    supabase.from('finance_expenses').select('*').eq('agency_id', agencyId).order('created_at', { ascending: false }),
+    supabase.from('events').select(EVENT_SYNC_COLS).eq('agency_id', agencyId).order('event_date', { ascending: false }).limit(2000),
+    supabase.from('clients').select(CLIENT_SYNC_COLS).eq('agency_id', agencyId).order('name').limit(2000),
+    supabase.from('artists').select(ARTIST_SYNC_COLS).eq('agency_id', agencyId).order('name').limit(2000),
+    supabase.from('finance_expenses').select(EXPENSE_SYNC_COLS).eq('agency_id', agencyId).order('created_at', { ascending: false }).limit(2000),
   ]);
   return {
     events: (eventsRes.data || []) as any[],
