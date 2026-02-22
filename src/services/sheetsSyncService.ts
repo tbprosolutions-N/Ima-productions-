@@ -1,112 +1,175 @@
 /**
- * Google Sheets Sync via Supabase Edge Function.
- * Uses `supabase.functions.invoke('sheets-sync')` — no Netlify dependency.
- * Server-side uses GOOGLE_SA_CLIENT_EMAIL + GOOGLE_SA_PRIVATE_KEY secrets.
+ * Google Sheets Sync — Async Pub/Sub pattern.
+ * Inserts into sync_queue; Database Webhook triggers Edge Function; Realtime reports status.
  */
 
 import { supabase } from '@/lib/supabase';
 
 export type SheetsSyncResult =
+  | { ok: true; queued: true; queueId: string }
   | { ok: true; spreadsheetId: string; spreadsheetUrl: string; counts: { events: number; clients: number; artists: number; expenses: number } }
   | { ok: false; error: string; detail?: string; code?: string; spreadsheetId?: string; spreadsheetUrl?: string };
 
-const SHEETS_REQUEST_TIMEOUT_MS = 110_000; // 110s client timeout; Supabase Edge Functions allow 150s
+export type SyncQueueRow = {
+  id: string;
+  user_id: string;
+  agency_id: string;
+  data: Record<string, unknown>;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  result: { spreadsheetId?: string; spreadsheetUrl?: string; counts?: Record<string, number> } | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+};
 
-async function sheetsFetch(bodyObj: Record<string, unknown>): Promise<SheetsSyncResult> {
-  // Ensure we have a valid session and refresh if expired (fixes 401 from Edge Function)
-  let { data: { session } } = await supabase.auth.getSession();
-  if (!session?.access_token) {
-    const { data: { session: refreshed } } = await supabase.auth.refreshSession();
-    session = refreshed ?? null;
+/** Circuit Breaker: do NOT enqueue when payload has no data. */
+function circuitBreaker(sheets: { 'אירועים': string[][]; 'לקוחות': string[][]; 'אמנים': string[][]; 'פיננסים': string[][] }): SheetsSyncResult | null {
+  const events = (sheets['אירועים']?.length ?? 1) - 1;
+  const artists = (sheets['אמנים']?.length ?? 1) - 1;
+  const expenses = (sheets['פיננסים']?.length ?? 1) - 1;
+  if (events === 0 && artists === 0 && expenses === 0) {
+    return {
+      ok: false,
+      error: 'אין נתונים לסנכרן. הוסף אירועים, אמנים או הוצאות תחילה.',
+      detail: 'Empty payload blocked by circuit breaker.',
+      code: 'EMPTY_PAYLOAD',
+    };
   }
-  if (!session?.access_token) {
-    return { ok: false, error: 'Please sign in to sync with Google Sheets.' };
+  return null;
+}
+
+/** Agency guard: sync job only created when agency_id is verified. */
+function agencyGuard(agencyId: string): SheetsSyncResult | null {
+  if (!agencyId || typeof agencyId !== 'string' || agencyId.trim().length === 0) {
+    return {
+      ok: false,
+      error: 'טעינת הסוכנות נכשלה. ודא שהסוכנות נטענה ולחץ נסה שוב.',
+      code: 'AGENCY_NOT_LOADED',
+    };
   }
-
-  const apikey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? '';
-
-  // Race the invoke against a hard client-side timeout
-  const timeoutPromise = new Promise<SheetsSyncResult>((_, reject) =>
-    setTimeout(() => reject(new Error('TIMEOUT')), SHEETS_REQUEST_TIMEOUT_MS)
-  );
-
-  const invokePromise = supabase.functions
-    .invoke('sheets-sync', {
-      body: bodyObj,
-      headers: {
-        'Authorization': `Bearer ${session.access_token}`,
-        'apikey': apikey,
-        'x-client-info': 'npc-agent-management',
-      },
-    })
-    .then(({ data, error }) => {
-      if (error) {
-        return {
-          ok: false as const,
-          error: error.message || 'Edge Function error',
-          detail: String(error),
-        };
-      }
-      if (data?.ok) {
-        return {
-          ok: true as const,
-          spreadsheetId: data.spreadsheetId as string,
-          spreadsheetUrl: data.spreadsheetUrl as string,
-          counts: (data.counts as { events: number; clients: number; artists: number; expenses: number }) ??
-            { events: 0, clients: 0, artists: 0, expenses: 0 },
-        };
-      }
-      return {
-        ok: false as const,
-        error: (data?.error as string) || 'Unknown error',
-        detail: data?.detail as string | undefined,
-        spreadsheetId: data?.spreadsheetId as string | undefined,
-        spreadsheetUrl: data?.spreadsheetUrl as string | undefined,
-      };
-    });
-
-  try {
-    return await Promise.race([invokePromise, timeoutPromise]);
-  } catch (e: any) {
-    if (e?.message === 'TIMEOUT') {
-      return { ok: false, error: 'Request timed out. Try again — large datasets may take up to 2 minutes.', code: 'TIMEOUT' };
-    }
-    return { ok: false, error: e?.message || 'Network error calling sheets-sync function' };
-  }
+  return null;
 }
 
 /**
- * Create a new Google Spreadsheet in the specified Drive folder and sync data.
- * Data must be prepared client-side (formatDataForSheets) and passed in.
+ * Enqueue create-and-sync job. Returns immediately with queueId.
+ * Subscribe via subscribeSyncQueue(queueId, callbacks) for status updates.
  */
 export async function createSheetAndSync(
   agencyId: string,
   folderId: string,
-  sheets: { 'אירועים': string[][]; 'לקוחות': string[][]; 'אמנים': string[][]; 'פיננסים': string[][] }
+  sheets: { 'אירועים': string[][]; 'לקוחות': string[][]; 'אמנים': string[][]; 'פיננסים': string[][] },
+  userId: string
 ): Promise<SheetsSyncResult> {
+  const guard = agencyGuard(agencyId);
+  if (guard) return guard;
+  const blocked = circuitBreaker(sheets);
+  if (blocked) return blocked;
+
   const counts = {
     events: sheets['אירועים'].length - 1,
     clients: sheets['לקוחות'].length - 1,
     artists: sheets['אמנים'].length - 1,
     expenses: sheets['פיננסים'].length - 1,
   };
-  return sheetsFetch({ action: 'createAndSync', agencyId, folderId, sheets, counts });
+
+  const { data: row, error } = await supabase
+    .from('sync_queue')
+    .insert({
+      user_id: userId,
+      agency_id: agencyId.trim(),
+      data: {
+        action: 'createAndSync',
+        folderId: folderId.trim(),
+        sheets,
+        counts,
+      },
+      status: 'pending',
+    })
+    .select('id')
+    .single();
+
+  if (error) {
+    return { ok: false, error: error.message, detail: String(error), code: 'INSERT_FAILED' };
+  }
+  return { ok: true, queued: true, queueId: row.id };
 }
 
 /**
- * Re-sync data to an existing spreadsheet.
- * Data must be prepared client-side (formatDataForSheets) and passed in.
+ * Enqueue resync job. Returns immediately with queueId.
  */
 export async function resyncSheet(
   agencyId: string,
   spreadsheetId: string,
-  sheets: { 'אירועים': string[][]; 'לקוחות': string[][]; 'אמנים': string[][]; 'פיננסים': string[][] }
+  sheets: { 'אירועים': string[][]; 'לקוחות': string[][]; 'אמנים': string[][]; 'פיננסים': string[][] },
+  userId: string
 ): Promise<SheetsSyncResult> {
+  const guard = agencyGuard(agencyId);
+  if (guard) return guard;
+  const blocked = circuitBreaker(sheets);
+  if (blocked) return blocked;
+
   const counts = {
     events: sheets['אירועים'].length - 1,
     clients: sheets['לקוחות'].length - 1,
     artists: sheets['אמנים'].length - 1,
     expenses: sheets['פיננסים'].length - 1,
   };
-  return sheetsFetch({ action: 'sync', agencyId, spreadsheetId, sheets, counts });
+
+  const { data: row, error } = await supabase
+    .from('sync_queue')
+    .insert({
+      user_id: userId,
+      agency_id: agencyId.trim(),
+      data: {
+        action: 'sync',
+        spreadsheetId: spreadsheetId.trim(),
+        sheets,
+        counts,
+      },
+      status: 'pending',
+    })
+    .select('id')
+    .single();
+
+  if (error) {
+    return { ok: false, error: error.message, detail: String(error), code: 'INSERT_FAILED' };
+  }
+  return { ok: true, queued: true, queueId: row.id };
+}
+
+/**
+ * Subscribe to sync_queue status changes. Callbacks fire when status becomes completed or failed.
+ * Returns unsubscribe function.
+ */
+export function subscribeSyncQueue(
+  queueId: string,
+  callbacks: {
+    onCompleted?: (result: SyncQueueRow['result']) => void;
+    onFailed?: (errorMessage: string | null) => void;
+  }
+): () => void {
+  const channel = supabase
+    .channel(`sync_queue:${queueId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'sync_queue',
+        filter: `id=eq.${queueId}`,
+      },
+      (payload) => {
+        const row = payload.new as SyncQueueRow;
+        if (row.status === 'completed') {
+          callbacks.onCompleted?.(row.result);
+        } else if (row.status === 'failed') {
+          callbacks.onFailed?.(row.error_message);
+        }
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
 }

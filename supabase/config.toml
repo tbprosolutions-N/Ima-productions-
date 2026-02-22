@@ -4,3 +4,4 @@
 # sheets-sync uses service account for Google API; agencyId passed in body
 [functions.sheets-sync]
 verify_jwt = false
+# Note: wall clock timeout (150s free / 400s paid) is set at platform level

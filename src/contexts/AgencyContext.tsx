@@ -19,15 +19,18 @@ interface AgencyContextType {
 const AgencyContext = createContext<AgencyContextType | undefined>(undefined);
 
 export const AgencyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user } = useAuth();
+  const { user, loading: authLoading, refreshUser } = useAuth();
   const [currentAgency, setCurrentAgency] = useState<Agency | null>(null);
   const [agencies, setAgencies] = useState<Agency[]>([]);
   const [loading, setLoading] = useState(true);
   const [agencyError, setAgencyError] = useState<string | null>(null);
+  const retryCountRef = React.useRef(0);
+  const MAX_RETRIES = 2;
 
   const fetchAgencies = React.useCallback(async () => {
     try {
       setLoading(true);
+      setAgencyError(null);
 
       // DEMO MODE: no Supabase dependency
       if (isDemoMode()) {
@@ -37,11 +40,16 @@ export const AgencyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         return;
       }
 
+      // Require user with id before any fetch — prevents "טעינת הסוכנות נכשלה" from missing context
+      if (!user?.id) {
+        setAgencies([]);
+        setCurrentAgency(null);
+        setLoading(false);
+        return;
+      }
       // Safety: if user has no agency_id yet, try to provision via ensure_user_profile first.
-      // This handles the edge-case where a new user signed in but the trigger didn't fire properly.
-      // Use a local mutable reference so we can update agency_id without mutating the context object.
       let resolvedUser = user;
-      if (!resolvedUser?.agency_id) {
+      if (!resolvedUser.agency_id) {
         // Attempt to provision profile via RPC (handles first-time users / bootstrap).
         // If the RPC doesn't exist in this DB environment yet, we fall through to
         // the "no agency" error path rather than crashing — non-fatal by design.
@@ -99,11 +107,16 @@ export const AgencyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           setCurrentAgency(data);
         }
       }
-    } catch (error) {
-      void error;
+    } catch (error: any) {
+      const msg = error?.message || String(error);
+      console.warn('[AgencyContext] fetchAgencies failed:', msg);
       setAgencies([]);
       setCurrentAgency(null);
-      setAgencyError('טעינת הסוכנות נכשלה. נסה לרענן את הדף או פנה למנהל.');
+      const isTimeout = msg.includes('timed out') || msg.includes('timeout');
+      const isNetwork = msg.includes('fetch') || msg.includes('network') || msg.includes('Failed to fetch');
+      setAgencyError(isTimeout || isNetwork
+        ? 'חיבור נכשל. בדוק את הרשת ולחץ על "נסה שוב".'
+        : 'טעינת הסוכנות נכשלה. נסה לרענן את הדף או פנה למנהל.');
       if (isDemoMode()) {
         setAgencies([DEMO_AGENCY]);
         setCurrentAgency(DEMO_AGENCY);
@@ -112,18 +125,37 @@ export const AgencyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, refreshUser]);
 
+  // Gate on Auth: do NOT fetch until Auth has finished loading. Fixes race where
+  // AgencyContext ran before user.agency_id was available, causing "טעינת הסוכנות נכשלה".
   useEffect(() => {
-    if (user) {
-      fetchAgencies();
-    } else {
+    if (authLoading) {
+      setLoading(true);
+      return;
+    }
+    if (!user) {
       setCurrentAgency(null);
       setAgencies([]);
       setAgencyError(null);
       setLoading(false);
+      return;
     }
-  }, [user, fetchAgencies]);
+    retryCountRef.current = 0;
+    fetchAgencies();
+  }, [user, authLoading, fetchAgencies]);
+
+  // Auto-retry on transient failure (RLS propagation, network blip). Max 2 retries.
+  useEffect(() => {
+    if (!agencyError || !user || authLoading) return;
+    if (retryCountRef.current >= MAX_RETRIES) return;
+    const t = setTimeout(() => {
+      retryCountRef.current += 1;
+      setAgencyError(null);
+      fetchAgencies();
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [agencyError, user, authLoading, fetchAgencies]);
 
   const switchAgency = useCallback((agencyId: string) => {
     const agency = agencies.find(a => a.id === agencyId);
@@ -133,10 +165,18 @@ export const AgencyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [agencies]);
 
-  const retryAgency = useCallback(() => {
+  const retryAgency = useCallback(async () => {
+    retryCountRef.current = 0;
     setAgencyError(null);
+    if (!isDemoMode() && user) {
+      try {
+        await refreshUser();
+      } catch {
+        // Non-fatal: proceed with fetch
+      }
+    }
     fetchAgencies();
-  }, [fetchAgencies]);
+  }, [fetchAgencies, user, refreshUser]);
 
   const value = useMemo(() => ({
     currentAgency,

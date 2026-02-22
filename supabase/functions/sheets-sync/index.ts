@@ -2,6 +2,10 @@
  * Supabase Edge Function: Google Sheets Sync
  * Deno runtime — replaces the Netlify sheets-sync-api function.
  *
+ * DESIGN: Completely stateless. Receives pre-formatted 2D arrays from the client,
+ * writes to Google Sheets via Service Account, and (createAndSync only) upserts
+ * integrations using SUPABASE_SERVICE_ROLE_KEY (bypasses RLS). No DB reads.
+ *
  * Env secrets (set via `supabase secrets set`):
  *   GOOGLE_SA_CLIENT_EMAIL   — service account email
  *   GOOGLE_SA_PRIVATE_KEY    — PEM private key (newlines as \n in secret)
@@ -114,7 +118,9 @@ async function getServiceAccountToken(requestId: string): Promise<string> {
 
 // ── Google API helper ─────────────────────────────────────────────────────────
 
-async function googleApi(args: { url: string; method?: string; token: string; body?: unknown }) {
+type GoogleApiResult = { updatedRange?: string; updatedRows?: number; updatedColumns?: number; updatedCells?: number } | unknown;
+
+async function googleApi<T = GoogleApiResult>(args: { url: string; method?: string; token: string; body?: unknown }): Promise<T> {
   const res = await fetch(args.url, {
     method: args.method || 'GET',
     headers: { authorization: `Bearer ${args.token}`, 'content-type': 'application/json' },
@@ -125,7 +131,7 @@ async function googleApi(args: { url: string; method?: string; token: string; bo
     if (res.status === 401 || res.status === 403) throw new GoogleAuthError(`Google API ${res.status}: ${text}`);
     throw new Error(`Google API ${res.status}: ${text.slice(0, 300)}`);
   }
-  try { return JSON.parse(text); } catch { return text; }
+  try { return JSON.parse(text) as T; } catch { return text as T; }
 }
 
 // ── Folder access check ───────────────────────────────────────────────────────
@@ -197,27 +203,45 @@ async function createSpreadsheetInFolder(
   };
 }
 
-// ── Push pre-formatted data to Sheets (no DB fetch) ─────────────────────────────
+// ── Push pre-formatted data to Sheets (sequential, low memory, detailed logging) ─
 
-/** Push client-provided 2D arrays to Google Sheets. Pure proxy — no DB. */
+type SheetCounts = { events: number; clients: number; artists: number; expenses: number };
+
+/** Push client-provided 2D arrays to Google Sheets. Sequential to avoid memory spike. Returns server-verified row counts. */
 async function pushSheetsData(
   token: string,
   spreadsheetId: string,
   sheets: { 'אירועים'?: string[][]; 'לקוחות'?: string[][]; 'אמנים'?: string[][]; 'פיננסים'?: string[][] },
   requestId: string
-): Promise<void> {
-  const names = ['אירועים', 'לקוחות', 'אמנים', 'פיננסים'] as const;
-  await Promise.all(names.map(async (name) => {
+): Promise<SheetCounts> {
+  const sheetOrder = ['אירועים', 'לקוחות', 'אמנים', 'פיננסים'] as const;
+  const countKeys: (keyof SheetCounts)[] = ['events', 'clients', 'artists', 'expenses'];
+  const serverCounts: SheetCounts = { events: 0, clients: 0, artists: 0, expenses: 0 };
+
+  for (let i = 0; i < sheetOrder.length; i++) {
+    const name = sheetOrder[i];
     const values = sheets[name] ?? [];
-    if (values.length === 0) return;
-    await googleApi({
-      url: `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(name)}!A1?valueInputOption=RAW`,
-      method: 'PUT',
-      token,
-      body: { values },
-    });
-  }));
-  console.log(`${LOG_PREFIX} ${requestId} Sync: pushed ${names.length} sheets`);
+    if (values.length === 0) continue;
+
+    try {
+      const t0 = Date.now();
+      const resp = await googleApi<{ updatedRows?: number }>({
+        url: `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(name)}!A1?valueInputOption=RAW`,
+        method: 'PUT',
+        token,
+        body: { values },
+      });
+      const rows = resp?.updatedRows ?? values.length;
+      serverCounts[countKeys[i]] = Math.max(0, rows - 1); // exclude header
+      console.log(`${LOG_PREFIX} ${requestId} Sync: ${name} ok, ${rows} rows in ${Date.now() - t0}ms`);
+    } catch (e: any) {
+      const msg = e?.message ?? String(e);
+      const stack = e?.stack ?? '';
+      console.error(`${LOG_PREFIX} ${requestId} Sync FAILED sheet=${name}: ${msg}`, stack.slice(0, 500));
+      throw new Error(`Failed to write sheet "${name}": ${msg}`);
+    }
+  }
+  return serverCounts;
 }
 
 // ── CORS + response helpers ───────────────────────────────────────────────────
@@ -255,7 +279,7 @@ Deno.serve(async (req: Request) => {
 
   const requestId = `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
-  let reqBody: { action?: string; agencyId?: string; folderId?: string; spreadsheetId?: string; userId?: string; sheets?: Record<string, string[][]>; counts?: { events: number; clients: number; artists: number; expenses: number } };
+  let reqBody: any;
   try {
     reqBody = await req.json();
   } catch (e: unknown) {
@@ -263,14 +287,118 @@ Deno.serve(async (req: Request) => {
     return respond(400, { error: 'Invalid JSON body' });
   }
 
-  console.log(`${LOG_PREFIX} Function triggered by user:`, (reqBody as any)?.userId ?? 'anonymous', 'action:', reqBody?.action, 'agencyId:', reqBody?.agencyId?.slice?.(0, 8));
+  // ── Webhook: Database trigger on sync_queue INSERT ────────────────────────────
+  const webhookRecord = reqBody?.type === 'INSERT' && reqBody?.table === 'sync_queue' ? reqBody?.record : null;
+  if (webhookRecord?.id && webhookRecord?.agency_id && webhookRecord?.data) {
+    const queueId = webhookRecord.id as string;
+    const agencyId = String(webhookRecord.agency_id).trim();
+    const data = webhookRecord.data as { action?: string; folderId?: string; spreadsheetId?: string; sheets?: Record<string, string[][]>; counts?: SheetCounts };
+    const action = data?.action === 'createAndSync' ? 'createAndSync' : data?.action === 'sync' ? 'sync' : null;
+    const sheets = data?.sheets && typeof data.sheets === 'object' ? data.sheets : undefined;
+    const counts = data?.counts && typeof data.counts === 'object' ? data.counts : { events: 0, clients: 0, artists: 0, expenses: 0 };
 
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')?.trim();
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')?.trim();
+    const googleEmail = Deno.env.get('GOOGLE_SA_CLIENT_EMAIL')?.trim();
+    const googleKey = Deno.env.get('GOOGLE_SA_PRIVATE_KEY')?.trim();
+
+    if (!supabaseUrl || !supabaseKey || !googleEmail || !googleKey) {
+      console.error(`${LOG_PREFIX} ${requestId} Webhook: missing env`);
+      return respond(502, { error: 'Server not configured' });
+    }
+
+    const supabase = createClient(supabaseUrl!, supabaseKey!, { auth: { persistSession: false } });
+
+    const markProcessing = () => supabase.from('sync_queue').update({ status: 'processing', updated_at: new Date().toISOString() }).eq('id', queueId);
+    const markCompleted = (result: object) => supabase.from('sync_queue').update({ status: 'completed', result, updated_at: new Date().toISOString() }).eq('id', queueId);
+    const markFailed = (errMsg: string) => supabase.from('sync_queue').update({ status: 'failed', error_message: errMsg, updated_at: new Date().toISOString() }).eq('id', queueId);
+
+    if (!action || !sheets || !sheets['אירועים']) {
+      await markFailed('Invalid webhook payload: missing action or sheets');
+      return respond(400, { error: 'Invalid webhook payload' });
+    }
+
+    const ev = (sheets['אירועים']?.length ?? 1) - 1;
+    const ar = (sheets['אמנים']?.length ?? 1) - 1;
+    const ex = (sheets['פיננסים']?.length ?? 1) - 1;
+    if (ev === 0 && ar === 0 && ex === 0) {
+      await markFailed('Empty payload');
+      return respond(400, { error: 'Empty payload' });
+    }
+
+    let folderId = typeof data?.folderId === 'string' ? data.folderId.trim() : undefined;
+    const spreadsheetId = typeof data?.spreadsheetId === 'string' ? data.spreadsheetId.trim() : undefined;
+
+    if (action === 'createAndSync') {
+      if (!folderId) {
+        await markFailed('Missing folderId');
+        return respond(400, { error: 'Missing folderId' });
+      }
+      const folderMatch = folderId.match(/folders\/([a-zA-Z0-9_-]+)/);
+      if (folderMatch) folderId = folderMatch[1];
+      if (!isValidFolderId(folderId)) {
+        await markFailed('Invalid folderId');
+        return respond(400, { error: 'Invalid folderId' });
+      }
+    } else if (action === 'sync' && !spreadsheetId) {
+      await markFailed('Missing spreadsheetId');
+      return respond(400, { error: 'Missing spreadsheetId' });
+    }
+
+    await markProcessing();
+    console.log(`${LOG_PREFIX} ${requestId} Webhook processing queueId=${queueId} action=${action}`);
+
+    try {
+      const token = await getServiceAccountToken(requestId);
+
+      if (action === 'createAndSync') {
+        await checkFolderAccess(token, folderId!, requestId);
+        const result = await createSpreadsheetInFolder(token, `NPC Sync — ${new Date().toISOString().slice(0, 10)}`, folderId!, requestId);
+        const serverCounts = await pushSheetsData(token, result.spreadsheetId, sheets, requestId);
+        const mismatch = counts.events !== serverCounts.events || counts.clients !== serverCounts.clients || counts.artists !== serverCounts.artists || counts.expenses !== serverCounts.expenses;
+        if (mismatch) {
+          await markFailed('Row count mismatch');
+          return respond(502, { error: 'Row count mismatch' });
+        }
+        await supabase.from('integrations').upsert([{
+          agency_id: agencyId,
+          provider: 'sheets',
+          status: 'connected',
+          config: { spreadsheet_id: result.spreadsheetId, folder_id: folderId, sheet_name: 'Events' },
+          connected_at: new Date().toISOString(),
+        }], { onConflict: 'agency_id,provider' });
+        await markCompleted({ spreadsheetId: result.spreadsheetId, spreadsheetUrl: result.spreadsheetUrl, counts });
+        return respond(200, { ok: true, queueId, spreadsheetId: result.spreadsheetId });
+      }
+
+      if (action === 'sync') {
+        const serverCounts = await pushSheetsData(token, spreadsheetId!, sheets, requestId);
+        const mismatch = counts.events !== serverCounts.events || counts.clients !== serverCounts.clients || counts.artists !== serverCounts.artists || counts.expenses !== serverCounts.expenses;
+        if (mismatch) {
+          await markFailed('Row count mismatch');
+          return respond(502, { error: 'Row count mismatch' });
+        }
+        await markCompleted({ spreadsheetId, spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`, counts });
+        return respond(200, { ok: true, queueId });
+      }
+
+      await markFailed('Unknown action');
+      return respond(400, { error: 'Unknown action' });
+    } catch (e: any) {
+      const msg = e?.message ?? String(e);
+      console.error(`${LOG_PREFIX} ${requestId} Webhook error:`, msg);
+      await markFailed(msg.slice(0, 500));
+      return respond(502, { error: msg });
+    }
+  }
+
+  // ── Direct call (legacy / fallback) ──────────────────────────────────────────
   const action       = typeof reqBody.action       === 'string' ? reqBody.action.trim()       : undefined;
   const agencyId     = typeof reqBody.agencyId     === 'string' ? reqBody.agencyId.trim()     : undefined;
   let   folderId     = typeof reqBody.folderId     === 'string' ? reqBody.folderId.trim()     : undefined;
   const spreadsheetId= typeof reqBody.spreadsheetId=== 'string' ? reqBody.spreadsheetId.trim(): undefined;
 
-  console.log(`${LOG_PREFIX} ${requestId} action=${action} agencyId=${agencyId?.slice(0, 8)}...`);
+  console.log(`${LOG_PREFIX} ${requestId} Direct call action=${action} agencyId=${agencyId?.slice(0, 8)}...`);
 
   if (!agencyId) return respond(400, { error: 'Missing agencyId' });
 
@@ -292,9 +420,17 @@ Deno.serve(async (req: Request) => {
   const sheets = reqBody.sheets && typeof reqBody.sheets === 'object' ? reqBody.sheets : undefined;
   const counts = reqBody.counts && typeof reqBody.counts === 'object' ? reqBody.counts : { events: 0, clients: 0, artists: 0, expenses: 0 };
 
+  // Stateless guard: reject empty payload with 400 (not 502) — prevents crash loop
   if (action === 'createAndSync' || action === 'sync') {
     if (!sheets || !sheets['אירועים']) {
-      return respond(400, { error: 'Missing sheets data. Client must send formatted data in request body.' });
+      return respond(400, { error: 'Missing sheets data. Client must send formatted data in request body.', code: 'MISSING_SHEETS' });
+    }
+    const ev = (sheets['אירועים']?.length ?? 1) - 1;
+    const ar = (sheets['אמנים']?.length ?? 1) - 1;
+    const ex = (sheets['פיננסים']?.length ?? 1) - 1;
+    if (ev === 0 && ar === 0 && ex === 0) {
+      console.log(`${LOG_PREFIX} ${requestId} Rejecting empty payload (no events/artists/expenses)`);
+      return respond(400, { error: 'Empty payload. Add events, artists, or expenses before syncing.', code: 'EMPTY_PAYLOAD' });
     }
   }
   if (action === 'createAndSync') {
@@ -338,12 +474,26 @@ Deno.serve(async (req: Request) => {
         return respond(502, { error: 'Failed to create spreadsheet', detail: e?.message });
       }
 
+      let serverCounts: SheetCounts;
       try {
-        await pushSheetsData(token, result.spreadsheetId, sheets!, requestId);
+        serverCounts = await pushSheetsData(token, result.spreadsheetId, sheets!, requestId);
       } catch (e: any) {
+        console.error(`${LOG_PREFIX} ${requestId} createAndSync pushSheetsData error:`, e?.message, e?.stack?.slice(0, 300));
         return respond(502, {
           error: 'Created spreadsheet but sync failed',
           detail: e?.message,
+          spreadsheetId: result.spreadsheetId,
+          spreadsheetUrl: result.spreadsheetUrl,
+        });
+      }
+
+      const mismatch = counts.events !== serverCounts.events || counts.clients !== serverCounts.clients ||
+        counts.artists !== serverCounts.artists || counts.expenses !== serverCounts.expenses;
+      if (mismatch) {
+        console.error(`${LOG_PREFIX} ${requestId} Row count mismatch: client=${JSON.stringify(counts)} server=${JSON.stringify(serverCounts)}`);
+        return respond(502, {
+          error: 'Sync row count mismatch — data may be incomplete',
+          detail: `Client sent ${counts.events} events, ${counts.clients} clients, ${counts.artists} artists, ${counts.expenses} expenses. Server wrote different counts.`,
           spreadsheetId: result.spreadsheetId,
           spreadsheetUrl: result.spreadsheetUrl,
         });
@@ -367,10 +517,21 @@ Deno.serve(async (req: Request) => {
     // ── sync action ──────────────────────────────────────────────────────────
     if (action === 'sync') {
       if (!spreadsheetId) return respond(400, { error: 'Missing spreadsheetId' });
+      let serverCounts: SheetCounts;
       try {
-        await pushSheetsData(token, spreadsheetId, sheets!, requestId);
+        serverCounts = await pushSheetsData(token, spreadsheetId, sheets!, requestId);
       } catch (e: any) {
+        console.error(`${LOG_PREFIX} ${requestId} sync pushSheetsData error:`, e?.message, e?.stack?.slice(0, 300));
         return respond(502, { error: 'Sync failed', detail: e?.message });
+      }
+      const mismatch = counts.events !== serverCounts.events || counts.clients !== serverCounts.clients ||
+        counts.artists !== serverCounts.artists || counts.expenses !== serverCounts.expenses;
+      if (mismatch) {
+        console.error(`${LOG_PREFIX} ${requestId} Row count mismatch: client=${JSON.stringify(counts)} server=${JSON.stringify(serverCounts)}`);
+        return respond(502, {
+          error: 'Sync row count mismatch — data may be incomplete',
+          detail: `Client sent ${counts.events} events, ${counts.clients} clients, ${counts.artists} artists, ${counts.expenses} expenses. Server wrote different counts.`,
+        });
       }
       return respond(200, {
         ok: true,
@@ -383,7 +544,9 @@ Deno.serve(async (req: Request) => {
     return respond(400, { error: 'Unknown action', detail: 'Use action: "createAndSync" or "sync".' });
 
   } catch (e: any) {
-    console.error(`${LOG_PREFIX} ${requestId} Unhandled error:`, e);
-    return respond(502, { error: 'Backup request failed', detail: e?.message });
+    const msg = e?.message ?? String(e);
+    const stack = e?.stack ?? '';
+    console.error(`${LOG_PREFIX} ${requestId} Unhandled error:`, msg, 'stack:', stack.slice(0, 600));
+    return respond(502, { error: 'Backup request failed', detail: msg });
   }
 });

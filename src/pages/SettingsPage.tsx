@@ -24,8 +24,8 @@ import { updateFaviconForPalette } from '@/lib/favicon';
 import type { IntegrationConnection } from '@/types';
 import { demoGetEvents, demoGetClients, demoGetArtists, isDemoMode } from '@/lib/demoStore';
 import { getFinanceExpenses } from '@/lib/financeStore';
-import { createSheetAndSync, resyncSheet } from '@/services/sheetsSyncService';
-import { fetchSyncDataForAgency, formatDataForSheets, generateCsvFromSyncData } from '@/services/sheetsSyncClient';
+import { createSheetAndSync, resyncSheet, subscribeSyncQueue } from '@/services/sheetsSyncService';
+import { fetchSyncDataForAgency, formatDataForSheets, generateCsvFromSyncData, hasDataForBackup } from '@/services/sheetsSyncClient';
 // jsPDF is loaded lazily inside the PDF generation handler — not on module import
 
 const SettingsPage: React.FC = () => {
@@ -1374,22 +1374,40 @@ const SettingsPage: React.FC = () => {
                         variant="outline"
                         disabled={sheetsSyncing}
                         onClick={async () => {
-                          if (!currentAgency?.id || !sheetsSpreadsheetId) return;
+                          if (!currentAgency?.id || !sheetsSpreadsheetId || !user?.id) return;
                           setSheetsSyncing(true);
                           try {
                             toast.info('מכין נתונים...');
                             const data = await fetchSyncDataForAgency(currentAgency.id);
+                            if (!hasDataForBackup(data)) {
+                              toast.error('לא נמצאו נתונים עבור הסוכנות הנוכחית.');
+                              return;
+                            }
                             const sheets = formatDataForSheets(data);
-                            toast.info('מסנכרן ל־Google Sheets...');
-                            const result = await resyncSheet(currentAgency.id, sheetsSpreadsheetId, sheets);
-                            if (result.ok) {
-                              toast.success(`סנכרון הושלם: ${result.counts!.events} אירועים, ${result.counts!.clients} לקוחות, ${result.counts!.artists} אמנים, ${result.counts!.expenses} הוצאות`);
+                            toast.info('מסנכרן ברקע...');
+                            const result = await resyncSheet(currentAgency.id, sheetsSpreadsheetId, sheets, user.id);
+                            if (result.ok && 'queued' in result && result.queued) {
+                              subscribeSyncQueue(result.queueId, {
+                                onCompleted: (r) => {
+                                  const c = r?.counts;
+                                  toast.success(c ? `סנכרון הושלם: ${c.events} אירועים, ${c.clients} לקוחות, ${c.artists} אמנים, ${c.expenses} הוצאות` : 'סנכרון הושלם');
+                                  setSheetsSyncing(false);
+                                },
+                                onFailed: (msg) => {
+                                  toast.error(msg || 'סנכרון נכשל');
+                                  setSheetsSyncing(false);
+                                },
+                              });
+                            } else if (result.ok) {
+                              const c = (result as { counts?: { events: number; clients: number; artists: number; expenses: number } }).counts;
+                              toast.success(c ? `סנכרון הושלם: ${c.events} אירועים, ${c.clients} לקוחות, ${c.artists} אמנים, ${c.expenses} הוצאות` : 'סנכרון הושלם');
+                              setSheetsSyncing(false);
                             } else {
                               toast.error(result.detail || result.error);
+                              setSheetsSyncing(false);
                             }
                           } catch (e: any) {
                             toast.error(e?.message || 'סנכרון נכשל');
-                          } finally {
                             setSheetsSyncing(false);
                           }
                         }}
@@ -1450,26 +1468,50 @@ const SettingsPage: React.FC = () => {
                         const folderMatch = url.match(/folders\/([a-zA-Z0-9_-]+)/);
                         const folderId = folderMatch ? folderMatch[1] : (/^[a-zA-Z0-9_-]{20,}$/.test(url) ? url : null);
                         if (!folderId) { toast.error('הקישור אינו קישור תיקיית Google Drive תקין. הזן קישור מלא או מזהה תיקייה.'); return; }
-                        if (!currentAgency?.id) { toast.error('אין סוכנות פעילה'); return; }
+                        if (!currentAgency?.id || !user?.id) { toast.error('אין סוכנות פעילה'); return; }
                         saveBackupUrl();
                         setSheetsSyncing(true);
                         try {
                           toast.info('מכין נתונים...');
                           const data = await fetchSyncDataForAgency(currentAgency.id);
+                          if (!hasDataForBackup(data)) {
+                            toast.error('לא נמצאו נתונים עבור הסוכנות הנוכחית.');
+                            return;
+                          }
                           const sheets = formatDataForSheets(data);
-                          toast.info('יוצר גיליון ומסנכרן...');
-                          const result = await createSheetAndSync(currentAgency.id, folderId, sheets);
-                          if (result.ok) {
-                            setSheetsSpreadsheetId(result.spreadsheetId);
-                            setSavedBackupFolderId(folderId);
-                            const c = result.counts!;
+                          toast.info('מסנכרן ברקע...');
+                          const result = await createSheetAndSync(currentAgency.id, folderId, sheets, user.id);
+                          if (result.ok && 'queued' in result && result.queued) {
+                            subscribeSyncQueue(result.queueId, {
+                              onCompleted: (r) => {
+                                if (r?.spreadsheetId) {
+                                  setSheetsSpreadsheetId(r.spreadsheetId);
+                                  setSavedBackupFolderId(folderId);
+                                }
+                                const c = r?.counts;
+                                toast.success(c ? `גיליון נוצר וסונכרן: ${c.events} אירועים, ${c.clients} לקוחות, ${c.artists} אמנים, ${c.expenses} הוצאות` : 'גיליון נוצר וסונכרן');
+                                setSheetsSyncing(false);
+                              },
+                              onFailed: (msg) => {
+                                toast.error(msg || 'יצירת גיליון נכשלה');
+                                setSheetsSyncing(false);
+                              },
+                            });
+                          } else if (result.ok) {
+                            const r = result as { spreadsheetId?: string; counts?: { events: number; clients: number; artists: number; expenses: number } };
+                            if (r.spreadsheetId) {
+                              setSheetsSpreadsheetId(r.spreadsheetId);
+                              setSavedBackupFolderId(folderId);
+                            }
+                            const c = r.counts!;
                             toast.success(`גיליון נוצר וסונכרן: ${c.events} אירועים, ${c.clients} לקוחות, ${c.artists} אמנים, ${c.expenses} הוצאות`);
+                            setSheetsSyncing(false);
                           } else {
                             toast.error(result.detail || result.error);
+                            setSheetsSyncing(false);
                           }
                         } catch (e: any) {
                           toast.error(e?.message || 'יצירת גיליון נכשלה');
-                        } finally {
                           setSheetsSyncing(false);
                         }
                       }}
@@ -1493,7 +1535,7 @@ const SettingsPage: React.FC = () => {
                           toast.error('הזן קישור לתיקיית Drive או צור גיליון פעם אחת כדי לשמור את התיקייה');
                           return;
                         }
-                        if (!currentAgency?.id) {
+                        if (!currentAgency?.id || !user?.id) {
                           toast.error('אין סוכנות פעילה');
                           return;
                         }
@@ -1501,20 +1543,44 @@ const SettingsPage: React.FC = () => {
                         try {
                           toast.info('מכין נתונים...');
                           const data = await fetchSyncDataForAgency(currentAgency.id);
+                          if (!hasDataForBackup(data)) {
+                            toast.error('לא נמצאו נתונים עבור הסוכנות הנוכחית.');
+                            return;
+                          }
                           const sheets = formatDataForSheets(data);
-                          toast.info('מבצע גיבוי יזום...');
-                          const result = await createSheetAndSync(currentAgency.id, folderId, sheets);
-                          if (result.ok) {
-                            setSheetsSpreadsheetId(result.spreadsheetId);
-                            setSavedBackupFolderId(folderId);
-                            const c = result.counts!;
+                          toast.info('מסנכרן ברקע...');
+                          const result = await createSheetAndSync(currentAgency.id, folderId, sheets, user.id);
+                          if (result.ok && 'queued' in result && result.queued) {
+                            subscribeSyncQueue(result.queueId, {
+                              onCompleted: (r) => {
+                                if (r?.spreadsheetId) {
+                                  setSheetsSpreadsheetId(r.spreadsheetId);
+                                  setSavedBackupFolderId(folderId);
+                                }
+                                const c = r?.counts;
+                                toast.success(c ? `גיבוי יזום הושלם: ${c.events} אירועים, ${c.clients} לקוחות, ${c.artists} אמנים, ${c.expenses} הוצאות` : 'גיבוי יזום הושלם');
+                                setManualBackupLoading(false);
+                              },
+                              onFailed: (msg) => {
+                                toast.error(msg || 'גיבוי יזום נכשל');
+                                setManualBackupLoading(false);
+                              },
+                            });
+                          } else if (result.ok) {
+                            const r = result as { spreadsheetId?: string; counts?: { events: number; clients: number; artists: number; expenses: number } };
+                            if (r.spreadsheetId) {
+                              setSheetsSpreadsheetId(r.spreadsheetId);
+                              setSavedBackupFolderId(folderId);
+                            }
+                            const c = r.counts!;
                             toast.success(`גיבוי יזום הושלם: ${c.events} אירועים, ${c.clients} לקוחות, ${c.artists} אמנים, ${c.expenses} הוצאות`);
+                            setManualBackupLoading(false);
                           } else {
                             toast.error(result.detail || result.error);
+                            setManualBackupLoading(false);
                           }
                         } catch (e: any) {
                           toast.error(e?.message || 'גיבוי יזום נכשל');
-                        } finally {
                           setManualBackupLoading(false);
                         }
                       }}

@@ -47,8 +47,8 @@ import { createEventDocument, checkEventDocumentStatus } from '@/services/mornin
 import { agreementService } from '@/services/agreementService';
 import { getCollectionStatus } from '@/lib/collectionStatus';
 import { useSilentSheetsSync } from '@/hooks/useSilentSheetsSync';
-import { createSheetAndSync } from '@/services/sheetsSyncService';
-import { fetchSyncDataForAgency, formatDataForSheets } from '@/services/sheetsSyncClient';
+import { createSheetAndSync, subscribeSyncQueue } from '@/services/sheetsSyncService';
+import { fetchSyncDataForAgency, formatDataForSheets, hasDataForBackup } from '@/services/sheetsSyncClient';
 import { triggerImmediateSync } from '@/services/sheetsSyncClient';
 
 const EventsPage: React.FC = () => {
@@ -521,11 +521,20 @@ const EventsPage: React.FC = () => {
             const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(`ima_backup_url_${currentAgency.id}`) : null;
             const url = (raw || '').trim();
             const folderId = url?.match(/folders\/([a-zA-Z0-9_-]+)/)?.[1] ?? (/^[a-zA-Z0-9_-]{20,}$/.test(url) ? url : null);
-            if (folderId) {
+            if (folderId && user?.id) {
               const data = await fetchSyncDataForAgency(currentAgency.id);
+              if (!hasDataForBackup(data)) {
+                showError('לא נמצאו נתונים עבור הסוכנות הנוכחית.');
+                return;
+              }
               const sheets = formatDataForSheets(data);
-              const result = await createSheetAndSync(currentAgency.id, folderId, sheets);
-              if (result.ok) {
+              const result = await createSheetAndSync(currentAgency.id, folderId, sheets, user.id);
+              if (result.ok && 'queued' in result && result.queued) {
+                subscribeSyncQueue(result.queueId, {
+                  onCompleted: () => success('גיליון גיבוי נוצר ב־Drive ✅'),
+                  onFailed: (msg) => showError(`גיבוי Drive נכשל: ${msg || 'שגיאה לא ידועה'}. ניתן ליצור ידנית בהגדרות → גיבוי נתונים.`),
+                });
+              } else if (result.ok) {
                 success('גיליון גיבוי נוצר ב־Drive ✅');
               } else {
                 const errMsg = result.detail || result.error || 'שגיאה לא ידועה';

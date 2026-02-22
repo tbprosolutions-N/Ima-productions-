@@ -307,16 +307,28 @@ export async function resyncSheetClient(
 // ── Shared fetch + Silent Sync ───────────────────────────────────────────────
 
 /**
+ * Returns false if there is no meaningful data to sync (events, artists, and expenses all empty).
+ * Call before Edge Function — avoids empty file sync and 502 from empty payload.
+ */
+export function hasDataForBackup(data: SyncData): boolean {
+  return data.events.length > 0 || data.artists.length > 0 || data.expenses.length > 0;
+}
+
+/**
  * Fetch all data needed for Sheets sync. Used by SettingsPage and silent sync.
+ * Uses agency_id filter — ensure agencyId matches the user's agency (UUID from agencies table).
  */
 export async function fetchSyncDataForAgency(agencyId: string): Promise<SyncData> {
-  if (!agencyId) return { events: [], clients: [], artists: [], expenses: [] };
+  if (!agencyId || typeof agencyId !== 'string' || agencyId.trim().length === 0) {
+    return { events: [], clients: [], artists: [], expenses: [] };
+  }
+  const trimmedId = agencyId.trim();
   if (isDemoMode()) {
     return {
-      events: demoGetEvents(agencyId),
-      clients: demoGetClients(agencyId),
-      artists: demoGetArtists(agencyId),
-      expenses: getFinanceExpenses(agencyId),
+      events: demoGetEvents(trimmedId),
+      clients: demoGetClients(trimmedId),
+      artists: demoGetArtists(trimmedId),
+      expenses: getFinanceExpenses(trimmedId),
     };
   }
   // Columns derived from the row-mapper functions above — only what gets written to the sheet.
@@ -326,10 +338,10 @@ export async function fetchSyncDataForAgency(agencyId: string): Promise<SyncData
   const EXPENSE_SYNC_COLS  = 'id,agency_id,filename,vendor,supplier_name,amount,vat,expense_date,morning_status,notes';
 
   const [eventsRes, clientsRes, artistsRes, expensesRes] = await Promise.all([
-    supabase.from('events').select(EVENT_SYNC_COLS).eq('agency_id', agencyId).order('event_date', { ascending: false }).limit(2000),
-    supabase.from('clients').select(CLIENT_SYNC_COLS).eq('agency_id', agencyId).order('name').limit(2000),
-    supabase.from('artists').select(ARTIST_SYNC_COLS).eq('agency_id', agencyId).order('name').limit(2000),
-    supabase.from('finance_expenses').select(EXPENSE_SYNC_COLS).eq('agency_id', agencyId).order('created_at', { ascending: false }).limit(2000),
+    supabase.from('events').select(EVENT_SYNC_COLS).eq('agency_id', trimmedId).order('event_date', { ascending: false }).limit(2000),
+    supabase.from('clients').select(CLIENT_SYNC_COLS).eq('agency_id', trimmedId).order('name').limit(2000),
+    supabase.from('artists').select(ARTIST_SYNC_COLS).eq('agency_id', trimmedId).order('name').limit(2000),
+    supabase.from('finance_expenses').select(EXPENSE_SYNC_COLS).eq('agency_id', trimmedId).order('created_at', { ascending: false }).limit(2000),
   ]);
   return {
     events: (eventsRes.data || []) as any[],
