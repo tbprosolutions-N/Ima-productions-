@@ -228,6 +228,7 @@ const FinancePageContent: React.FC = () => {
       } catch (e) {
         console.error(e);
         setEvents([]);
+        showError('שגיאה בטעינת אירועי התקופה. אנא רענן את הדף.');
       } finally {
         setEventsLoading(false);
       }
@@ -303,6 +304,7 @@ const FinancePageContent: React.FC = () => {
         console.error(e);
         setArtists([]);
         setClients([]);
+        showError('שגיאה בטעינת רשימת אמנים ולקוחות. אנא רענן את הדף.');
       }
     };
     run();
@@ -800,7 +802,7 @@ const FinancePageContent: React.FC = () => {
             file: list[idx],
             filename: meta.filename,
             filetype: meta.filetype,
-          }).catch((e) => console.warn('setFinanceExpenseFile failed', e))
+          }).catch((e) => console.error('[Finance] setFinanceExpenseFile (IDB) failed:', e))
         )
       );
       const newExpenses = [...next, ...expenses];
@@ -906,7 +908,10 @@ const FinancePageContent: React.FC = () => {
         .filter(Boolean) as string[];
       if (toRemovePaths.length > 0) supabase.storage.from('expenses').remove(toRemovePaths).catch(() => {});
       supabase.from('finance_expenses').delete().in('id', ids).then(({ error }) => {
-        if (error) console.error(error);
+        if (error) {
+          console.error(error);
+          showError('מחיקת ההוצאה מהשרת נכשלה. אנא רענן את הדף ונסה שוב.');
+        }
       });
     } else {
       Array.from(set).forEach((id) => deleteFinanceExpenseFile({ agencyId, expenseId: id }).catch(() => {}));
