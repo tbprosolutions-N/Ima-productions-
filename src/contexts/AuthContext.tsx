@@ -32,7 +32,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // maybeSingle() returns { data: null, error: null } when no row exists — never throws PGRST116.
       // This prevents accidental logouts triggered by the missing-row exception path.
       const { data, error } = await withTimeout<any>(
-        supabase.from('users').select('id,email,full_name,role,agency_id,permissions,avatar_url,created_at,updated_at,onboarded').eq('id', authUser.id).maybeSingle() as any,
+        supabase.from('users').select('*').eq('id', authUser.id).maybeSingle() as any,
         timeout,
         'Fetch user profile'
       );
@@ -44,7 +44,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const cc = (() => { try { return (localStorage.getItem('ima:last_company_id') || '').trim() || null; } catch { return null; } })();
         await withTimeout<any>(supabase.rpc('ensure_user_profile', { company_code: cc }) as any, 12000, 'Provision profile');
         const { data: d2, error: e2 } = await withTimeout<any>(
-          supabase.from('users').select('id,email,full_name,role,agency_id,permissions,avatar_url,created_at,updated_at,onboarded').eq('id', authUser.id).maybeSingle() as any, 10000, 'Re-fetch profile');
+          supabase.from('users').select('*').eq('id', authUser.id).maybeSingle() as any, 10000, 'Re-fetch profile');
         if (!e2 && d2) { setUser(d2); return d2; }
       } catch (pe) {
         console.warn('Auth: profile provisioning failed', pe);
@@ -145,7 +145,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (!mounted) return;
           // Only redirect to unauthorized when profile row is missing (not on timeout) — prevents logout on refresh
           if (!profile) {
-            const { data: recheck } = await supabase.from('users').select('id,email,full_name,role,agency_id,permissions,avatar_url,created_at,updated_at,onboarded').eq('id', authUser.id).maybeSingle();
+            const { data: recheck } = await supabase.from('users').select('*').eq('id', authUser.id).maybeSingle();
             if (recheck) {
               setUser(recheck as User);
             } else {
