@@ -360,7 +360,15 @@ const QuickNewEventDialog: React.FC<{
             </div>
             <div className="flex flex-col gap-2">
               <Label>שעת אירוע</Label>
-              <Input type="time" value={form.event_time} onChange={e => setForm(f => ({ ...f, event_time: e.target.value }))} />
+              <div className="relative">
+                <Clock className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                <Input
+                  type="time"
+                  value={form.event_time}
+                  onChange={e => setForm(f => ({ ...f, event_time: e.target.value }))}
+                  className="pr-10 rounded-sm border-2 border-border focus:border-primary focus:ring-2 focus:ring-primary/20 font-mono tracking-wide"
+                />
+              </div>
             </div>
             <div className="flex flex-col gap-2">
               <Label>סכום (₪)</Label>

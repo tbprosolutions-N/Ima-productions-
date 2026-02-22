@@ -25,6 +25,7 @@ import type { IntegrationConnection } from '@/types';
 import { demoGetEvents, demoGetClients, demoGetArtists, isDemoMode } from '@/lib/demoStore';
 import { getFinanceExpenses } from '@/lib/financeStore';
 import { createSheetAndSync, resyncSheet } from '@/services/sheetsSyncService';
+import { fetchSyncDataForAgency, formatDataForSheets, generateCsvFromSyncData } from '@/services/sheetsSyncClient';
 // jsPDF is loaded lazily inside the PDF generation handler — not on module import
 
 const SettingsPage: React.FC = () => {
@@ -1376,7 +1377,11 @@ const SettingsPage: React.FC = () => {
                           if (!currentAgency?.id || !sheetsSpreadsheetId) return;
                           setSheetsSyncing(true);
                           try {
-                            const result = await resyncSheet(currentAgency.id, sheetsSpreadsheetId);
+                            toast.info('מכין נתונים...');
+                            const data = await fetchSyncDataForAgency(currentAgency.id);
+                            const sheets = formatDataForSheets(data);
+                            toast.info('מסנכרן ל־Google Sheets...');
+                            const result = await resyncSheet(currentAgency.id, sheetsSpreadsheetId, sheets);
                             if (result.ok) {
                               toast.success(`סנכרון הושלם: ${result.counts!.events} אירועים, ${result.counts!.clients} לקוחות, ${result.counts!.artists} אמנים, ${result.counts!.expenses} הוצאות`);
                             } else {
@@ -1395,6 +1400,28 @@ const SettingsPage: React.FC = () => {
                             מסנכרן...
                           </span>
                         ) : 'סנכרן שוב'}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={async () => {
+                          if (!currentAgency?.id) return;
+                          try {
+                            const data = await fetchSyncDataForAgency(currentAgency.id);
+                            const csv = generateCsvFromSyncData(data);
+                            const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+                            const a = document.createElement('a');
+                            a.href = URL.createObjectURL(blob);
+                            a.download = `npc-backup-${new Date().toISOString().slice(0, 10)}.csv`;
+                            a.click();
+                            URL.revokeObjectURL(a.href);
+                            toast.success('קובץ CSV הורד');
+                          } catch (e: any) {
+                            toast.error(e?.message || 'הורדת CSV נכשלה');
+                          }
+                        }}
+                      >
+                        הורד CSV
                       </Button>
                     </div>
                   </div>
@@ -1427,7 +1454,11 @@ const SettingsPage: React.FC = () => {
                         saveBackupUrl();
                         setSheetsSyncing(true);
                         try {
-                          const result = await createSheetAndSync(currentAgency.id, folderId);
+                          toast.info('מכין נתונים...');
+                          const data = await fetchSyncDataForAgency(currentAgency.id);
+                          const sheets = formatDataForSheets(data);
+                          toast.info('יוצר גיליון ומסנכרן...');
+                          const result = await createSheetAndSync(currentAgency.id, folderId, sheets);
                           if (result.ok) {
                             setSheetsSpreadsheetId(result.spreadsheetId);
                             setSavedBackupFolderId(folderId);
@@ -1468,7 +1499,11 @@ const SettingsPage: React.FC = () => {
                         }
                         setManualBackupLoading(true);
                         try {
-                          const result = await createSheetAndSync(currentAgency.id, folderId);
+                          toast.info('מכין נתונים...');
+                          const data = await fetchSyncDataForAgency(currentAgency.id);
+                          const sheets = formatDataForSheets(data);
+                          toast.info('מבצע גיבוי יזום...');
+                          const result = await createSheetAndSync(currentAgency.id, folderId, sheets);
                           if (result.ok) {
                             setSheetsSpreadsheetId(result.spreadsheetId);
                             setSavedBackupFolderId(folderId);

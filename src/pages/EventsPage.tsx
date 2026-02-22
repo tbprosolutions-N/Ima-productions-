@@ -12,7 +12,7 @@ import {
   ColumnFiltersState,
   RowSelectionState,
 } from '@tanstack/react-table';
-import { Plus, Search, Download, Edit, Trash2, ArrowUpDown, Sparkles } from 'lucide-react';
+import { Plus, Search, Download, Edit, Trash2, ArrowUpDown, Sparkles, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardContent, CardHeader } from '@/components/ui/Card';
@@ -48,6 +48,7 @@ import { agreementService } from '@/services/agreementService';
 import { getCollectionStatus } from '@/lib/collectionStatus';
 import { useSilentSheetsSync } from '@/hooks/useSilentSheetsSync';
 import { createSheetAndSync } from '@/services/sheetsSyncService';
+import { fetchSyncDataForAgency, formatDataForSheets } from '@/services/sheetsSyncClient';
 import { triggerImmediateSync } from '@/services/sheetsSyncClient';
 
 const EventsPage: React.FC = () => {
@@ -521,7 +522,9 @@ const EventsPage: React.FC = () => {
             const url = (raw || '').trim();
             const folderId = url?.match(/folders\/([a-zA-Z0-9_-]+)/)?.[1] ?? (/^[a-zA-Z0-9_-]{20,}$/.test(url) ? url : null);
             if (folderId) {
-              const result = await createSheetAndSync(currentAgency.id, folderId);
+              const data = await fetchSyncDataForAgency(currentAgency.id);
+              const sheets = formatDataForSheets(data);
+              const result = await createSheetAndSync(currentAgency.id, folderId, sheets);
               if (result.ok) {
                 success('גיליון גיבוי נוצר ב־Drive ✅');
               } else {
@@ -1321,13 +1324,16 @@ const EventsPage: React.FC = () => {
               </div>
               <div className="flex flex-col gap-2 col-span-2">
                 <Label htmlFor="event_time" className="text-foreground">שעת אירוע</Label>
-                <Input
-                  id="event_time"
-                  type="time"
-                  value={formData.event_time}
-                  onChange={(e) => setFormData({ ...formData, event_time: e.target.value })}
-                  className="border-primary/30"
-                />
+                <div className="relative">
+                  <Clock className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                  <Input
+                    id="event_time"
+                    type="time"
+                    value={formData.event_time}
+                    onChange={(e) => setFormData({ ...formData, event_time: e.target.value })}
+                    className="pr-10 rounded-sm border-2 border-primary/30 focus:border-primary focus:ring-2 focus:ring-primary/20 font-mono tracking-wide"
+                  />
+                </div>
               </div>
               <div className="flex flex-col gap-2">
                 <Label htmlFor="client_business_name" className="text-foreground">לקוח *</Label>

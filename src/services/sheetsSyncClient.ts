@@ -128,6 +128,59 @@ export type SyncData = {
   expenses: any[];
 };
 
+/** Formatted 2D arrays ready for Sheets API (headers + rows). */
+export type SheetsPayload = {
+  'אירועים': string[][];
+  'לקוחות': string[][];
+  'אמנים': string[][];
+  'פיננסים': string[][];
+};
+
+/**
+ * Generate CSV string from formatted sheet data (escape commas, newlines, quotes).
+ */
+function escapeCsvCell(val: string): string {
+  const s = String(val ?? '');
+  if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
+/**
+ * Emergency CSV: generate downloadable CSV from sync data. No server calls.
+ */
+export function generateCsvFromSyncData(data: SyncData): string {
+  const payload = formatDataForSheets(data);
+  const sections: string[] = [];
+  for (const [name, rows] of Object.entries(payload)) {
+    if (rows.length > 0) {
+      sections.push(`# ${name}\n` + rows.map(r => r.map(escapeCsvCell).join(',')).join('\n'));
+    }
+  }
+  return sections.join('\n\n');
+}
+
+/**
+ * Format raw sync data into 2D arrays for Sheets.
+ * Client-side data preparation — no server fetch.
+ */
+export function formatDataForSheets(data: SyncData): SheetsPayload {
+  const artistMap = new Map(data.artists.map((a: any) => [a.id, a.name]));
+  const clientMap = new Map(data.clients.map((c: any) => [c.id, c.name]));
+  const enrichedEvents = data.events.map((e: any) => ({
+    ...e,
+    artist_id: artistMap.get(e.artist_id) || e.artist_id || '',
+    client_id: clientMap.get(e.client_id) || e.client_id || '',
+  }));
+  return {
+    'אירועים': [eventHeaders(), ...enrichedEvents.map((e: any) => eventToRow(e, artistMap, clientMap))],
+    'לקוחות': [clientHeaders(), ...data.clients.map((c: any) => clientToRow(c))],
+    'אמנים': [artistHeaders(), ...data.artists.map((a: any) => artistToRow(a))],
+    'פיננסים': [financeHeaders(), ...data.expenses.map((f: any) => financeToRow(f))],
+  };
+}
+
 /**
  * Create a new spreadsheet in the given Drive folder and sync all data.
  * All Google API calls run in the browser — no backend required.

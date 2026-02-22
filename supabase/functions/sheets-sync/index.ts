@@ -197,91 +197,34 @@ async function createSpreadsheetInFolder(
   };
 }
 
-// ── Row serialisers ───────────────────────────────────────────────────────────
+// ── Push pre-formatted data to Sheets (no DB fetch) ─────────────────────────────
 
-const eventHeaders  = () => ['תאריך','שם עסק','שם לחשבונית','סכום','סטטוס','אמן','לקוח','תאריך תשלום','סוג מסמך','הערות','סנכרון Morning','עודכן'];
-const clientHeaders = () => ['שם','איש קשר','טלפון','אימייל','ח.פ/עוסק','כתובת','הערות'];
-const artistHeaders = () => ['שם','שם מלא','חברה','טלפון','אימייל','ח.פ/עוסק','בנק','סניף','חשבון','הערות'];
-const financeHeaders= () => ['קובץ','ספק','סכום','מע״מ','תאריך הוצאה','סנכרון Morning','הערות'];
-
-const eventToRow   = (e: any) => [e.event_date||'',e.business_name||'',e.invoice_name||'',String(e.amount??''),e.status||'',e.artist_id||'',e.client_id||'',e.payment_date||'',e.doc_type||'',e.notes||'',e.morning_sync_status||'',e.updated_at||''];
-const clientToRow  = (c: any) => [c.name||'',c.contact_person||'',c.phone||'',c.email||'',c.vat_id||'',c.address||'',c.notes||''];
-const artistToRow  = (a: any) => [a.name||'',a.full_name||'',a.company_name||'',a.phone||'',a.email||'',a.vat_id||'',a.bank_name||'',a.bank_branch||'',a.bank_account||'',a.notes||''];
-const financeToRow = (f: any) => [f.filename||'',f.vendor||f.supplier_name||'',String(f.amount??''),String(f.vat??''),f.expense_date||'',f.morning_status||'',f.notes||''];
-
-// ── Sheet write helper ────────────────────────────────────────────────────────
-
-async function writeSheet(token: string, spreadsheetId: string, sheetName: string, headers: string[], rows: string[][]) {
-  await googleApi({
-    url: `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A1?valueInputOption=RAW`,
-    method: 'PUT',
-    token,
-    body: { values: [headers, ...rows] },
-  });
-}
-
-// ── Full sync ─────────────────────────────────────────────────────────────────
-
-async function clearAndSyncAll(args: {
-  token: string;
-  spreadsheetId: string;
-  supabase: ReturnType<typeof createClient>;
-  agencyId: string;
-  requestId: string;
-}) {
-  const { token, spreadsheetId, supabase, agencyId, requestId } = args;
-  console.log(`${LOG_PREFIX} ${requestId} Sync: fetching data from Supabase...`);
-
-  const [eventsRes, clientsRes, artistsRes, expensesRes] = await Promise.all([
-    supabase.from('events').select('*').eq('agency_id', agencyId).order('event_date', { ascending: false }),
-    supabase.from('clients').select('*').eq('agency_id', agencyId).order('name'),
-    supabase.from('artists').select('*').eq('agency_id', agencyId).order('name'),
-    supabase.from('finance_expenses').select('*').eq('agency_id', agencyId).order('created_at', { ascending: false }),
-  ]);
-
-  const events   = (eventsRes.data   || []) as any[];
-  const clients  = (clientsRes.data  || []) as any[];
-  const artists  = (artistsRes.data  || []) as any[];
-  const expenses = (expensesRes.data || []) as any[];
-
-  const artistMap = new Map(artists.map((a: any) => [a.id, a.name]));
-  const clientMap = new Map(clients.map((c: any) => [c.id, c.name]));
-  const enrichedEvents = events.map((e: any) => ({
-    ...e,
-    artist_id: artistMap.get(e.artist_id) || e.artist_id || '',
-    client_id: clientMap.get(e.client_id) || e.client_id || '',
+/** Push client-provided 2D arrays to Google Sheets. Pure proxy — no DB. */
+async function pushSheetsData(
+  token: string,
+  spreadsheetId: string,
+  sheets: { 'אירועים'?: string[][]; 'לקוחות'?: string[][]; 'אמנים'?: string[][]; 'פיננסים'?: string[][] },
+  requestId: string
+): Promise<void> {
+  const names = ['אירועים', 'לקוחות', 'אמנים', 'פיננסים'] as const;
+  await Promise.all(names.map(async (name) => {
+    const values = sheets[name] ?? [];
+    if (values.length === 0) return;
+    await googleApi({
+      url: `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(name)}!A1?valueInputOption=RAW`,
+      method: 'PUT',
+      token,
+      body: { values },
+    });
   }));
-
-  console.log(`${LOG_PREFIX} ${requestId} Sync: ${events.length} events, ${clients.length} clients, ${artists.length} artists, ${expenses.length} expenses`);
-
-  // Clear all sheets first
-  for (const name of ['אירועים', 'לקוחות', 'אמנים', 'פיננסים']) {
-    try {
-      await googleApi({
-        url: `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(name)}?valueInputOption=RAW`,
-        method: 'PUT',
-        token,
-        body: { values: [[]] },
-      });
-    } catch (e) { if (e instanceof GoogleAuthError) throw e; }
-  }
-
-  await Promise.all([
-    writeSheet(token, spreadsheetId, 'אירועים',  eventHeaders(),  enrichedEvents.map(eventToRow)),
-    writeSheet(token, spreadsheetId, 'לקוחות',   clientHeaders(), clients.map(clientToRow)),
-    writeSheet(token, spreadsheetId, 'אמנים',    artistHeaders(), artists.map(artistToRow)),
-    writeSheet(token, spreadsheetId, 'פיננסים',  financeHeaders(),expenses.map(financeToRow)),
-  ]);
-
-  console.log(`${LOG_PREFIX} ${requestId} Sync: completed`);
-  return { events: events.length, clients: clients.length, artists: artists.length, expenses: expenses.length };
+  console.log(`${LOG_PREFIX} ${requestId} Sync: pushed ${names.length} sheets`);
 }
 
 // ── CORS + response helpers ───────────────────────────────────────────────────
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
@@ -299,6 +242,10 @@ function isValidFolderId(id: string): boolean {
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
+  // Super-Logger: first line — confirms function is invoked
+  const hasAuth = !!req.headers.get('authorization');
+  console.log(`${LOG_PREFIX} Function triggered`, { method: req.method, hasAuth });
+
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: CORS_HEADERS });
   }
@@ -308,12 +255,15 @@ Deno.serve(async (req: Request) => {
 
   const requestId = `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
-  let reqBody: { action?: string; agencyId?: string; folderId?: string; spreadsheetId?: string };
+  let reqBody: { action?: string; agencyId?: string; folderId?: string; spreadsheetId?: string; userId?: string; sheets?: Record<string, string[][]>; counts?: { events: number; clients: number; artists: number; expenses: number } };
   try {
     reqBody = await req.json();
-  } catch {
+  } catch (e: unknown) {
+    console.error(`${LOG_PREFIX} ${requestId} JSON parse failed:`, e);
     return respond(400, { error: 'Invalid JSON body' });
   }
+
+  console.log(`${LOG_PREFIX} Function triggered by user:`, (reqBody as any)?.userId ?? 'anonymous', 'action:', reqBody?.action, 'agencyId:', reqBody?.agencyId?.slice?.(0, 8));
 
   const action       = typeof reqBody.action       === 'string' ? reqBody.action.trim()       : undefined;
   const agencyId     = typeof reqBody.agencyId     === 'string' ? reqBody.agencyId.trim()     : undefined;
@@ -324,17 +274,34 @@ Deno.serve(async (req: Request) => {
 
   if (!agencyId) return respond(400, { error: 'Missing agencyId' });
 
+  // Early env validation — avoid 502 from missing vars
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')?.trim();
+  const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')?.trim();
+  const googleEmail = Deno.env.get('GOOGLE_SA_CLIENT_EMAIL')?.trim();
+  const googleKey   = Deno.env.get('GOOGLE_SA_PRIVATE_KEY')?.trim();
+
+  if (!supabaseUrl || !supabaseKey) {
+    console.error(`${LOG_PREFIX} ${requestId} Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY`);
+    return respond(502, { error: 'Supabase not configured (missing URL or service role key)' });
+  }
+  if (!googleEmail || !googleKey) {
+    console.error(`${LOG_PREFIX} ${requestId} Missing GOOGLE_SA_CLIENT_EMAIL or GOOGLE_SA_PRIVATE_KEY`);
+    return respond(502, { error: 'Google Service Account not configured. Set GOOGLE_SA_CLIENT_EMAIL and GOOGLE_SA_PRIVATE_KEY via supabase secrets set' });
+  }
+
+  const sheets = reqBody.sheets && typeof reqBody.sheets === 'object' ? reqBody.sheets : undefined;
+  const counts = reqBody.counts && typeof reqBody.counts === 'object' ? reqBody.counts : { events: 0, clients: 0, artists: 0, expenses: 0 };
+
+  if (action === 'createAndSync' || action === 'sync') {
+    if (!sheets || !sheets['אירועים']) {
+      return respond(400, { error: 'Missing sheets data. Client must send formatted data in request body.' });
+    }
+  }
   if (action === 'createAndSync') {
     if (!folderId) return respond(400, { error: 'Missing folderId' });
     const folderMatch = folderId.match(/folders\/([a-zA-Z0-9_-]+)/);
     if (folderMatch) folderId = folderMatch[1];
     if (!isValidFolderId(folderId)) return respond(400, { error: 'Invalid folderId' });
-  }
-
-  const supabaseUrl = Deno.env.get('SUPABASE_URL');
-  const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-  if (!supabaseUrl || !supabaseKey) {
-    return respond(502, { error: 'Supabase not configured' });
   }
 
   try {
@@ -345,7 +312,8 @@ Deno.serve(async (req: Request) => {
       return respond(502, { error: 'Google Service Account not configured', detail: e.message });
     }
 
-    const supabase = createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } });
+    // Service Role Key bypasses RLS — required for server-side sync
+    const supabase = createClient(supabaseUrl!, supabaseKey!, { auth: { persistSession: false } });
 
     // ── createAndSync action ─────────────────────────────────────────────────
     if (action === 'createAndSync') {
@@ -370,9 +338,8 @@ Deno.serve(async (req: Request) => {
         return respond(502, { error: 'Failed to create spreadsheet', detail: e?.message });
       }
 
-      let counts: { events: number; clients: number; artists: number; expenses: number };
       try {
-        counts = await clearAndSyncAll({ token, spreadsheetId: result.spreadsheetId, supabase, agencyId, requestId });
+        await pushSheetsData(token, result.spreadsheetId, sheets!, requestId);
       } catch (e: any) {
         return respond(502, {
           error: 'Created spreadsheet but sync failed',
@@ -400,9 +367,8 @@ Deno.serve(async (req: Request) => {
     // ── sync action ──────────────────────────────────────────────────────────
     if (action === 'sync') {
       if (!spreadsheetId) return respond(400, { error: 'Missing spreadsheetId' });
-      let counts: { events: number; clients: number; artists: number; expenses: number };
       try {
-        counts = await clearAndSyncAll({ token, spreadsheetId, supabase, agencyId, requestId });
+        await pushSheetsData(token, spreadsheetId, sheets!, requestId);
       } catch (e: any) {
         return respond(502, { error: 'Sync failed', detail: e?.message });
       }

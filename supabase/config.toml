@@ -1,0 +1,6 @@
+# Supabase Edge Functions configuration
+# https://supabase.com/docs/guides/functions/function-configuration
+
+# sheets-sync uses service account for Google API; agencyId passed in body
+[functions.sheets-sync]
+verify_jwt = false

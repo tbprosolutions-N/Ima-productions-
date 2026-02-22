@@ -13,13 +13,32 @@ export type SheetsSyncResult =
 const SHEETS_REQUEST_TIMEOUT_MS = 110_000; // 110s client timeout; Supabase Edge Functions allow 150s
 
 async function sheetsFetch(bodyObj: Record<string, unknown>): Promise<SheetsSyncResult> {
+  // Ensure we have a valid session and refresh if expired (fixes 401 from Edge Function)
+  let { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    const { data: { session: refreshed } } = await supabase.auth.refreshSession();
+    session = refreshed ?? null;
+  }
+  if (!session?.access_token) {
+    return { ok: false, error: 'Please sign in to sync with Google Sheets.' };
+  }
+
+  const apikey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? '';
+
   // Race the invoke against a hard client-side timeout
   const timeoutPromise = new Promise<SheetsSyncResult>((_, reject) =>
     setTimeout(() => reject(new Error('TIMEOUT')), SHEETS_REQUEST_TIMEOUT_MS)
   );
 
   const invokePromise = supabase.functions
-    .invoke('sheets-sync', { body: bodyObj })
+    .invoke('sheets-sync', {
+      body: bodyObj,
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`,
+        'apikey': apikey,
+        'x-client-info': 'npc-agent-management',
+      },
+    })
     .then(({ data, error }) => {
       if (error) {
         return {
@@ -57,15 +76,37 @@ async function sheetsFetch(bodyObj: Record<string, unknown>): Promise<SheetsSync
 }
 
 /**
- * Create a new Google Spreadsheet in the specified Drive folder and sync all data.
+ * Create a new Google Spreadsheet in the specified Drive folder and sync data.
+ * Data must be prepared client-side (formatDataForSheets) and passed in.
  */
-export async function createSheetAndSync(agencyId: string, folderId: string): Promise<SheetsSyncResult> {
-  return sheetsFetch({ action: 'createAndSync', agencyId, folderId });
+export async function createSheetAndSync(
+  agencyId: string,
+  folderId: string,
+  sheets: { 'אירועים': string[][]; 'לקוחות': string[][]; 'אמנים': string[][]; 'פיננסים': string[][] }
+): Promise<SheetsSyncResult> {
+  const counts = {
+    events: sheets['אירועים'].length - 1,
+    clients: sheets['לקוחות'].length - 1,
+    artists: sheets['אמנים'].length - 1,
+    expenses: sheets['פיננסים'].length - 1,
+  };
+  return sheetsFetch({ action: 'createAndSync', agencyId, folderId, sheets, counts });
 }
 
 /**
- * Re-sync all data to an existing spreadsheet.
+ * Re-sync data to an existing spreadsheet.
+ * Data must be prepared client-side (formatDataForSheets) and passed in.
  */
-export async function resyncSheet(agencyId: string, spreadsheetId: string): Promise<SheetsSyncResult> {
-  return sheetsFetch({ action: 'sync', agencyId, spreadsheetId });
+export async function resyncSheet(
+  agencyId: string,
+  spreadsheetId: string,
+  sheets: { 'אירועים': string[][]; 'לקוחות': string[][]; 'אמנים': string[][]; 'פיננסים': string[][] }
+): Promise<SheetsSyncResult> {
+  const counts = {
+    events: sheets['אירועים'].length - 1,
+    clients: sheets['לקוחות'].length - 1,
+    artists: sheets['אמנים'].length - 1,
+    expenses: sheets['פיננסים'].length - 1,
+  };
+  return sheetsFetch({ action: 'sync', agencyId, spreadsheetId, sheets, counts });
 }
