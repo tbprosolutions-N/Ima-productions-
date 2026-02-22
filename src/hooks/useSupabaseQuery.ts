@@ -11,6 +11,7 @@ import type { Event, Artist, Client } from '@/types';
 
 const STALE_TIME = 2 * 60 * 1000; // 2 minutes before background refetch
 const CACHE_TIME = 10 * 60 * 1000; // 10 minutes in cache
+const PREFETCH_STALE_MIN = 30 * 1000; // Stale-while-revalidate: at least 30s (no duplicate fetch within 30s)
 
 // ── Column selectors ────────────────────────────────────────────────────────
 // Explicit columns instead of SELECT * — avoids fetching large/unused fields
@@ -142,6 +143,8 @@ export function useInvalidateClients() {
 
 export function getPrefetchOptions(agencyId: string | undefined) {
   if (!agencyId) return null;
+  const today = new Date().toISOString().slice(0, 10);
+  const stale = Math.max(STALE_TIME, PREFETCH_STALE_MIN);
   return {
     events: {
       queryKey: ['events', agencyId] as const,
@@ -155,11 +158,37 @@ export function getPrefetchOptions(agencyId: string | undefined) {
         if (error) throw error;
         return (data || []) as unknown as Event[];
       },
-      staleTime: STALE_TIME,
+      staleTime: stale,
+      gcTime: CACHE_TIME,
+    },
+    /** Dashboard: next 5 upcoming events only — lighter payload. */
+    eventsUpcoming5: {
+      queryKey: ['events-upcoming', agencyId] as const,
+      queryFn: async () => {
+        if (isDemoMode()) {
+          const all = demoGetEvents(agencyId);
+          return all
+            .filter((e) => (e.event_date || '').toString().slice(0, 10) >= today && e.status !== 'cancelled')
+            .sort((a, b) => (a.event_date || '').localeCompare(b.event_date || ''))
+            .slice(0, 5);
+        }
+        const { data, error } = await supabase
+          .from('events')
+          .select(EVENT_LIST_COLS)
+          .eq('agency_id', agencyId)
+          .gte('event_date', today)
+          .neq('status', 'cancelled')
+          .order('event_date', { ascending: true })
+          .limit(5);
+        if (error) throw error;
+        return (data || []) as unknown as Event[];
+      },
+      staleTime: stale,
       gcTime: CACHE_TIME,
     },
     artists: {
       queryKey: ['artists', agencyId] as const,
+      staleTime: stale,
       queryFn: async () => {
         if (isDemoMode()) return demoGetArtists(agencyId);
         const { data, error } = await supabase
@@ -170,11 +199,11 @@ export function getPrefetchOptions(agencyId: string | undefined) {
         if (error) throw error;
         return (data || []) as unknown as Artist[];
       },
-      staleTime: STALE_TIME,
       gcTime: CACHE_TIME,
     },
     clients: {
       queryKey: ['clients', agencyId] as const,
+      staleTime: stale,
       queryFn: async () => {
         if (isDemoMode()) return demoGetClients(agencyId);
         const { data, error } = await supabase
@@ -185,7 +214,6 @@ export function getPrefetchOptions(agencyId: string | undefined) {
         if (error) throw error;
         return (data || []) as unknown as Client[];
       },
-      staleTime: STALE_TIME,
       gcTime: CACHE_TIME,
     },
   };

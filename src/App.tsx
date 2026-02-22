@@ -88,12 +88,20 @@ const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   return <>{children}</>;
 };
 
+const perfLog = (msg: string, ...args: unknown[]) => {
+  if (import.meta.env.DEV) console.log(`[perf] Nav: ${msg}`, ...args);
+};
+
 const AppRoutes: React.FC = () => {
   const { user, loading, authConnectionFailed } = useAuth();
   const { role: dbRole } = useRole();
   const effectiveRole = dbRole ?? user?.role;
   const location = useLocation();
   const isLoginPage = location.pathname === '/login';
+
+  React.useEffect(() => {
+    perfLog('route', location.pathname);
+  }, [location.pathname]);
 
   if (authConnectionFailed && !user && !loading && !isLoginPage) {
     return <AuthRescueScreen />;

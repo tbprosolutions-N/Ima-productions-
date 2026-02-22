@@ -11,6 +11,10 @@ import { checkAndTriggerSilentSync } from '@/services/sheetsSyncClient';
 
 const TRIGGER_PATHS = ['/dashboard', '/events'];
 
+const perfLog = (msg: string, ...args: unknown[]) => {
+  if (import.meta.env.DEV) console.log(`[perf] Sync: ${msg}`, ...args);
+};
+
 export function useSilentSheetsSync(): void {
   const { currentAgency } = useAgency();
   const { showToast, error: showError } = useToast();
@@ -23,8 +27,10 @@ export function useSilentSheetsSync(): void {
     const agencyId = currentAgency?.id;
     if (!agencyId) return;
 
+    perfLog('trigger', path, agencyId);
     checkAndTriggerSilentSync(agencyId, {
       onSuccess: () => {
+        perfLog('sync:done');
         showToast('גיבוי עודכן', 'success', 2000);
       },
       onTokenError: () => {

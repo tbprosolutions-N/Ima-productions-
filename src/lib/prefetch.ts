@@ -9,9 +9,14 @@ import { getPrefetchOptions } from '@/hooks/useSupabaseQuery';
 const PREFETCH_CACHE = new Set<string>();
 const DATA_PREFETCH_CACHE = new Set<string>();
 
+const perfLog = (msg: string, ...args: unknown[]) => {
+  if (import.meta.env.DEV) console.log(`[perf] ${msg}`, ...args);
+};
+
 export function prefetchRoute(path: string): void {
   if (PREFETCH_CACHE.has(path)) return;
   PREFETCH_CACHE.add(path);
+  perfLog('prefetchRoute:start', path);
   const pathToImport: Record<string, () => Promise<unknown>> = {
     '/dashboard': () => import('@/pages/DashboardPage'),
     '/events': () => import('@/pages/EventsPage'),
@@ -24,7 +29,9 @@ export function prefetchRoute(path: string): void {
   };
   const load = pathToImport[path];
   if (load) {
-    load().catch(() => PREFETCH_CACHE.delete(path));
+    load()
+      .then(() => perfLog('prefetchRoute:end', path))
+      .catch(() => { PREFETCH_CACHE.delete(path); perfLog('prefetchRoute:error', path); });
   }
 }
 
@@ -36,6 +43,7 @@ export function prefetchDataForRoute(queryClient: QueryClient, agencyId: string 
   if (!agencyId) return;
   const cacheKey = `${path}:${agencyId}`;
   if (DATA_PREFETCH_CACHE.has(cacheKey)) return;
+  perfLog('prefetchData:start', path, agencyId);
   const opts = getPrefetchOptions(agencyId);
   if (!opts) return;
 
@@ -43,9 +51,13 @@ export function prefetchDataForRoute(queryClient: QueryClient, agencyId: string 
   if (!routesWithData.includes(path)) return;
 
   DATA_PREFETCH_CACHE.add(cacheKey);
+  // Dashboard: only 5 upcoming events. Events/Finance: full lists.
+  const eventsOpt = path === '/dashboard' ? opts.eventsUpcoming5 : opts.events;
   void Promise.all([
-    queryClient.prefetchQuery(opts.events),
+    queryClient.prefetchQuery(eventsOpt as any),
     queryClient.prefetchQuery(opts.artists),
     queryClient.prefetchQuery(opts.clients),
-  ]).catch(() => DATA_PREFETCH_CACHE.delete(cacheKey));
+  ])
+    .then(() => perfLog('prefetchData:end', path, agencyId))
+    .catch(() => { DATA_PREFETCH_CACHE.delete(cacheKey); perfLog('prefetchData:error', path); });
 }

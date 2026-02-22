@@ -512,7 +512,7 @@ const EventsPage: React.FC = () => {
 
         if (error) throw error;
         savedEventId = (inserted as any)?.id;
-        success('אירוע נוסף בהצלחה! 🎉');
+        success('Saved to Database');
 
         // First event: auto-create Drive backup sheet if user has set backup folder URL
         if (events.length === 0) {

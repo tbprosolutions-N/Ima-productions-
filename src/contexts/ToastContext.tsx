@@ -83,7 +83,7 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       {children}
       
       {/* Toast Container */}
-      <div className="fixed top-4 left-4 z-50 space-y-2 pointer-events-none" dir="rtl">
+      <div className="fixed top-4 left-4 space-y-2 pointer-events-none" style={{ zIndex: 9999 }} dir="rtl" data-testid="toast-portal">
         {toasts.map(toast => {
           const Icon = getIcon(toast.type);
           const styles = getStyles(toast.type);

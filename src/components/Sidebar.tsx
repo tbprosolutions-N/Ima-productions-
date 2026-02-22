@@ -35,6 +35,21 @@ interface SidebarProps {
 /** Mobile drawer width: slides in from right; max 70vw */
 const SIDEBAR_WIDTH_MOBILE = 256;
 
+/** Prefetch only on desktop (pointer: fine + hover). Disabled on touch to save data/CPU. */
+function useCanPrefetchOnHover(): boolean {
+  const [canPrefetch, setCanPrefetch] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia('(pointer: fine) and (hover: hover)').matches;
+  });
+  useEffect(() => {
+    const mq = window.matchMedia('(pointer: fine) and (hover: hover)');
+    const handler = () => setCanPrefetch(mq.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  return canPrefetch;
+}
+
 const SidebarInner: React.FC<SidebarProps> = ({ mobileOpen = false, onClose }) => {
   const { user, signOut } = useAuth();
   const { role } = useRole();
@@ -42,6 +57,7 @@ const SidebarInner: React.FC<SidebarProps> = ({ mobileOpen = false, onClose }) =
   const { currentAgency } = useAgency();
   const queryClient = useQueryClient();
   const [isDesktop, setIsDesktop] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches);
+  const canPrefetchOnHover = useCanPrefetchOnHover();
 
   useEffect(() => {
     const mq = window.matchMedia('(min-width: 768px)');
@@ -100,9 +116,10 @@ const SidebarInner: React.FC<SidebarProps> = ({ mobileOpen = false, onClose }) =
   }, [onClose]);
 
   const handlePrefetch = useCallback((path: string) => {
+    if (!canPrefetchOnHover) return; // Desktop only: save data/CPU on mobile
     prefetchRoute(path);
     prefetchDataForRoute(queryClient, currentAgency?.id, path);
-  }, [queryClient, currentAgency?.id]);
+  }, [canPrefetchOnHover, queryClient, currentAgency?.id]);
 
   const mobileTransform = isDesktop ? undefined : (mobileOpen ? 'translateX(0)' : `translateX(${SIDEBAR_WIDTH_MOBILE}px)`);
   const asideStyle = isDesktop ? undefined : {
@@ -145,7 +162,6 @@ const SidebarInner: React.FC<SidebarProps> = ({ mobileOpen = false, onClose }) =
               key={item.to}
               to={item.to}
               onMouseEnter={() => handlePrefetch(item.to)}
-              onFocus={() => handlePrefetch(item.to)}
               onClick={handleNavClick}
               className={({ isActive }) =>
                 `modu-icon-text gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 sm:py-3 rounded-[var(--modu-radius)] transition-all duration-200 min-h-[40px] sm:min-h-[44px] text-sm sm:text-base ${item.to === '/events' ? 'events-link' : ''} ${

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
 import { User as SupabaseUser } from '@supabase/supabase-js';
 import { supabase, getSessionUserFast, signOut as supabaseSignOut } from '@/lib/supabase';
 import type { User } from '@/types';
@@ -18,6 +18,10 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+const perfLog = (msg: string, ...args: unknown[]) => {
+  if (import.meta.env.DEV) console.log(`[perf] Auth: ${msg}`, ...args);
+};
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -57,7 +61,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return null;
   };
 
-  const refreshUser = async () => {
+  const refreshUser = useCallback(async () => {
     // Background refresh — NEVER clears the session on failure.
     // Only an explicit signOut() should clear the user.
     try {
@@ -72,7 +76,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {
       // Background refresh failed — session preserved
     }
-  };
+  }, []);
 
   const retryConnection = React.useCallback(() => {
     setAuthConnectionFailed(false);
@@ -96,11 +100,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let initResolved = false;
 
     const initAuth = async () => {
+      perfLog('init:start');
       try {
         // Demo mode — instant, no Supabase
         const demoAuth = localStorage.getItem('demo_authenticated');
         const demoUserData = localStorage.getItem('demo_user');
         if (demoAuth === 'true' && demoUserData) {
+          perfLog('init:demo');
           try {
             const du = JSON.parse(demoUserData) as User;
             if (mounted) { initResolved = true; setUser(du); setLoading(false); }
@@ -139,8 +145,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (!mounted) return;
 
         if (authUser) {
+          perfLog('init:session', authUser.id);
           setSupabaseUser(authUser);
+          perfLog('profile:start');
           const profile = await fetchUserProfile(authUser);
+          perfLog('profile:end', !!profile);
           if (!mounted) return;
           // Only redirect to unauthorized when profile row is missing (not on timeout) — prevents logout on refresh
           if (!profile) {
@@ -159,6 +168,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUser(null);
           setSupabaseUser(null);
         }
+        perfLog('init:done');
         if (mounted) { initResolved = true; initialCheckDoneRef.current = true; setLoading(false); }
       } catch (err) {
         void err;
@@ -185,6 +195,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Auth state listener: SIGNED_OUT / session expiry MUST clear user (no zombie state)
     // Do NOT clear user/session until initial getSession() has completed (prevents logout on refresh race).
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      perfLog('auth:event', event);
       if (!mounted) return;
       if (localStorage.getItem('demo_authenticated') === 'true') return;
       if (!initialCheckDoneRef.current && !session) return; // Wait for init before reacting to "no session"
@@ -251,17 +262,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   // ── Sign out ──────────────────────────────────────────────────────────
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
     localStorage.removeItem('demo_authenticated');
     localStorage.removeItem('demo_user');
     setUser(null);
     setSupabaseUser(null);
     try { await supabaseSignOut(); } catch { /* ignore */ }
     window.location.href = '/login';
-  };
+  }, []);
 
   // ── Profile updates ───────────────────────────────────────────────────
-  const updateProfile: AuthContextType['updateProfile'] = async (updates) => {
+  const updateProfile = useCallback<AuthContextType['updateProfile']>(async (updates) => {
     const full_name = (updates.full_name ?? '').trim();
     if (!full_name) return;
     if (!import.meta.env.PROD && localStorage.getItem('demo_authenticated') === 'true') {
@@ -277,9 +288,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const { error } = await supabase.from('users').update({ full_name }).eq('id', supabaseUser.id);
     if (error) throw error;
     await refreshUser();
-  };
+  }, [supabaseUser, refreshUser, user]);
 
-  const updateCurrentUser: AuthContextType['updateCurrentUser'] = async (patch) => {
+  const updateCurrentUser = useCallback<AuthContextType['updateCurrentUser']>(async (patch) => {
     if (!import.meta.env.PROD && localStorage.getItem('demo_authenticated') === 'true') {
       const raw = localStorage.getItem('demo_user');
       const existing = raw ? (JSON.parse(raw) as User) : user;
@@ -290,14 +301,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
     throw new Error('Permission edits require backend in production.');
-  };
+  }, [user]);
+
+  const value = useMemo(() => ({
+    user,
+    supabaseUser,
+    loading,
+    authConnectionFailed,
+    retryConnection,
+    setUserFromLogin,
+    signOut,
+    refreshUser,
+    updateProfile,
+    updateCurrentUser,
+  }), [user, supabaseUser, loading, authConnectionFailed, retryConnection, setUserFromLogin, signOut, refreshUser, updateProfile, updateCurrentUser]);
 
   if (import.meta.env.DEV) {
     (window as any).__IMA_AUTH_STATE__ = { user, loading, supabaseUser };
   }
 
   return (
-    <AuthContext.Provider value={{ user, supabaseUser, loading, authConnectionFailed, retryConnection, setUserFromLogin, signOut, refreshUser, updateProfile, updateCurrentUser }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

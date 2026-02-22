@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from './AuthContext';
 import type { Agency } from '@/types';
@@ -125,21 +125,30 @@ export const AgencyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [user, fetchAgencies]);
 
-  const switchAgency = (agencyId: string) => {
+  const switchAgency = useCallback((agencyId: string) => {
     const agency = agencies.find(a => a.id === agencyId);
     if (agency) {
       setCurrentAgency(agency);
       localStorage.setItem('currentAgencyId', agencyId);
     }
-  };
+  }, [agencies]);
 
   const retryAgency = useCallback(() => {
     setAgencyError(null);
     fetchAgencies();
   }, [fetchAgencies]);
 
+  const value = useMemo(() => ({
+    currentAgency,
+    agencies,
+    switchAgency,
+    loading,
+    agencyError,
+    retryAgency,
+  }), [currentAgency, agencies, switchAgency, loading, agencyError, retryAgency]);
+
   return (
-    <AgencyContext.Provider value={{ currentAgency, agencies, switchAgency, loading, agencyError, retryAgency }}>
+    <AgencyContext.Provider value={value}>
       {children}
     </AgencyContext.Provider>
   );

@@ -288,6 +288,10 @@ export async function fetchSyncDataForAgency(agencyId: string): Promise<SyncData
 
 const SILENT_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
+const perfLogSync = (msg: string, ...args: unknown[]) => {
+  if (typeof window !== 'undefined') console.log(`[perf] SheetsSync: ${msg}`, ...args);
+};
+
 /**
  * Trigger an immediate resync (no 24h cooldown check).
  * Call this after every event create/update/delete so the sheet stays live.
@@ -300,6 +304,8 @@ export async function triggerImmediateSync(
   if (!agencyId || !hasGoogleToken()) return;
   if (isDemoMode()) return;
 
+  const t0 = Date.now();
+  perfLogSync('background:start', agencyId);
   try {
     const { data } = await supabase
       .from('integrations')
@@ -313,6 +319,8 @@ export async function triggerImmediateSync(
 
     const syncData = await fetchSyncDataForAgency(agencyId);
     const result = await resyncSheetClient(agencyId, spreadsheetId, syncData);
+    const elapsed = Date.now() - t0;
+    perfLogSync('background:done', result.ok ? 'ok' : 'fail', `${elapsed}ms`);
 
     if (result.ok) {
       callbacks.onSuccess?.();
@@ -321,7 +329,9 @@ export async function triggerImmediateSync(
     } else {
       callbacks.onError?.(result.error || 'גיבוי אוטומטי נכשל');
     }
-  } catch {
+  } catch (e) {
+    const elapsed = Date.now() - t0;
+    perfLogSync('background:error', `${elapsed}ms`, e);
     // Live sync exception — non-fatal
   }
 }
@@ -330,6 +340,10 @@ export async function triggerImmediateSync(
  * Check last_sync_at and trigger resync if >24h or never. Runs in background.
  * Call from Dashboard/Events on load. No loaders — subtle toast on success, prompt on token error only.
  */
+const perfLog = (msg: string, ...args: unknown[]) => {
+  if (import.meta.env.DEV) console.log(`[perf] SheetsSync: ${msg}`, ...args);
+};
+
 export async function checkAndTriggerSilentSync(
   agencyId: string,
   callbacks: { onSuccess?: () => void; onTokenError?: () => void; onError?: (message: string) => void }
@@ -337,6 +351,7 @@ export async function checkAndTriggerSilentSync(
   if (!agencyId || !hasGoogleToken()) return;
   if (isDemoMode()) return;
 
+  perfLog('start', agencyId);
   try {
     const { data } = await supabase
       .from('integrations')
@@ -353,8 +368,11 @@ export async function checkAndTriggerSilentSync(
     const now = Date.now();
     if (lastSync && now - lastSync < SILENT_SYNC_INTERVAL_MS) return;
 
+    perfLog('fetchData');
     const syncData = await fetchSyncDataForAgency(agencyId);
+    perfLog('resync');
     const result = await resyncSheetClient(agencyId, spreadsheetId, syncData);
+    perfLog('resync:done', result.ok);
 
     if (result.ok) {
       callbacks.onSuccess?.();
