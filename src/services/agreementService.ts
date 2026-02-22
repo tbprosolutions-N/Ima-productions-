@@ -124,7 +124,7 @@ class AgreementService {
 
       return pdfBlob;
     } catch (error) {
-      console.error('Error generating agreement:', error);
+      void error;
       throw error;
     }
   }
@@ -166,11 +166,11 @@ class AgreementService {
       });
 
       if (error) {
-        console.error('Agreement email failed (send-email):', error);
+        void error;
         // Do not throw — resilient; UI flow continues
       }
     } catch (err) {
-      console.error('Error sending agreement email:', err);
+      void err;
       // Do not throw — resilient; UI flow continues
     }
   }

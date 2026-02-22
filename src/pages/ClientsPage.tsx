@@ -249,7 +249,6 @@ const ClientsPage: React.FC = () => {
         if (error) throw error;
         setFolderEvents((data as Event[]) || []);
       } catch (e) {
-        console.error(e);
         setFolderEvents([]);
       } finally {
         setFolderLoading(false);
@@ -301,7 +300,6 @@ const ClientsPage: React.FC = () => {
       exportJsonToExcel({ data: rows, filename, sheetName: 'Client Period', colWidths: [14, 28, 28, 12, 14, 14, 40] });
       success('הדוח יוצא בהצלחה ✅');
     } catch (e: any) {
-      console.error(e);
       showError(e?.message || 'ייצוא נכשל');
     }
   };

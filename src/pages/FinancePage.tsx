@@ -183,8 +183,7 @@ const FinancePageContent: React.FC = () => {
         setExpenses(stored);
         showError('נשמרו פרטי הוצאה בלבד (ללא קובץ) בגלל מגבלת נפח. בפרודקשן יש לשמור קבצים ב‑Storage.');
       }
-    } catch (e) {
-      console.error(e);
+    } catch {
       showError('לא ניתן לשמור מקומית (מגבלת נפח). נסו למחוק קבצים/הוצאות ישנות.');
     }
   }, [expenses, agencyId, showError]);
@@ -225,8 +224,7 @@ const FinancePageContent: React.FC = () => {
           })
           .sort((a, b) => String(b.payment_date || b.event_date).localeCompare(String(a.payment_date || a.event_date)));
         setEvents(filtered);
-      } catch (e) {
-        console.error(e);
+      } catch {
         setEvents([]);
         showError('שגיאה בטעינת אירועי התקופה. אנא רענן את הדף.');
       } finally {
@@ -300,8 +298,7 @@ const FinancePageContent: React.FC = () => {
         ]);
         setArtists(((aRes.data as Artist[]) || []).filter(Boolean));
         setClients(((cRes.data as Client[]) || []).filter(Boolean));
-      } catch (e) {
-        console.error(e);
+      } catch {
         setArtists([]);
         setClients([]);
         showError('שגיאה בטעינת רשימת אמנים ולקוחות. אנא רענן את הדף.');
@@ -544,7 +541,6 @@ const FinancePageContent: React.FC = () => {
         meta: { reportScope, periodFrom, periodTo, format: reportFormat, rows: reportRows.length },
       });
     } catch (e: any) {
-      console.error(e);
       showError(e?.message || 'ייצוא נכשל');
     }
   };
@@ -586,8 +582,7 @@ const FinancePageContent: React.FC = () => {
       const blob = new Blob([bytes], { type: mime });
       const url = URL.createObjectURL(blob);
       return { url, mime };
-    } catch (e) {
-      console.error(e);
+    } catch {
       return null;
     }
   };
@@ -757,7 +752,6 @@ const FinancePageContent: React.FC = () => {
                         ? `שגיאת טבלה: ${err.message} — הרץ את מיגרציית finance_expenses ב־Supabase.`
                         : err.message)
                 : (err instanceof Error ? err.message : 'שגיאה בשמירה');
-              console.error('[Finance] addExpenseFromOcr failed', err);
               showError(msg);
               break;
             }
@@ -802,7 +796,7 @@ const FinancePageContent: React.FC = () => {
             file: list[idx],
             filename: meta.filename,
             filetype: meta.filetype,
-          }).catch((e) => console.error('[Finance] setFinanceExpenseFile (IDB) failed:', e))
+          }).catch(() => { /* IDB write failed — non-fatal */ })
         )
       );
       const newExpenses = [...next, ...expenses];
@@ -817,8 +811,7 @@ const FinancePageContent: React.FC = () => {
         meta: { count: list.length },
       });
       success(`נוספו ${list.length} קבצים ✅`);
-    } catch (e) {
-      console.error(e);
+    } catch {
       showError('העלאת הקבצים נכשלה. אנא נסה שוב.');
     }
   };
@@ -909,7 +902,6 @@ const FinancePageContent: React.FC = () => {
       if (toRemovePaths.length > 0) supabase.storage.from('expenses').remove(toRemovePaths).catch(() => {});
       supabase.from('finance_expenses').delete().in('id', ids).then(({ error }) => {
         if (error) {
-          console.error(error);
           showError('מחיקת ההוצאה מהשרת נכשלה. אנא רענן את הדף ונסה שוב.');
         }
       });
@@ -955,7 +947,6 @@ const FinancePageContent: React.FC = () => {
         const url = blob?.url || exp.dataUrl;
         setFilePreview({ exp, url, isBlobUrl: !!blob?.url });
       } catch (e: any) {
-        console.error(e);
         showError(e?.message || 'אירעה שגיאה בפתיחת הקובץ. אנא נסה שוב.');
       }
     })();
@@ -1008,7 +999,6 @@ const FinancePageContent: React.FC = () => {
         document.body.removeChild(a);
         if (blob?.url) window.setTimeout(() => URL.revokeObjectURL(blob.url), 30_000);
       } catch (e: any) {
-        console.error(e);
         showError(e?.message || 'הורדת הקובץ נכשלה. אנא נסה שוב.');
       }
     })();

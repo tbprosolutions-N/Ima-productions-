@@ -91,7 +91,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode; agencyId: st
           .order('created_at', { ascending: false })
           .limit(1000);
         if (error) {
-          console.error('[Finance] loadExpenses failed', error.code, error.message, error.details);
+          void error;
           setExpensesLoadError(error.code === 'PGRST301' ? 'לא מאומת — התחבר/י מחדש' : error.message || 'שגיאה בטעינת הוצאות');
           setExpensesState([]);
           return;
@@ -117,7 +117,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode; agencyId: st
         })) as ExpenseItem[];
         setExpensesState(rows);
       } catch (e) {
-        console.error('[Finance] loadExpenses exception', e);
+        void e;
         setExpensesLoadError(e instanceof Error ? e.message : 'שגיאה בטעינת הוצאות');
         setExpensesState([]);
       }
@@ -171,7 +171,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode; agencyId: st
         const code = msg.toLowerCase().includes('forbidden') || msg.toLowerCase().includes('policy')
           ? 'STORAGE_FORBIDDEN'
           : 'STORAGE_FAILED';
-        console.error('[Finance] Storage upload failed', { code, message: msg, path: storage_path }, up.error);
+        void { code, msg, storage_path, up };
         throw new ExpenseUploadError(msg, code, (up.error as any)?.statusCode, JSON.stringify(up.error));
       }
 
@@ -199,7 +199,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode; agencyId: st
       if (insError) {
         const msg = insError.message || 'Insert failed';
         const details = JSON.stringify({ code: insError.code, message: insError.message, details: insError.details });
-        console.error('[Finance] finance_expenses insert failed', { code: insError.code, message: insError.message, details: insError.details });
+        void insError;
         const code: ExpenseUploadErrorCode =
           insError.code === '42501' || msg.toLowerCase().includes('policy') || msg.toLowerCase().includes('forbidden')
             ? 'INSERT_FORBIDDEN'
@@ -233,7 +233,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode; agencyId: st
         if (Object.keys(dbPatch).length > 0) {
           dbPatch.updated_at = new Date().toISOString();
           supabase.from('finance_expenses').update(dbPatch).eq('id', id).then(({ error }) => {
-            if (error) console.error(error);
+            if (error) void error;
           });
         }
       }

@@ -2,9 +2,21 @@
  * Morning (Green Invoice) API via Netlify Function proxy.
  * Never sends API Secret to the client; all auth is server-side.
  * Uses /api/morning (redirected to /.netlify/functions/morning-api via netlify.toml).
+ * Requires JWT: pass session.access_token in Authorization header.
  */
 
+import { supabase } from '@/lib/supabase';
+
 const MORNING_API_PATH = '/api/morning';
+
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const { data: { session } } = await supabase.auth.getSession();
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (session?.access_token) {
+    headers['authorization'] = `Bearer ${session.access_token}`;
+  }
+  return headers;
+}
 
 export type MorningCreateDocumentResult =
   | { ok: true; docId: string | null; docNumber: string | null; docUrl: string | null }
@@ -24,9 +36,10 @@ export async function checkEventDocumentStatus(
 ): Promise<MorningCheckStatusResult> {
   const base = typeof window !== 'undefined' ? window.location.origin : '';
   const url = `${base}${MORNING_API_PATH}`;
+  const headers = await getAuthHeaders();
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers,
     body: JSON.stringify({
       action: 'getDocumentStatus',
       agencyId,
@@ -71,9 +84,10 @@ export async function createEventDocument(
 ): Promise<MorningCreateDocumentResult> {
   const base = typeof window !== 'undefined' ? window.location.origin : '';
   const url = `${base}${MORNING_API_PATH}`;
+  const headers = await getAuthHeaders();
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers,
     body: JSON.stringify({
       action: 'createDocument',
       agencyId,

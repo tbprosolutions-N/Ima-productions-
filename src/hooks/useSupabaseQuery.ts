@@ -137,3 +137,56 @@ export function useInvalidateClients() {
     else qc.invalidateQueries({ queryKey: ['clients'] });
   };
 }
+
+// ── Prefetch helpers (for hover prefetch on nav links) ───────────────────────
+
+export function getPrefetchOptions(agencyId: string | undefined) {
+  if (!agencyId) return null;
+  return {
+    events: {
+      queryKey: ['events', agencyId] as const,
+      queryFn: async () => {
+        if (isDemoMode()) return demoGetEvents(agencyId);
+        const { data, error } = await supabase
+          .from('events')
+          .select(EVENT_LIST_COLS)
+          .eq('agency_id', agencyId)
+          .order('event_date', { ascending: false });
+        if (error) throw error;
+        return (data || []) as unknown as Event[];
+      },
+      staleTime: STALE_TIME,
+      gcTime: CACHE_TIME,
+    },
+    artists: {
+      queryKey: ['artists', agencyId] as const,
+      queryFn: async () => {
+        if (isDemoMode()) return demoGetArtists(agencyId);
+        const { data, error } = await supabase
+          .from('artists')
+          .select(ARTIST_LIST_COLS)
+          .eq('agency_id', agencyId)
+          .order('name', { ascending: true });
+        if (error) throw error;
+        return (data || []) as unknown as Artist[];
+      },
+      staleTime: STALE_TIME,
+      gcTime: CACHE_TIME,
+    },
+    clients: {
+      queryKey: ['clients', agencyId] as const,
+      queryFn: async () => {
+        if (isDemoMode()) return demoGetClients(agencyId);
+        const { data, error } = await supabase
+          .from('clients')
+          .select(CLIENT_LIST_COLS)
+          .eq('agency_id', agencyId)
+          .order('name', { ascending: true });
+        if (error) throw error;
+        return (data || []) as unknown as Client[];
+      },
+      staleTime: STALE_TIME,
+      gcTime: CACHE_TIME,
+    },
+  };
+}

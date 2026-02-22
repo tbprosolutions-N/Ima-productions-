@@ -27,7 +27,7 @@ export async function queueSyncJob(args: {
     return (data as SyncJob) || null;
   } catch (e) {
     // Never crash UI because a background job couldn't be queued.
-    console.warn('queueSyncJob failed', e);
+    void e;
     return null;
   }
 }

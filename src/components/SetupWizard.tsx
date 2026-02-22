@@ -27,7 +27,7 @@ const SetupWizard: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
           .update({ onboarded: true })
           .eq('id', user.id);
       } catch (error) {
-        console.warn('Could not update user, continuing anyway:', error);
+        void error;
       }
     }
     

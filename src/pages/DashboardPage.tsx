@@ -338,7 +338,7 @@ const QuickNewEventDialog: React.FC<{
       onOpenChange(false);
       setForm({ event_date: new Date().toISOString().slice(0, 10), event_time: '', amount: '', client_name: '', client_email: '', artist_name: '', notes: '' });
     } catch (err: any) {
-      console.error('Quick event creation failed:', err);
+      void err;
       showError(err?.message || 'יצירת אירוע נכשלה. נסה שוב.');
     } finally {
       setSaving(false);

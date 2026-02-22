@@ -48,6 +48,17 @@ type TokenRow = {
   expiry_date: string | null; // timestamptz
 };
 
+function toStructuredError(status: number, text: string, parsed?: { errors?: unknown[]; errorCode?: number; message?: string }): string {
+  const obj: Record<string, unknown> = {
+    status,
+    message: parsed?.message || text.slice(0, 500),
+    raw: text.slice(0, 1000),
+  };
+  if (parsed?.errorCode != null) obj.code = parsed.errorCode;
+  if (parsed?.errors?.length) obj.errors = parsed.errors;
+  return JSON.stringify(obj);
+}
+
 async function greeninvoiceRequest(args: { baseUrl: string; path: string; method?: string; token?: string; body?: any }) {
   const url = `${args.baseUrl}${args.path}`;
   const res = await fetch(url, {
@@ -59,7 +70,13 @@ async function greeninvoiceRequest(args: { baseUrl: string; path: string; method
     body: args.body ? JSON.stringify(args.body) : undefined,
   });
   const text = await res.text();
-  if (!res.ok) throw new Error(`Morning API error ${res.status}: ${text}`);
+  if (!res.ok) {
+    let parsed: { errors?: unknown[]; errorCode?: number; message?: string } | undefined;
+    try { parsed = JSON.parse(text); } catch { /* ignore */ }
+    const err: any = new Error(`Morning API error ${res.status}: ${text.slice(0, 200)}`);
+    err._morning = { status: res.status, text, parsed };
+    throw err;
+  }
   try {
     return JSON.parse(text);
   } catch {
@@ -100,17 +117,35 @@ async function resolveMorningCredentials(args: {
     .maybeSingle();
   if (secErr) throw secErr;
   const secret = (sec as any)?.secret || {};
-  let baseUrl = String(secret.base_url || "").trim();
-  let id = String(secret.id || "").trim();
-  let apiSecret = String(secret.secret || "").trim();
+  let baseUrl = String(secret.base_url || "").trim() || "https://api.greeninvoice.co.il/api/v1";
+  const id = String(secret.id || "").trim();
+  const apiSecret = String(secret.secret || "").trim();
   if (!id || !apiSecret) {
-    id = String(Deno.env.get("MORNING_SANDBOX_ID") || Deno.env.get("MORNING_API_KEY") || "").trim();
-    apiSecret = String(Deno.env.get("MORNING_SANDBOX_SECRET") || Deno.env.get("MORNING_API_SECRET") || "").trim();
-    baseUrl = baseUrl || String(Deno.env.get("MORNING_BASE_URL") || "https://api.greeninvoice.co.il/api/v1").trim();
+    throw new Error("Morning credentials missing. Add Company ID and API Secret in Settings → גיבוי נתונים.");
   }
-  if (!id || !apiSecret) throw new Error("Morning credentials missing (set integration_secrets or MORNING_SANDBOX_ID/MORNING_SANDBOX_SECRET)");
-  if (!baseUrl) baseUrl = "https://api.greeninvoice.co.il/api/v1";
   return { baseUrl, id, apiSecret };
+}
+
+function validateEventForMorning(ev: any, client: any): string | null {
+  const eventDate = (ev?.event_date || "").toString().trim();
+  if (!eventDate) return "event_date is required";
+  const d = new Date(eventDate);
+  if (Number.isNaN(d.getTime())) return "event_date must be a valid date";
+
+  const amount = Number(ev?.amount ?? 0);
+  if (!Number.isFinite(amount) || amount <= 0) return "amount is required and must be > 0";
+
+  const businessName = String(ev?.business_name || "").trim();
+  const invoiceName = String(ev?.invoice_name || "").trim();
+  const clientName = (client as any)?.business_name || (client as any)?.name || "";
+  if (!businessName && !invoiceName && !clientName) {
+    return "business_name or invoice_name or client_id (with client name) is required";
+  }
+
+  const status = String(ev?.status || "").toLowerCase();
+  if (status === "cancelled") return "cannot sync cancelled event";
+
+  return null;
 }
 
 async function morningSyncEventDocument(args: {
@@ -137,6 +172,17 @@ async function morningSyncEventDocument(args: {
     clientId ? args.supabaseAdmin.from("clients").select("*").eq("agency_id", args.agencyId).eq("id", clientId).maybeSingle() : Promise.resolve({ data: null } as any),
     artistId ? args.supabaseAdmin.from("artists").select("*").eq("agency_id", args.agencyId).eq("id", artistId).maybeSingle() : Promise.resolve({ data: null } as any),
   ]);
+
+  const validationErr = validateEventForMorning(ev, client);
+  if (validationErr) {
+    const stored = JSON.stringify({ code: "VALIDATION", message: validationErr });
+    await args.supabaseAdmin
+      .from("events")
+      .update({ morning_sync_status: "error", morning_last_error: stored } as any)
+      .eq("agency_id", args.agencyId)
+      .eq("id", args.eventId);
+    throw new Error(`Validation failed: ${validationErr}`);
+  }
 
   const currency = "ILS";
   const lang = "he";
@@ -177,13 +223,25 @@ async function morningSyncEventDocument(args: {
     ];
   }
 
-  const created = await greeninvoiceRequest({
-    baseUrl,
-    path: "/documents",
-    method: "POST",
-    token: jwt,
-    body: docPayload,
-  }) as any;
+  let created: any;
+  try {
+    created = await greeninvoiceRequest({
+      baseUrl,
+      path: "/documents",
+      method: "POST",
+      token: jwt,
+      body: docPayload,
+    });
+  } catch (e: any) {
+    const m = e?._morning;
+    const stored = m ? toStructuredError(m.status, m.text, m.parsed) : JSON.stringify({ message: e?.message || String(e) });
+    await args.supabaseAdmin
+      .from("events")
+      .update({ morning_sync_status: "error", morning_last_error: stored } as any)
+      .eq("agency_id", args.agencyId)
+      .eq("id", args.eventId);
+    throw e;
+  }
 
   const docId = created?.id ? String(created.id) : null;
   const docNumber = created?.number ? String(created.number) : null;
@@ -239,25 +297,37 @@ async function morningSyncExpenses(args: {
   for (const exp of expenses) {
     const amount = Number(exp.amount ?? 0);
     if (!Number.isFinite(amount) || amount <= 0) {
+      const stored = JSON.stringify({ code: "VALIDATION", message: "amount is required and must be > 0" });
       await args.supabaseAdmin
         .from("finance_expenses")
-        .update({ morning_status: "error", updated_at: new Date().toISOString() } as any)
+        .update({ morning_status: "error", morning_last_error: stored, updated_at: new Date().toISOString() } as any)
         .eq("id", exp.id);
       errors += 1;
       continue;
     }
-    const supplierName = String(exp.supplier_name || exp.vendor || "ספק").trim() || "ספק";
-    const expenseDate = exp.expense_date
-      ? new Date(exp.expense_date).toISOString().slice(0, 10)
+    const supplierName = String(exp.supplier_name || exp.vendor || "").trim();
+    if (!supplierName) {
+      const stored = JSON.stringify({ code: "VALIDATION", message: "supplier_name or vendor is required" });
+      await args.supabaseAdmin
+        .from("finance_expenses")
+        .update({ morning_status: "error", morning_last_error: stored, updated_at: new Date().toISOString() } as any)
+        .eq("id", exp.id);
+      errors += 1;
+      continue;
+    }
+    const supplierNameFinal = supplierName || "ספק";
+    const expDateRaw = (exp.expense_date || "").toString().trim();
+    const expenseDate = expDateRaw
+      ? (() => { const d = new Date(expDateRaw); return Number.isNaN(d.getTime()) ? new Date().toISOString().slice(0, 10) : d.toISOString().slice(0, 10); })()
       : new Date().toISOString().slice(0, 10);
-    const description = `הוצאה: ${supplierName} · ${exp.filename || expenseDate}`;
+    const description = `הוצאה: ${supplierNameFinal} · ${exp.filename || expenseDate}`;
 
     const docPayload: any = {
       type: 400,
       description,
       lang,
       currency,
-      client: { name: supplierName },
+      client: { name: supplierNameFinal },
       income: [
         {
           description: description.slice(0, 200),
@@ -286,12 +356,14 @@ async function morningSyncExpenses(args: {
         } as any)
         .eq("id", exp.id);
       synced += 1;
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+    } catch (e: any) {
+      const m = e?._morning;
+      const stored = m ? toStructuredError(m.status, m.text, m.parsed) : JSON.stringify({ message: e?.message || String(e) });
       await args.supabaseAdmin
         .from("finance_expenses")
         .update({
           morning_status: "error",
+          morning_last_error: stored,
           updated_at: new Date().toISOString(),
         } as any)
         .eq("id", exp.id);

@@ -1,13 +1,24 @@
 /**
  * Netlify Function: Morning (Green Invoice) API proxy.
- * Credentials are read from Supabase integration_secrets per agency (DB-driven).
- * Fallback: MORNING_API_KEY, MORNING_API_SECRET env vars if no row for agencyId.
+ * Requires JWT: Authorization: Bearer <session_token>. Verifies user has access to agencyId.
+ * Credentials from integration_secrets only (no env fallback in production).
  *
  * Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (required).
- * Optional fallback: MORNING_API_KEY, MORNING_API_SECRET, MORNING_BASE_URL
  */
 
 const DEFAULT_BASE_URL = 'https://api.greeninvoice.co.il/api/v1';
+
+/** Build auditable error JSON for morning_last_error */
+function toStructuredError(status: number, text: string, parsed?: { errors?: unknown[]; errorCode?: number; message?: string }): string {
+  const obj: Record<string, unknown> = {
+    status,
+    message: parsed?.message || text.slice(0, 500),
+    raw: text.slice(0, 1000),
+  };
+  if (parsed?.errorCode != null) obj.code = parsed.errorCode;
+  if (parsed?.errors?.length) obj.errors = parsed.errors;
+  return JSON.stringify(obj);
+}
 
 async function greenInvoiceRequest(args: {
   baseUrl: string;
@@ -26,7 +37,11 @@ async function greenInvoiceRequest(args: {
     body: args.body ? JSON.stringify(args.body) : undefined,
   });
   const text = await res.text();
-  if (!res.ok) throw new Error(`Morning API error ${res.status}: ${text}`);
+  if (!res.ok) {
+    let parsed: { errors?: unknown[]; errorCode?: number; message?: string } | undefined;
+    try { parsed = JSON.parse(text) as typeof parsed; } catch { /* ignore */ }
+    throw { status: res.status, text, parsed };
+  }
   try {
     return JSON.parse(text) as unknown;
   } catch {
@@ -52,7 +67,7 @@ function docTypeCode(docType: string): number {
   return 320;
 }
 
-export const handler = async (event: { httpMethod: string; body?: string | null }) => {
+export const handler = async (event: { httpMethod: string; body?: string | null; headers?: Record<string, string | string[] | undefined> }) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed' }) };
   }
@@ -63,6 +78,17 @@ export const handler = async (event: { httpMethod: string; body?: string | null 
     return {
       statusCode: 500,
       body: JSON.stringify({ error: 'Supabase not configured (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)' }),
+    };
+  }
+
+  // JWT auth: require Authorization header
+  const authHeader = event.headers?.['authorization'] ?? event.headers?.['Authorization'];
+  const token = typeof authHeader === 'string' ? authHeader.replace(/^Bearer\s+/i, '').trim() : '';
+  if (!token) {
+    return {
+      statusCode: 401,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ error: 'Unauthorized', detail: 'Missing Authorization: Bearer <token>' }),
     };
   }
 
@@ -87,7 +113,30 @@ export const handler = async (event: { httpMethod: string; body?: string | null 
   const { createClient } = await import('@supabase/supabase-js');
   const supabase = createClient(supabaseUrl, supabaseServiceKey, { auth: { persistSession: false } });
 
-  // Prioritize credentials from integration_secrets table; fallback to MORNING_API_KEY / MORNING_API_SECRET env
+  const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
+  if (authErr || !user) {
+    return {
+      statusCode: 401,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ error: 'Unauthorized', detail: authErr?.message || 'Invalid or expired token' }),
+    };
+  }
+
+  const { data: appUser } = await supabase
+    .from('users')
+    .select('agency_id, role')
+    .eq('id', user.id)
+    .single();
+  const userAgencyId = (appUser as { agency_id?: string } | null)?.agency_id;
+  if (!userAgencyId || userAgencyId !== agencyId) {
+    return {
+      statusCode: 403,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ error: 'Forbidden', detail: 'You do not have access to this agency' }),
+    };
+  }
+
+  // Credentials from integration_secrets only (secure, per-agency)
   let apiKey: string | undefined;
   let apiSecret: string | undefined;
   let baseUrl = (process.env.MORNING_BASE_URL || DEFAULT_BASE_URL).trim();
@@ -104,10 +153,6 @@ export const handler = async (event: { httpMethod: string; body?: string | null 
     apiKey = String(secretPayload.secret.id).trim();
     apiSecret = String(secretPayload.secret.secret).trim();
     if (secretPayload.secret.base_url) baseUrl = String(secretPayload.secret.base_url).trim();
-  }
-  if (!apiKey || !apiSecret) {
-    apiKey = process.env.MORNING_API_KEY?.trim();
-    apiSecret = process.env.MORNING_API_SECRET?.trim();
   }
   if (!apiKey || !apiSecret) {
     return {
@@ -159,11 +204,15 @@ export const handler = async (event: { httpMethod: string; body?: string | null 
         method: 'GET',
         token: jwt,
       })) as { status?: number; payment?: unknown[]; url?: { origin?: string } };
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+    } catch (e: unknown) {
+      const err = e as { status?: number; text?: string; parsed?: { errorCode?: number; message?: string; errors?: unknown[] } };
+      const msg = err?.parsed?.message || err?.text || (e instanceof Error ? e.message : String(e));
+      const stored = typeof err === 'object' && err?.status != null
+        ? toStructuredError(err.status, err.text || msg, err.parsed)
+        : JSON.stringify({ message: msg });
       await supabase
         .from('events')
-        .update({ morning_last_error: msg } as Record<string, unknown>)
+        .update({ morning_last_error: stored } as Record<string, unknown>)
         .eq('agency_id', agencyId)
         .eq('id', eventId);
       return {
@@ -205,8 +254,9 @@ export const handler = async (event: { httpMethod: string; body?: string | null 
   let jwt: string;
   try {
     jwt = await getToken(baseUrl, apiKey, apiSecret);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+  } catch (e: unknown) {
+    const err = e as { parsed?: { message?: string }; text?: string };
+    const msg = err?.parsed?.message || err?.text || (e instanceof Error ? e.message : String(e));
     return {
       statusCode: 502,
       body: JSON.stringify({ error: 'Morning auth failed', detail: msg }),
@@ -288,13 +338,17 @@ export const handler = async (event: { httpMethod: string; body?: string | null 
       token: jwt,
       body: docPayload,
     })) as { id?: number; number?: string; url?: { origin?: string } };
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+  } catch (e: unknown) {
+    const err = e as { status?: number; text?: string; parsed?: { errorCode?: number; message?: string; errors?: unknown[] } };
+    const msg = err?.parsed?.message || err?.text || (e instanceof Error ? e.message : String(e));
+    const stored = typeof err === 'object' && err?.status != null
+      ? toStructuredError(err.status, err.text || msg, err.parsed)
+      : JSON.stringify({ message: msg });
     await supabase
       .from('events')
       .update({
         morning_sync_status: 'error',
-        morning_last_error: msg,
+        morning_last_error: stored,
       } as Record<string, unknown>)
       .eq('agency_id', agencyId)
       .eq('id', eventId);

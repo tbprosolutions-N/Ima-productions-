@@ -204,8 +204,7 @@ const SettingsPage: React.FC = () => {
           const config = (sheetsConn as any)?.config;
           setSheetsSpreadsheetId(config?.spreadsheet_id ?? null);
           setSavedBackupFolderId(config?.folder_id ?? null);
-        } catch (e) {
-          console.warn('Integrations load failed', e);
+        } catch {
           toast.warning('לא ניתן לטעון את הגדרות האינטגרציה. אנא רענן את הדף.');
         }
       })();
@@ -244,8 +243,8 @@ const SettingsPage: React.FC = () => {
         const list = (data as any[]) || [];
         const sheetsConn = list.find((x: any) => x.provider === 'sheets');
         setSheetsSpreadsheetId((sheetsConn as any)?.config?.spreadsheet_id ?? null);
-      } catch (e) {
-        console.warn('[Settings] Backup tab integrations refetch failed:', e);
+      } catch {
+        // Backup tab integrations refetch failed — non-fatal
       }
     })();
   }, [tab, currentAgency?.id]);
@@ -311,8 +310,7 @@ const SettingsPage: React.FC = () => {
         (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
       );
       setManagedUsersState(merged);
-    } catch (e) {
-      console.error(e);
+    } catch {
       toast.error('שגיאה בטעינת משתמשים');
     } finally {
       setUsersLoading(false);
@@ -343,8 +341,7 @@ const SettingsPage: React.FC = () => {
     try {
       localStorage.setItem(`ima_backup_url_${agencyId}`, url);
       toast.success('קישור גיבוי נשמר ✅');
-    } catch (e) {
-      console.error(e);
+    } catch {
       toast.error('שמירה מקומית נכשלה');
     }
   };
@@ -355,7 +352,6 @@ const SettingsPage: React.FC = () => {
       persistNotif({ email: notifEmail, events: notifEvents, finance: notifFinance });
       toast.success('הפרופיל עודכן ✅');
     } catch (e: any) {
-      console.error(e);
       toast.error(e?.message || 'שגיאה בעדכון פרופיל');
     }
   };
@@ -421,7 +417,6 @@ const SettingsPage: React.FC = () => {
       });
       await loadUsers();
     } catch (e: any) {
-      console.error(e);
       toast.error(e?.message || 'הוספת משתמש נכשלה');
     }
   };
@@ -1303,10 +1298,13 @@ const SettingsPage: React.FC = () => {
                     if (!currentAgency?.id) { toast.error('אין סוכנות פעילה'); return; }
                     setMorningSaving(true);
                     try {
+                      const { data: { session } } = await supabase.auth.getSession();
                       const base = typeof window !== 'undefined' ? window.location.origin : '';
+                      const headers: Record<string, string> = { 'content-type': 'application/json' };
+                      if (session?.access_token) headers['authorization'] = `Bearer ${session.access_token}`;
                       const res = await fetch(`${base}/api/morning-save-credentials`, {
                         method: 'POST',
-                        headers: { 'content-type': 'application/json' },
+                        headers,
                         body: JSON.stringify({
                           agencyId: currentAgency.id,
                           companyId: morningCompanyId.trim(),
@@ -1527,7 +1525,7 @@ const SettingsPage: React.FC = () => {
                           const payload = { exportedAt: new Date().toISOString(), agencyId, companyName: getCompanyName(agencyId) || currentAgency?.name, events, clients, artists, expenses: expenses.map(e => ({ id: e.id, filename: e.filename, amount: e.amount, vendor: e.vendor, created_at: e.created_at, notes: e.notes })) };
                           navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
                           toast.success('גיבוי הועתק ללוח');
-                        } catch (e) { console.error(e); toast.error('העתקה נכשלה'); }
+                        } catch { toast.error('העתקה נכשלה'); }
                       }}
                     >
                       העתק גיבוי ללוח
@@ -1545,7 +1543,7 @@ const SettingsPage: React.FC = () => {
                           const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
                           const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `npc-backup-${agencyId}-${new Date().toISOString().slice(0, 10)}.json`; a.click(); URL.revokeObjectURL(a.href);
                           toast.success('קובץ גיבוי הורד');
-                        } catch (e) { console.error(e); toast.error('הורדה נכשלה'); }
+                        } catch { toast.error('הורדה נכשלה'); }
                       }}
                     >
                       הורד גיבוי (JSON)

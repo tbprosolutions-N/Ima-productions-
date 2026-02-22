@@ -1,13 +1,12 @@
 /**
  * Netlify Function: Save Morning (Green Invoice) credentials to integration_secrets.
- * Called from Settings → Backup tab. Uses service role; in production you may want to verify
- * the requesting user is the agency owner (e.g. via Authorization header / Supabase JWT).
+ * Requires JWT: Authorization: Bearer <session_token>. Only owner or finance role can save.
  *
  * Body: { agencyId, companyId, apiSecret, baseUrl? }
  * Stores in integration_secrets(provider='morning').secret: { id: companyId, secret: apiSecret, base_url }
  */
 
-export const handler = async (event: { httpMethod: string; body?: string | null }) => {
+export const handler = async (event: { httpMethod: string; body?: string | null; headers?: Record<string, string | string[] | undefined> }) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ error: 'Method not allowed' }) };
   }
@@ -19,6 +18,16 @@ export const handler = async (event: { httpMethod: string; body?: string | null 
       statusCode: 500,
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ error: 'Supabase not configured' }),
+    };
+  }
+
+  const authHeader = event.headers?.['authorization'] ?? event.headers?.['Authorization'];
+  const token = typeof authHeader === 'string' ? authHeader.replace(/^Bearer\s+/i, '').trim() : '';
+  if (!token) {
+    return {
+      statusCode: 401,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ error: 'Unauthorized', detail: 'Missing Authorization: Bearer <token>' }),
     };
   }
 
@@ -44,6 +53,27 @@ export const handler = async (event: { httpMethod: string; body?: string | null 
 
   const { createClient } = await import('@supabase/supabase-js');
   const supabase = createClient(supabaseUrl, supabaseServiceKey, { auth: { persistSession: false } });
+
+  const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
+  if (authErr || !user) {
+    return {
+      statusCode: 401,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ error: 'Unauthorized', detail: authErr?.message || 'Invalid or expired token' }),
+    };
+  }
+
+  const { data: appUser } = await supabase.from('users').select('agency_id, role').eq('id', user.id).single();
+  const userAgencyId = (appUser as { agency_id?: string } | null)?.agency_id;
+  const userRole = (appUser as { role?: string } | null)?.role;
+  const canSave = userAgencyId === agencyId && (userRole === 'owner' || userRole === 'finance');
+  if (!canSave) {
+    return {
+      statusCode: 403,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ error: 'Forbidden', detail: 'Only owner or finance can save Morning credentials' }),
+    };
+  }
 
   const { error: secErr } = await supabase.from('integration_secrets').upsert(
     [

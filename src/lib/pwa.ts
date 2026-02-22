@@ -21,7 +21,7 @@ export function registerServiceWorker(): void {
           if (newWorker) {
             newWorker.addEventListener('statechange', () => {
               if (newWorker.state === 'activated' && navigator.serviceWorker.controller) {
-                console.log('NPC PWA: New version available');
+                // New version available
               }
             });
           }

@@ -150,7 +150,7 @@ export async function createSheetAndSyncClient(
       try {
         await moveToFolder(token, spreadsheetId, folderId);
       } catch (e) {
-        console.warn('Could not move spreadsheet to folder:', e);
+        void e;
       }
     }
 
@@ -183,7 +183,7 @@ export async function createSheetAndSyncClient(
       }],
       { onConflict: 'agency_id,provider' }
     );
-    if (error) console.warn('Failed to save integration:', error);
+    if (error) void error;
 
     return { ok: true, spreadsheetId, spreadsheetUrl, counts };
   } catch (e: any) {
@@ -311,21 +311,18 @@ export async function triggerImmediateSync(
     const spreadsheetId = (data as any)?.config?.spreadsheet_id;
     if (!spreadsheetId) return; // No sheet configured — nothing to sync
 
-    if (import.meta.env.DEV) console.log('[Sheets] Live sync triggered for spreadsheet:', spreadsheetId.slice(0, 12) + '...');
     const syncData = await fetchSyncDataForAgency(agencyId);
     const result = await resyncSheetClient(agencyId, spreadsheetId, syncData);
 
     if (result.ok) {
-      if (import.meta.env.DEV) console.log('[Sheets] Live sync OK — rows:', result.counts);
       callbacks.onSuccess?.();
     } else if (result.code === 'TOKEN_EXPIRED' || result.code === 'NO_TOKEN') {
       callbacks.onTokenError?.();
     } else {
-      console.warn('[Sheets] Live sync failed:', result.error);
       callbacks.onError?.(result.error || 'גיבוי אוטומטי נכשל');
     }
-  } catch (e: any) {
-    console.warn('[Sheets] Live sync exception:', e?.message);
+  } catch {
+    // Live sync exception — non-fatal
   }
 }
 
@@ -368,7 +365,6 @@ export async function checkAndTriggerSilentSync(
     }
   } catch (e: any) {
     const msg = e?.message || String(e);
-    console.warn('[Sheets] Silent sync failed:', msg);
     callbacks.onError?.(msg || 'גיבוי אוטומטי נכשל');
   }
 }

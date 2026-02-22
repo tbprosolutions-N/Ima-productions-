@@ -20,14 +20,7 @@ const supabaseAnonKey = rawKey.trim();
 // Supabase anon key must be a JWT (long string starting with "eyJ"). Other values (e.g. sb_publishable_...) break auth.
 const anonKeyLooksLikeJwt = supabaseAnonKey.length > 50 && supabaseAnonKey.startsWith('eyJ');
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn('Supabase credentials not found. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY at build time (e.g. Netlify env vars) and redeploy.');
-} else if (!anonKeyLooksLikeJwt && typeof window !== 'undefined') {
-  console.error(
-    'Supabase anon key does not look valid. It must be the JWT from Supabase Dashboard → Settings → API → "anon" "public" key (starts with eyJ...). ' +
-    'You may have set a different key (e.g. sb_publishable_...). Fix VITE_SUPABASE_ANON_KEY in Netlify and redeploy.'
-  );
-}
+// Supabase URL and anon key are required. Invalid key (e.g. sb_publishable_...) will break auth.
 
 /** For debugging auth connectivity: call from console or Login page. Does not log the full anon key. */
 export function getSupabaseEnvDiagnostic(): {

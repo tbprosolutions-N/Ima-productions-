@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { NavLink } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   LayoutDashboard,
   Calendar,
@@ -14,9 +14,9 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRole } from '@/hooks/useRole';
-import { prefetchRoute } from '@/lib/prefetch';
-import { useLocale } from '@/contexts/LocaleContext';
 import { useAgency } from '@/contexts/AgencyContext';
+import { prefetchRoute, prefetchDataForRoute } from '@/lib/prefetch';
+import { useLocale } from '@/contexts/LocaleContext';
 import { getAgencyLogo, getCompanyName } from '@/lib/settingsStore';
 import { Button } from './ui/Button';
 
@@ -40,6 +40,7 @@ const SidebarInner: React.FC<SidebarProps> = ({ mobileOpen = false, onClose }) =
   const { role } = useRole();
   const { t } = useLocale();
   const { currentAgency } = useAgency();
+  const queryClient = useQueryClient();
   const [isDesktop, setIsDesktop] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches);
 
   useEffect(() => {
@@ -100,19 +101,22 @@ const SidebarInner: React.FC<SidebarProps> = ({ mobileOpen = false, onClose }) =
 
   const handlePrefetch = useCallback((path: string) => {
     prefetchRoute(path);
-  }, []);
+    prefetchDataForRoute(queryClient, currentAgency?.id, path);
+  }, [queryClient, currentAgency?.id]);
 
-  const mobileX = isDesktop ? 0 : (mobileOpen ? 0 : SIDEBAR_WIDTH_MOBILE);
+  const mobileTransform = isDesktop ? undefined : (mobileOpen ? 'translateX(0)' : `translateX(${SIDEBAR_WIDTH_MOBILE}px)`);
+  const asideStyle = isDesktop ? undefined : {
+    width: 'min(256px, 70vw)',
+    transform: mobileTransform,
+    transition: 'transform 0.2s ease',
+  };
 
   return (
-    <motion.aside
-      initial={false}
-      animate={{ x: mobileX }}
-      transition={{ type: 'tween', duration: 0.2 }}
+    <aside
       className="w-64 max-w-[70vw] md:max-w-none md:w-64 shrink-0 bg-card border-r border-border flex flex-col h-screen
         fixed top-0 right-0 z-50
         md:relative md:right-auto md:left-0 md:translate-x-0"
-      style={isDesktop ? undefined : { width: 'min(256px, 70vw)' }}
+      style={asideStyle}
     >
       <div className="p-4 sm:p-5 md:p-6 border-b border-border">
         <div className="flex items-center gap-2 sm:gap-3">
@@ -192,7 +196,7 @@ const SidebarInner: React.FC<SidebarProps> = ({ mobileOpen = false, onClose }) =
           </span>
         </div>
       </div>
-    </motion.aside>
+    </aside>
   );
 };
 

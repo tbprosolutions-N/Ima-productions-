@@ -73,7 +73,7 @@ export function addActivity(
         } as any,
       ])
       .then(({ error }) => {
-        if (error) console.error(error);
+        if (error) void error;
       });
   }
   window.dispatchEvent(new CustomEvent('ima:activity', { detail: { agencyId } }));

@@ -128,16 +128,16 @@ export async function extractInvoiceData(file: File): Promise<ExtractedExpense> 
         try {
           return normalizeVisionResponse(result as Record<string, unknown>, file.name);
         } catch {
-          console.warn('[invoiceExtraction] Vision response malformed, using fallback', file.name);
+          void file;
         }
       } else {
         const errBody = result && typeof result === 'object' && 'error' in result ? (result as { error?: string; hint?: string }).error : error;
         const code = result && typeof result === 'object' && 'code' in result ? (result as { code?: string }).code : undefined;
-        console.warn('[invoiceExtraction] Vision failed, using OCR fallback', { file: file.name, error: errBody, code, status: (result as any)?.status });
+        void { file: file.name, errBody, code, result };
       }
     } catch (e) {
       const err = e instanceof Error ? e : new Error(String(e));
-      console.warn('[invoiceExtraction] Vision request failed (timeout/network)', file.name, { message: err.message });
+      void { file, err };
     }
   }
 

@@ -32,7 +32,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // maybeSingle() returns { data: null, error: null } when no row exists — never throws PGRST116.
       // This prevents accidental logouts triggered by the missing-row exception path.
       const { data, error } = await withTimeout<any>(
-        supabase.from('users').select('*').eq('id', authUser.id).maybeSingle() as any,
+        supabase.from('users').select('id,email,full_name,role,agency_id,permissions,avatar_url,created_at,updated_at,onboarded').eq('id', authUser.id).maybeSingle() as any,
         timeout,
         'Fetch user profile'
       );
@@ -44,16 +44,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const cc = (() => { try { return (localStorage.getItem('ima:last_company_id') || '').trim() || null; } catch { return null; } })();
         await withTimeout<any>(supabase.rpc('ensure_user_profile', { company_code: cc }) as any, 12000, 'Provision profile');
         const { data: d2, error: e2 } = await withTimeout<any>(
-          supabase.from('users').select('*').eq('id', authUser.id).maybeSingle() as any, 10000, 'Re-fetch profile');
+          supabase.from('users').select('id,email,full_name,role,agency_id,permissions,avatar_url,created_at,updated_at,onboarded').eq('id', authUser.id).maybeSingle() as any, 10000, 'Re-fetch profile');
         if (!e2 && d2) { setUser(d2); return d2; }
       } catch (pe) {
-        console.warn('Auth: profile provisioning failed', pe);
+        void pe;
       }
     } catch (err) {
       const msg = String((err as any)?.message || '');
       const isTimeout = msg.includes('timed out');
-      if (isTimeout) console.warn('Auth: profile fetch timed out — session kept, will retry on focus');
-      else console.warn('Auth: profile fetch failed', err);
+      if (!isTimeout) void err;
     }
     return null;
   };
@@ -71,7 +70,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // have been slow to restore from localStorage. The next explicit action will
       // re-validate properly.
     } catch {
-      console.warn('Auth: background refresh failed — session preserved');
+      // Background refresh failed — session preserved
     }
   };
 
@@ -145,7 +144,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (!mounted) return;
           // Only redirect to unauthorized when profile row is missing (not on timeout) — prevents logout on refresh
           if (!profile) {
-            const { data: recheck } = await supabase.from('users').select('*').eq('id', authUser.id).maybeSingle();
+            const { data: recheck } = await supabase.from('users').select('id,email,full_name,role,agency_id,permissions,avatar_url,created_at,updated_at,onboarded').eq('id', authUser.id).maybeSingle();
             if (recheck) {
               setUser(recheck as User);
             } else {
@@ -162,7 +161,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         if (mounted) { initResolved = true; initialCheckDoneRef.current = true; setLoading(false); }
       } catch (err) {
-        console.warn('Auth init error', err);
+        void err;
         if (mounted) { initResolved = true; initialCheckDoneRef.current = true; setUser(null); setSupabaseUser(null); setLoading(false); }
       }
     };
@@ -173,7 +172,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const networkGuardMs = 20000;
     const guardTimer = setTimeout(() => {
       if (mounted && !initResolved) {
-        if (import.meta.env.DEV) console.debug(`[Auth] getSession exceeded ${networkGuardMs}ms — treating as no session`);
         initResolved = true;
         initialCheckDoneRef.current = true;
         setUser(null);
@@ -258,7 +256,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem('demo_user');
     setUser(null);
     setSupabaseUser(null);
-    try { await supabaseSignOut(); } catch (e) { console.error('SignOut error', e); }
+    try { await supabaseSignOut(); } catch { /* ignore */ }
     window.location.href = '/login';
   };
 

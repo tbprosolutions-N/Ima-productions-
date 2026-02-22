@@ -197,8 +197,7 @@ const EventsPage: React.FC = () => {
       invalidateEvents(currentAgency?.id);
       // Live sheets sync — fire-and-forget
       triggerImmediateSync(currentAgency?.id ?? '');
-    } catch (error) {
-      console.error('Error deleting event:', error);
+    } catch {
       showError('מחיקת האירוע נכשלה. אנא נסה שוב.');
     }
   };
@@ -219,7 +218,6 @@ const EventsPage: React.FC = () => {
       // Live sheets sync after inline edit — fire-and-forget
       triggerImmediateSync(currentAgency.id);
     } catch (e: any) {
-      console.error(e);
       showError(e?.message || 'אירעה שגיאה בעדכון. אנא נסה שוב.');
       invalidateEvents(currentAgency.id);
     }
@@ -523,19 +521,15 @@ const EventsPage: React.FC = () => {
             const url = (raw || '').trim();
             const folderId = url?.match(/folders\/([a-zA-Z0-9_-]+)/)?.[1] ?? (/^[a-zA-Z0-9_-]{20,}$/.test(url) ? url : null);
             if (folderId) {
-              if (import.meta.env.DEV) console.log('[Sheets] First event — creating backup sheet in folder:', folderId.slice(0, 12) + '...');
               const result = await createSheetAndSync(currentAgency.id, folderId);
               if (result.ok) {
                 success('גיליון גיבוי נוצר ב־Drive ✅');
-                if (import.meta.env.DEV) console.log('[Sheets] Backup sheet created:', result.spreadsheetUrl);
               } else {
                 const errMsg = result.detail || result.error || 'שגיאה לא ידועה';
-                console.error('[Sheets] Auto-create failed:', result.error, result.detail);
                 showError(`גיבוי Drive נכשל: ${errMsg}. ניתן ליצור ידנית בהגדרות → גיבוי נתונים.`);
               }
             }
-          } catch (sheetErr: any) {
-            console.error('[Sheets] Auto-create exception:', sheetErr?.message);
+          } catch {
             // Non-blocking; user can trigger backup from Settings
           }
         }
@@ -587,7 +581,6 @@ const EventsPage: React.FC = () => {
             });
             success('הסכם הופעה נוצר ונשלח ✅');
           } catch (err: any) {
-            console.error('Agreement send failed:', err);
             showError(err?.message || 'שליחת הסכם נכשלה');
           }
         }
@@ -609,7 +602,6 @@ const EventsPage: React.FC = () => {
           });
           success('הסכם נוצר ונשלח ללקוח במייל ✅');
         } catch (err: any) {
-          console.error('Agreement send failed:', err);
           showError(err?.message || 'שליחת הסכם נכשלה');
         }
       }
@@ -905,7 +897,15 @@ const EventsPage: React.FC = () => {
                 <span>שגיאה</span>
               </span>
               <div className="text-[11px] text-muted-foreground max-w-[180px] truncate" title={morningErr || ''}>
-                {morningErr || '—'}
+                {(() => {
+                  if (!morningErr) return '—';
+                  try {
+                    const o = JSON.parse(morningErr);
+                    return (typeof o?.message === 'string' ? o.message : morningErr) || '—';
+                  } catch {
+                    return morningErr;
+                  }
+                })()}
               </div>
               <Button
                 size="sm"
@@ -1049,7 +1049,6 @@ const EventsPage: React.FC = () => {
       success('נמחקו אירועים נבחרים ✅');
       invalidateEvents(currentAgency?.id);
     } catch (e: any) {
-      console.error(e);
       showError(e?.message || 'מחיקת האירועים נכשלה. אנא נסה שוב.');
     } finally {
       setBulkDeleting(false);
