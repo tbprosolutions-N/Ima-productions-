@@ -32,9 +32,9 @@ const EVENT_LIST_COLS = [
 ].join(',');
 
 const ARTIST_LIST_COLS = [
-  'id', 'agency_id', 'name', 'color', 'full_name', 'company_name', 'vat_id',
+  'id', 'agency_id', 'name', 'color', 'vat_id',
   'phone', 'email', 'calendar_email', 'google_calendar_id',
-  'bank_id', 'bank_name', 'bank_branch', 'bank_account',
+  'bank_name', 'bank_branch', 'bank_account',
   'notes', 'amount', 'created_at', 'updated_at',
 ].join(',');
 
