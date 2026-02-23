@@ -147,16 +147,11 @@ const SettingsPage: React.FC = () => {
     permissions: { finance: false, users: false, integrations: false, events_create: true, events_delete: false },
   });
 
-  // Backup: sheets spreadsheet ID and folder ID (from integrations table, if any)
+  // Backup: sheets spreadsheet ID (from integrations table, if any)
   const [sheetsSpreadsheetId, setSheetsSpreadsheetId] = useState<string | null>(null);
-  const [savedBackupFolderId, setSavedBackupFolderId] = useState<string | null>(null);
 
-  // Data backup link (e.g., Google Drive / Sheets)
-  const [backupUrl, setBackupUrl] = useState('');
   const [sheetsSyncing, setSheetsSyncing] = useState(false);
-  const [manualBackupLoading, setManualBackupLoading] = useState(false);
   const [snapshotLoading, setSnapshotLoading] = useState(false);
-  const [editableSheetLoading, setEditableSheetLoading] = useState(false);
 
   // Morning (Green Invoice): API credentials — stored in DB via Netlify function (not shown after save)
   const [morningCompanyId, setMorningCompanyId] = useState('');
@@ -204,25 +199,16 @@ const SettingsPage: React.FC = () => {
             .eq('agency_id', currentAgency.id);
           if (error) {
             setSheetsSpreadsheetId(null);
-            setSavedBackupFolderId(null);
             return;
           }
           const list = (data as IntegrationConnection[]) || [];
           const sheetsConn = list.find((x: any) => x.provider === 'sheets');
           const config = (sheetsConn as any)?.config;
           setSheetsSpreadsheetId(config?.spreadsheet_id ?? null);
-          setSavedBackupFolderId(config?.folder_id ?? null);
         } catch {
           setSheetsSpreadsheetId(null);
-          setSavedBackupFolderId(null);
         }
       })();
-    }
-    try {
-      const raw = localStorage.getItem(`ima_backup_url_${agencyId}`);
-      if (raw) setBackupUrl(raw);
-    } catch {
-      // ignore
     }
 
     // tutorial preference
@@ -336,25 +322,6 @@ const SettingsPage: React.FC = () => {
 
   const persistNotif = (next: { email: boolean; events: boolean; finance: boolean }) => {
     localStorage.setItem(notifKey, JSON.stringify(next));
-  };
-
-
-  const saveBackupUrl = () => {
-    const url = backupUrl.trim();
-    if (!url) {
-      toast.error('נא להזין קישור');
-      return;
-    }
-    if (user?.role !== 'owner') {
-      toast.error('רק Owner יכול לערוך קישור גיבוי');
-      return;
-    }
-    try {
-      localStorage.setItem(`ima_backup_url_${agencyId}`, url);
-      toast.success('קישור גיבוי נשמר ✅');
-    } catch {
-      toast.error('שמירה מקומית נכשלה');
-    }
   };
 
   const handleSaveProfile = async () => {

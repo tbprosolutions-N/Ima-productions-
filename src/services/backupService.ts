@@ -343,12 +343,12 @@ const BUCKET = 'backups';
  */
 export async function uploadToStorage(
   agencyId: string,
-  snapshot: BackupSnapshotV1,
+  _snapshot: BackupSnapshotV1,
   json: string,
   csv: string
 ): Promise<UploadResult> {
   const guard = validateAgency(agencyId);
-  if (guard) return guard;
+  if (guard && !guard.ok) return { ok: false, error: guard.error, code: guard.code };
 
   const trimmedId = agencyId.trim();
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);

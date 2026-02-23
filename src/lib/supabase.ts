@@ -178,7 +178,7 @@ export const getSessionUserFast = async (): Promise<{ user: any; error: any }> =
       if (!refreshError && refreshData?.session?.user)
         return { user: refreshData.session.user, error: null };
     }
-    return { user: data?.session?.user ?? null, error };
+    return { user: (data as any)?.session?.user ?? null, error };
   } catch (e: any) {
     if (e?.name === 'AbortError' || (e instanceof DOMException && e.name === 'AbortError')) {
       return { user: null, error: { message: 'Connection aborted or timed out' } };
