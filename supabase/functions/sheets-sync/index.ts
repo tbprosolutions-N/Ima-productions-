@@ -3,8 +3,12 @@
  * Deno runtime — replaces the Netlify sheets-sync-api function.
  *
  * DESIGN: Completely stateless. Receives pre-formatted 2D arrays from the client,
- * writes to Google Sheets via Service Account, and (createAndSync only) upserts
- * integrations using SUPABASE_SERVICE_ROLE_KEY (bypasses RLS). No DB reads.
+ * writes to Google Sheets via Service Account. Uses SUPABASE_SERVICE_ROLE_KEY
+ * to bypass RLS — 100% data delivery (integrations upsert, sync_queue updates).
+ *
+ * TRANSCRIPTION (syncEditable): Bilingual 2D arrays [heRow, enRow, ...dataRows].
+ * Uses valueInputOption: USER_ENTERED so dates/numbers remain editable by client.
+ * ensureSheetsExist() creates missing tabs (אירועים, לקוחות, אמנים, פיננסים) before write.
  *
  * Env secrets (set via `supabase secrets set`):
  *   GOOGLE_SA_CLIENT_EMAIL   — service account email
@@ -207,32 +211,84 @@ async function createSpreadsheetInFolder(
 
 type SheetCounts = { events: number; clients: number; artists: number; expenses: number };
 
-/** Push client-provided 2D arrays to Google Sheets. Sequential to avoid memory spike. Returns server-verified row counts. */
+const SHEET_NAMES = ['אירועים', 'לקוחות', 'אמנים', 'פיננסים'] as const;
+
+/** Fetch existing sheet titles from the spreadsheet. */
+async function getExistingSheetTitles(token: string, spreadsheetId: string): Promise<Set<string>> {
+  const res = await googleApi<{ sheets?: Array<{ properties?: { title?: string } }> }>({
+    url: `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties.title`,
+    token,
+  });
+  const titles = new Set<string>();
+  for (const s of res?.sheets ?? []) {
+    const t = s?.properties?.title;
+    if (t) titles.add(t);
+  }
+  return titles;
+}
+
+/**
+ * Dynamic tab creation: checks for existing tabs (אירועים, לקוחות, אמנים, פיננסים)
+ * and creates only missing ones via batchUpdate addSheet. Called before writing
+ * for syncEditable so client spreadsheets without all tabs still receive data.
+ */
+async function ensureSheetsExist(
+  token: string,
+  spreadsheetId: string,
+  requestId: string
+): Promise<void> {
+  const existing = await getExistingSheetTitles(token, spreadsheetId);
+  const toAdd = SHEET_NAMES.filter((n) => !existing.has(n));
+  if (toAdd.length === 0) return;
+  console.log(`${LOG_PREFIX} ${requestId} Ensure: creating missing sheets: ${toAdd.join(', ')}`);
+  await googleApi({
+    url: `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+    method: 'POST',
+    token,
+    body: {
+      requests: toAdd.map((title) => ({ addSheet: { properties: { title } } })),
+    },
+  });
+}
+
+/**
+ * Push client-provided 2D arrays to Google Sheets. For syncEditable: force
+ * valueInputOption: USER_ENTERED so dates and numbers stay editable by client.
+ */
 async function pushSheetsData(
   token: string,
   spreadsheetId: string,
   sheets: { 'אירועים'?: string[][]; 'לקוחות'?: string[][]; 'אמנים'?: string[][]; 'פיננסים'?: string[][] },
-  requestId: string
+  requestId: string,
+  options?: { valueInputOption?: 'RAW' | 'USER_ENTERED'; ensureSheets?: boolean; headerRows?: number }
 ): Promise<SheetCounts> {
-  const sheetOrder = ['אירועים', 'לקוחות', 'אמנים', 'פיננסים'] as const;
+  const valueInputOption = options?.valueInputOption ?? 'RAW';
+  const ensureSheets = options?.ensureSheets ?? false;
+  const headerRowsOpt = options?.headerRows;
+
+  if (ensureSheets) {
+    await ensureSheetsExist(token, spreadsheetId, requestId);
+  }
+
   const countKeys: (keyof SheetCounts)[] = ['events', 'clients', 'artists', 'expenses'];
   const serverCounts: SheetCounts = { events: 0, clients: 0, artists: 0, expenses: 0 };
 
-  for (let i = 0; i < sheetOrder.length; i++) {
-    const name = sheetOrder[i];
+  for (let i = 0; i < SHEET_NAMES.length; i++) {
+    const name = SHEET_NAMES[i];
     const values = sheets[name] ?? [];
     if (values.length === 0) continue;
 
     try {
       const t0 = Date.now();
       const resp = await googleApi<{ updatedRows?: number }>({
-        url: `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(name)}!A1?valueInputOption=RAW`,
+        url: `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(name)}!A1?valueInputOption=${valueInputOption}`,
         method: 'PUT',
         token,
         body: { values },
       });
       const rows = resp?.updatedRows ?? values.length;
-      serverCounts[countKeys[i]] = Math.max(0, rows - 1); // exclude header
+      const headerRows = headerRowsOpt ?? (values.length >= 2 && values[0]?.length === values[1]?.length ? 2 : 1);
+      serverCounts[countKeys[i]] = Math.max(0, rows - headerRows);
       console.log(`${LOG_PREFIX} ${requestId} Sync: ${name} ok, ${rows} rows in ${Date.now() - t0}ms`);
     } catch (e: any) {
       const msg = e?.message ?? String(e);
@@ -263,6 +319,53 @@ function isValidFolderId(id: string): boolean {
   return /^[a-zA-Z0-9_-]{20,64}$/.test(id);
 }
 
+// ── Database Webhook payload handling ──────────────────────────────────────────
+
+/**
+ * Parse incoming request body. Database Webhooks send JSON with { type, table, record }.
+ * Use raw JSON only — do not base64-decode the body; sync_queue data is already a JSON object.
+ * If record.data is a string (double-encoded JSONB), parse it once to get the object.
+ */
+async function parseWebhookBody(req: Request): Promise<{ isWebhook: boolean; record: any; raw: any }> {
+  const text = await req.text();
+  let raw: any;
+  try {
+    raw = text.length > 0 ? JSON.parse(text) : {};
+  } catch {
+    return { isWebhook: false, record: null, raw: {} };
+  }
+
+  const hasRecord = raw != null && typeof raw === 'object' && 'record' in raw;
+  const isInsert = raw?.type === 'INSERT' && raw?.table === 'sync_queue';
+  const isWebhook = hasRecord && isInsert;
+
+  if (!isWebhook) {
+    return { isWebhook: false, record: null, raw };
+  }
+
+  let record = raw.record;
+  if (record != null && typeof record === 'string') {
+    try {
+      record = JSON.parse(atob(record));
+    } catch {
+      record = null;
+    }
+  }
+  if (record == null || typeof record !== 'object') {
+    record = null;
+  }
+
+  if (record != null && record.data != null && typeof record.data === 'string') {
+    try {
+      record = { ...record, data: JSON.parse(record.data) };
+    } catch {
+      // leave data as-is
+    }
+  }
+
+  return { isWebhook: !!record?.id && !!record?.agency_id && record?.data != null, record, raw };
+}
+
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
@@ -281,10 +384,17 @@ Deno.serve(async (req: Request) => {
 
   let reqBody: any;
   try {
-    reqBody = await req.json();
+    const parsed = await parseWebhookBody(req);
+    if (parsed.isWebhook && parsed.record) {
+      reqBody = { type: 'INSERT', table: 'sync_queue', record: parsed.record };
+    } else if (parsed.raw != null && typeof parsed.raw === 'object') {
+      reqBody = parsed.raw;
+    } else {
+      reqBody = {};
+    }
   } catch (e: unknown) {
-    console.error(`${LOG_PREFIX} ${requestId} JSON parse failed:`, e);
-    return respond(400, { error: 'Invalid JSON body' });
+    console.error(`${LOG_PREFIX} ${requestId} Payload parse failed:`, e);
+    return respond(400, { error: 'Invalid request body' });
   }
 
   // ── Webhook: Database trigger on sync_queue INSERT ────────────────────────────
@@ -293,7 +403,10 @@ Deno.serve(async (req: Request) => {
     const queueId = webhookRecord.id as string;
     const agencyId = String(webhookRecord.agency_id).trim();
     const data = webhookRecord.data as { action?: string; folderId?: string; spreadsheetId?: string; sheets?: Record<string, string[][]>; counts?: SheetCounts };
-    const action = data?.action === 'createAndSync' ? 'createAndSync' : data?.action === 'sync' ? 'sync' : null;
+    const action = data?.action === 'createAndSync' ? 'createAndSync'
+      : data?.action === 'sync' ? 'sync'
+      : data?.action === 'syncEditable' ? 'syncEditable'
+      : null;
     const sheets = data?.sheets && typeof data.sheets === 'object' ? data.sheets : undefined;
     const counts = data?.counts && typeof data.counts === 'object' ? data.counts : { events: 0, clients: 0, artists: 0, expenses: 0 };
 
@@ -309,21 +422,38 @@ Deno.serve(async (req: Request) => {
 
     const supabase = createClient(supabaseUrl!, supabaseKey!, { auth: { persistSession: false } });
 
-    const markProcessing = () => supabase.from('sync_queue').update({ status: 'processing', updated_at: new Date().toISOString() }).eq('id', queueId);
-    const markCompleted = (result: object) => supabase.from('sync_queue').update({ status: 'completed', result, updated_at: new Date().toISOString() }).eq('id', queueId);
-    const markFailed = (errMsg: string) => supabase.from('sync_queue').update({ status: 'failed', error_message: errMsg, updated_at: new Date().toISOString() }).eq('id', queueId);
+    const markProcessing = async () => {
+      const { error } = await supabase.from('sync_queue').update({ status: 'processing', updated_at: new Date().toISOString() }).eq('id', queueId);
+      if (error) console.warn(`${LOG_PREFIX} ${requestId} markProcessing:`, error.message);
+    };
+    const markCompleted = async (result: object) => {
+      const { error } = await supabase.from('sync_queue').update({ status: 'completed', result, updated_at: new Date().toISOString() }).eq('id', queueId);
+      if (error) console.warn(`${LOG_PREFIX} ${requestId} markCompleted:`, error.message);
+    };
+    const markFailed = async (errMsg: string) => {
+      const msg = errMsg.slice(0, 500);
+      const { error } = await supabase.from('sync_queue').update({ status: 'failed', error_message: msg, updated_at: new Date().toISOString() }).eq('id', queueId);
+      if (error) console.warn(`${LOG_PREFIX} ${requestId} markFailed:`, error.message);
+    };
 
-    if (!action || !sheets || !sheets['אירועים']) {
+    if (!action || !sheets) {
       await markFailed('Invalid webhook payload: missing action or sheets');
-      return respond(400, { error: 'Invalid webhook payload' });
+      return respond(400, { error: 'Invalid webhook payload', detail: 'Request must include record with action and sheets.' });
     }
 
-    const ev = (sheets['אירועים']?.length ?? 1) - 1;
-    const ar = (sheets['אמנים']?.length ?? 1) - 1;
-    const ex = (sheets['פיננסים']?.length ?? 1) - 1;
+    const isEditable = action === 'syncEditable';
+    const headerRows = isEditable ? 2 : 1; // bilingual: he + en; regular: single header
+    const ev = Math.max(0, (sheets['אירועים']?.length ?? headerRows) - headerRows);
+    const ar = Math.max(0, (sheets['אמנים']?.length ?? headerRows) - headerRows);
+    const ex = Math.max(0, (sheets['פיננסים']?.length ?? headerRows) - headerRows);
+
+    if (action !== 'syncEditable' && !sheets['אירועים']) {
+      await markFailed('Invalid webhook payload: missing אירועים sheet');
+      return respond(400, { error: 'Invalid webhook payload', detail: 'Sheets must include אירועים.' });
+    }
     if (ev === 0 && ar === 0 && ex === 0) {
-      await markFailed('Empty payload');
-      return respond(400, { error: 'Empty payload' });
+      await markFailed('Empty payload: no events, artists, or expenses');
+      return respond(400, { error: 'Empty payload', detail: 'Add at least one event, artist, or expense to sync.' });
     }
 
     let folderId = typeof data?.folderId === 'string' ? data.folderId.trim() : undefined;
@@ -332,17 +462,17 @@ Deno.serve(async (req: Request) => {
     if (action === 'createAndSync') {
       if (!folderId) {
         await markFailed('Missing folderId');
-        return respond(400, { error: 'Missing folderId' });
+        return respond(400, { error: 'Missing folderId', detail: 'createAndSync requires folderId in data.' });
       }
       const folderMatch = folderId.match(/folders\/([a-zA-Z0-9_-]+)/);
       if (folderMatch) folderId = folderMatch[1];
       if (!isValidFolderId(folderId)) {
         await markFailed('Invalid folderId');
-        return respond(400, { error: 'Invalid folderId' });
+        return respond(400, { error: 'Invalid folderId', detail: 'Use a valid Google Drive folder ID.' });
       }
-    } else if (action === 'sync' && !spreadsheetId) {
+    } else if ((action === 'sync' || action === 'syncEditable') && !spreadsheetId) {
       await markFailed('Missing spreadsheetId');
-      return respond(400, { error: 'Missing spreadsheetId' });
+      return respond(400, { error: 'Missing spreadsheetId', detail: 'sync and syncEditable require spreadsheetId in data.' });
     }
 
     await markProcessing();
@@ -379,6 +509,16 @@ Deno.serve(async (req: Request) => {
           return respond(502, { error: 'Row count mismatch' });
         }
         await markCompleted({ spreadsheetId, spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`, counts });
+        return respond(200, { ok: true, queueId });
+      }
+
+      if (action === 'syncEditable') {
+        const serverCounts = await pushSheetsData(token, spreadsheetId!, sheets, requestId, {
+          valueInputOption: 'USER_ENTERED', // Force editable — dates/numbers parse as native types
+          ensureSheets: true,                // Create missing tabs before write
+          headerRows: 2,                     // Bilingual: Row 1 Hebrew, Row 2 English
+        });
+        await markCompleted({ spreadsheetId, spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`, counts: serverCounts });
         return respond(200, { ok: true, queueId });
       }
 
@@ -420,14 +560,19 @@ Deno.serve(async (req: Request) => {
   const sheets = reqBody.sheets && typeof reqBody.sheets === 'object' ? reqBody.sheets : undefined;
   const counts = reqBody.counts && typeof reqBody.counts === 'object' ? reqBody.counts : { events: 0, clients: 0, artists: 0, expenses: 0 };
 
+  const isEditableDirect = action === 'syncEditable';
+  const headerRowsDirect = isEditableDirect ? 2 : 1;
   // Stateless guard: reject empty payload with 400 (not 502) — prevents crash loop
-  if (action === 'createAndSync' || action === 'sync') {
-    if (!sheets || !sheets['אירועים']) {
+  if (action === 'createAndSync' || action === 'sync' || action === 'syncEditable') {
+    if (!sheets) {
       return respond(400, { error: 'Missing sheets data. Client must send formatted data in request body.', code: 'MISSING_SHEETS' });
     }
-    const ev = (sheets['אירועים']?.length ?? 1) - 1;
-    const ar = (sheets['אמנים']?.length ?? 1) - 1;
-    const ex = (sheets['פיננסים']?.length ?? 1) - 1;
+    if (action !== 'syncEditable' && !sheets['אירועים']) {
+      return respond(400, { error: 'Missing אירועים sheet.', code: 'MISSING_SHEETS' });
+    }
+    const ev = Math.max(0, (sheets['אירועים']?.length ?? headerRowsDirect) - headerRowsDirect);
+    const ar = Math.max(0, (sheets['אמנים']?.length ?? headerRowsDirect) - headerRowsDirect);
+    const ex = Math.max(0, (sheets['פיננסים']?.length ?? headerRowsDirect) - headerRowsDirect);
     if (ev === 0 && ar === 0 && ex === 0) {
       console.log(`${LOG_PREFIX} ${requestId} Rejecting empty payload (no events/artists/expenses)`);
       return respond(400, { error: 'Empty payload. Add events, artists, or expenses before syncing.', code: 'EMPTY_PAYLOAD' });
@@ -438,6 +583,9 @@ Deno.serve(async (req: Request) => {
     const folderMatch = folderId.match(/folders\/([a-zA-Z0-9_-]+)/);
     if (folderMatch) folderId = folderMatch[1];
     if (!isValidFolderId(folderId)) return respond(400, { error: 'Invalid folderId' });
+  }
+  if (action === 'syncEditable' && !spreadsheetId) {
+    return respond(400, { error: 'Missing spreadsheetId', detail: 'syncEditable requires spreadsheetId.' });
   }
 
   try {
@@ -541,7 +689,29 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    return respond(400, { error: 'Unknown action', detail: 'Use action: "createAndSync" or "sync".' });
+    // ── syncEditable action (bilingual, USER_ENTERED, ensure sheets exist) ─────
+    if (action === 'syncEditable') {
+      if (!spreadsheetId) return respond(400, { error: 'Missing spreadsheetId' });
+      let serverCounts: SheetCounts;
+      try {
+        serverCounts = await pushSheetsData(token, spreadsheetId, sheets!, requestId, {
+          valueInputOption: 'USER_ENTERED',
+          ensureSheets: true,
+          headerRows: 2, // bilingual: he + en
+        });
+      } catch (e: any) {
+        console.error(`${LOG_PREFIX} ${requestId} syncEditable pushSheetsData error:`, e?.message);
+        return respond(502, { error: 'Sync failed', detail: e?.message });
+      }
+      return respond(200, {
+        ok: true,
+        spreadsheetId,
+        spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`,
+        counts: serverCounts,
+      });
+    }
+
+    return respond(400, { error: 'Unknown action', detail: 'Use action: "createAndSync", "sync", or "syncEditable".' });
 
   } catch (e: any) {
     const msg = e?.message ?? String(e);

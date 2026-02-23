@@ -138,6 +138,76 @@ export async function resyncSheet(
 }
 
 /**
+ * Circuit breaker for editable sync: skip if no meaningful data.
+ * Bilingual format has [heRow, enRow, ...dataRows] so data rows = length - 2.
+ */
+function circuitBreakerEditable(flatSheets: EditableFlatSheets): SheetsSyncResult | null {
+  const ev = Math.max(0, (flatSheets['אירועים']?.length ?? 2) - 2);
+  const ar = Math.max(0, (flatSheets['אמנים']?.length ?? 2) - 2);
+  const ex = Math.max(0, (flatSheets['פיננסים']?.length ?? 2) - 2);
+  if (ev === 0 && ar === 0 && ex === 0) {
+    return {
+      ok: false,
+      error: 'אין נתונים לסנכרן לגיליון עבודה. הוסף אירועים, אמנים או הוצאות תחילה.',
+      detail: 'Empty editable payload blocked.',
+      code: 'EMPTY_PAYLOAD',
+    };
+  }
+  return null;
+}
+
+export type EditableFlatSheets = {
+  'אירועים': string[][];
+  'לקוחות': string[][];
+  'אמנים': string[][];
+  'פיננסים': string[][];
+};
+
+/**
+ * Enqueue editable continuity sheet sync. Uses bilingual backup_v1 format [heRow, enRow, ...dataRows],
+ * USER_ENTERED input mode, and creates missing sheet tabs.
+ */
+export async function resyncEditableSheet(
+  agencyId: string,
+  spreadsheetId: string,
+  flatSheets: EditableFlatSheets,
+  userId: string
+): Promise<SheetsSyncResult> {
+  const guard = agencyGuard(agencyId);
+  if (guard) return guard;
+  const blocked = circuitBreakerEditable(flatSheets);
+  if (blocked) return blocked;
+
+  const counts = {
+    events: Math.max(0, (flatSheets['אירועים']?.length ?? 2) - 2),
+    clients: Math.max(0, (flatSheets['לקוחות']?.length ?? 2) - 2),
+    artists: Math.max(0, (flatSheets['אמנים']?.length ?? 2) - 2),
+    expenses: Math.max(0, (flatSheets['פיננסים']?.length ?? 2) - 2),
+  };
+
+  const { data: row, error } = await supabase
+    .from('sync_queue')
+    .insert({
+      user_id: userId,
+      agency_id: agencyId.trim(),
+      data: {
+        action: 'syncEditable',
+        spreadsheetId: spreadsheetId.trim(),
+        sheets: flatSheets,
+        counts,
+      },
+      status: 'pending',
+    })
+    .select('id')
+    .single();
+
+  if (error) {
+    return { ok: false, error: error.message, detail: String(error), code: 'INSERT_FAILED' };
+  }
+  return { ok: true, queued: true, queueId: row.id };
+}
+
+/**
  * Subscribe to sync_queue status changes. Callbacks fire when status becomes completed or failed.
  * Returns unsubscribe function.
  */

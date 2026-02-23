@@ -111,12 +111,39 @@ async function moveToFolder(token: string, fileId: string, folderId: string): Pr
   );
 }
 
-async function writeSheetValues(token: string, spreadsheetId: string, sheetName: string, headers: string[], rows: string[][]): Promise<void> {
+async function writeSheetValues(token: string, spreadsheetId: string, sheetName: string, headers: string[], rows: string[][], valueInputOption: 'RAW' | 'USER_ENTERED' = 'RAW'): Promise<void> {
   const values = [headers, ...rows];
   await googleFetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A1?valueInputOption=RAW`,
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}!A1?valueInputOption=${valueInputOption}`,
     { method: 'PUT', token, body: JSON.stringify({ values }) }
   );
+}
+
+export type EditableFlatSheets = {
+  'אירועים': string[][];
+  'לקוחות': string[][];
+  'אמנים': string[][];
+  'פיננסים': string[][];
+};
+
+/**
+ * Push flat bilingual data to Google Sheets. Uses USER_ENTERED so client can edit (dates, numbers).
+ * Each sheet: Row 1 = Hebrew headers, Row 2 = English headers, Row 3+ = data.
+ */
+export async function writeEditableSheetsToGoogle(
+  spreadsheetId: string,
+  flatSheets: EditableFlatSheets
+): Promise<void> {
+  const token = getGoogleToken();
+  if (!token) throw new Error('טוקן Google חסר. התנתק/י והתחבר/י מחדש עם Google.');
+
+  const names = ['אירועים', 'לקוחות', 'אמנים', 'פיננסים'] as const;
+  for (const name of names) {
+    const rows = flatSheets[name] ?? [];
+    if (rows.length === 0) continue;
+    const [headers, ...data] = rows;
+    await writeSheetValues(token, spreadsheetId, name, headers, data, 'USER_ENTERED');
+  }
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────

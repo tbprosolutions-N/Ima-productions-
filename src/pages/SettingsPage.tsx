@@ -25,7 +25,8 @@ import type { IntegrationConnection } from '@/types';
 import { demoGetEvents, demoGetClients, demoGetArtists, isDemoMode } from '@/lib/demoStore';
 import { getFinanceExpenses } from '@/lib/financeStore';
 import { createSheetAndSync, resyncSheet, subscribeSyncQueue } from '@/services/sheetsSyncService';
-import { fetchSyncDataForAgency, formatDataForSheets, generateCsvFromSyncData, hasDataForBackup } from '@/services/sheetsSyncClient';
+import { fetchSyncDataForAgency, formatDataForSheets, hasDataForBackup } from '@/services/sheetsSyncClient';
+import { generateSnapshot, uploadToStorage, syncSnapshotToEditableSheet } from '@/services/backupService';
 // jsPDF is loaded lazily inside the PDF generation handler — not on module import
 
 const SettingsPage: React.FC = () => {
@@ -156,6 +157,8 @@ const SettingsPage: React.FC = () => {
   const [backupUrl, setBackupUrl] = useState('');
   const [sheetsSyncing, setSheetsSyncing] = useState(false);
   const [manualBackupLoading, setManualBackupLoading] = useState(false);
+  const [snapshotLoading, setSnapshotLoading] = useState(false);
+  const [editableSheetLoading, setEditableSheetLoading] = useState(false);
 
   // Morning (Green Invoice): API credentials — stored in DB via Netlify function (not shown after save)
   const [morningCompanyId, setMorningCompanyId] = useState('');
@@ -1336,6 +1339,92 @@ const SettingsPage: React.FC = () => {
               </CardContent>
             </Card>
 
+            {/* Storage-first secure backup — primary, no Google dependency */}
+            {canCreateBackupSheets && (
+              <Card className="border-green-300 dark:border-green-800 bg-green-50/50 dark:bg-green-950/10">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <ClipboardCheck className="w-5 h-5 text-green-600 dark:text-green-400" />
+                    גיבוי מאובטח לענן
+                  </CardTitle>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    צילום מצב נשמר ישירות ב־Supabase Storage — אין תלות ב־Google Sheets. נתונים דו־לשוניים (עברית/אנגלית).
+                  </p>
+                </CardHeader>
+                <CardContent className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    className="bg-green-600 hover:bg-green-700 text-white"
+                    disabled={snapshotLoading || !currentAgency?.id}
+                    onClick={async () => {
+                      if (!currentAgency?.id) {
+                        toast.error('אין סוכנות פעילה');
+                        return;
+                      }
+                      setSnapshotLoading(true);
+                      try {
+                        toast.info('מייצר צילום מצב...');
+                        const gen = await generateSnapshot(currentAgency.id, currentAgency.name);
+                        if (!gen.ok) {
+                          toast.error(gen.error);
+                          return;
+                        }
+                        toast.info('שומר ב־Storage...');
+                        const upload = await uploadToStorage(currentAgency.id, gen.snapshot, gen.json, gen.csv);
+                        if (!upload.ok) {
+                          toast.error(upload.error);
+                          return;
+                        }
+                        toast.success('הגיבוי נשמר בבטחה ב־Storage ✅');
+                      } catch (e: any) {
+                        toast.error(e?.message || 'גיבוי נכשל');
+                      } finally {
+                        setSnapshotLoading(false);
+                      }
+                    }}
+                  >
+                    {snapshotLoading ? (
+                      <span className="flex items-center gap-2">
+                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        מייצר...
+                      </span>
+                    ) : (
+                      'גיבוי מאובטח לענן (Snapshot)'
+                    )}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={snapshotLoading || !currentAgency?.id}
+                    onClick={async () => {
+                      if (!currentAgency?.id) {
+                        toast.error('אין סוכנות פעילה');
+                        return;
+                      }
+                      try {
+                        const gen = await generateSnapshot(currentAgency.id, currentAgency.name);
+                        if (!gen.ok) {
+                          toast.error(gen.error);
+                          return;
+                        }
+                        const blob = new Blob(['\ufeff' + gen.csv], { type: 'text/csv;charset=utf-8' });
+                        const a = document.createElement('a');
+                        a.href = URL.createObjectURL(blob);
+                        a.download = `npc-backup-${new Date().toISOString().slice(0, 10)}.csv`;
+                        a.click();
+                        URL.revokeObjectURL(a.href);
+                        toast.success('קובץ CSV הורד');
+                      } catch (e: any) {
+                        toast.error(e?.message || 'הורדת CSV נכשלה');
+                      }
+                    }}
+                  >
+                    הורד CSV (גיבוי מקומי)
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+
             <Card className="border-primary/20">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -1422,12 +1511,67 @@ const SettingsPage: React.FC = () => {
                       <Button
                         type="button"
                         variant="outline"
+                        disabled={editableSheetLoading || sheetsSyncing || !currentAgency?.id || !user?.id}
                         onClick={async () => {
-                          if (!currentAgency?.id) return;
+                          if (!currentAgency?.id || !sheetsSpreadsheetId || !user?.id) return;
+                          setEditableSheetLoading(true);
                           try {
-                            const data = await fetchSyncDataForAgency(currentAgency.id);
-                            const csv = generateCsvFromSyncData(data);
-                            const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+                            toast.info('מסנכרן לגיליון עבודה חי...');
+                            const result = await syncSnapshotToEditableSheet(
+                              currentAgency.id,
+                              sheetsSpreadsheetId,
+                              currentAgency.name,
+                              user.id
+                            );
+                            if (result.ok && 'queued' in result && result.queued) {
+                              subscribeSyncQueue(result.queueId, {
+                                onCompleted: (r) => {
+                                  const c = r?.counts;
+                                  toast.success(c ? `גיליון עבודה עודכן: ${c.events} אירועים, ${c.clients} לקוחות, ${c.artists} אמנים, ${c.expenses} הוצאות` : 'הגיליון עודכן לגרסה ניתנת לעריכה');
+                                  setEditableSheetLoading(false);
+                                },
+                                onFailed: (msg) => {
+                                  toast.error(msg || 'סנכרון נכשל');
+                                  setEditableSheetLoading(false);
+                                },
+                              });
+                            } else if (result.ok) {
+                              toast.success('הגיליון עודכן לגרסה ניתנת לעריכה');
+                              setEditableSheetLoading(false);
+                            } else {
+                              toast.error(result.error);
+                              setEditableSheetLoading(false);
+                            }
+                          } catch (e: any) {
+                            toast.error(e?.message || 'סנכרון נכשל');
+                            setEditableSheetLoading(false);
+                          }
+                        }}
+                      >
+                        {editableSheetLoading ? (
+                          <span className="flex items-center gap-2">
+                            <span className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                            מסנכרן...
+                          </span>
+                        ) : (
+                          'סנכרן לגיליון עבודה חי (Editable)'
+                        )}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={async () => {
+                          if (!currentAgency?.id) {
+                            toast.error('אין סוכנות פעילה');
+                            return;
+                          }
+                          try {
+                            const gen = await generateSnapshot(currentAgency.id, currentAgency.name);
+                            if (!gen.ok) {
+                              toast.error(gen.error);
+                              return;
+                            }
+                            const blob = new Blob(['\ufeff' + gen.csv], { type: 'text/csv;charset=utf-8' });
                             const a = document.createElement('a');
                             a.href = URL.createObjectURL(blob);
                             a.download = `npc-backup-${new Date().toISOString().slice(0, 10)}.csv`;
