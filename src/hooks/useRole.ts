@@ -26,7 +26,7 @@ export function useRole(): { role: UserRole | null; isLoading: boolean } {
         .from('users')
         .select('role')
         .eq('id', userId)
-        .single();
+        .maybeSingle();
       if (error) return (user as { role?: UserRole })?.role ?? null;
       const r = (data as { role?: string })?.role;
       return r && VALID_ROLES.includes(r as UserRole) ? (r as UserRole) : (user as { role?: UserRole })?.role ?? null;

@@ -46,16 +46,11 @@ import { queueSyncJob } from '@/lib/syncJobs';
 import { createEventDocument, checkEventDocumentStatus } from '@/services/morningService';
 import { agreementService } from '@/services/agreementService';
 import { getCollectionStatus } from '@/lib/collectionStatus';
-import { useSilentSheetsSync } from '@/hooks/useSilentSheetsSync';
-import { createSheetAndSync, subscribeSyncQueue } from '@/services/sheetsSyncService';
-import { fetchSyncDataForAgency, formatDataForSheets, hasDataForBackup } from '@/services/sheetsSyncClient';
-import { triggerImmediateSync } from '@/services/sheetsSyncClient';
 
 const EventsPage: React.FC = () => {
   const { currentAgency } = useAgency();
   const { user } = useAuth();
   const { success, error: showError } = useToast();
-  useSilentSheetsSync();
   const canCreateEvent =
     !!user &&
     (user.permissions?.events_create === true ||
@@ -196,8 +191,6 @@ const EventsPage: React.FC = () => {
       if (error) throw error;
       success('אירוע נמחק בהצלחה! ✅');
       invalidateEvents(currentAgency?.id);
-      // Live sheets sync — fire-and-forget
-      triggerImmediateSync(currentAgency?.id ?? '');
     } catch {
       showError('מחיקת האירוע נכשלה. אנא נסה שוב.');
     }
@@ -216,8 +209,6 @@ const EventsPage: React.FC = () => {
       const { error } = await supabase.from('events').update(patch as any).eq('id', eventId);
       if (error) throw error;
       invalidateEvents(currentAgency.id);
-      // Live sheets sync after inline edit — fire-and-forget
-      triggerImmediateSync(currentAgency.id);
     } catch (e: any) {
       showError(e?.message || 'אירעה שגיאה בעדכון. אנא נסה שוב.');
       invalidateEvents(currentAgency.id);
@@ -498,8 +489,6 @@ const EventsPage: React.FC = () => {
 
         if (error) throw error;
         success('אירוע עודכן בהצלחה! ✅');
-        // Live sheets sync — fire-and-forget (replaces dead queueSyncJob)
-        triggerImmediateSync(currentAgency.id);
         // Google Calendar sync job (company calendar + invite email flow)
         await queueSyncJob({
           agencyId: currentAgency.id,
@@ -514,37 +503,6 @@ const EventsPage: React.FC = () => {
         if (error) throw error;
         savedEventId = (inserted as any)?.id;
         success('Saved to Database');
-
-        // First event: auto-create Drive backup sheet if user has set backup folder URL
-        if (events.length === 0) {
-          try {
-            const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(`ima_backup_url_${currentAgency.id}`) : null;
-            const url = (raw || '').trim();
-            const folderId = url?.match(/folders\/([a-zA-Z0-9_-]+)/)?.[1] ?? (/^[a-zA-Z0-9_-]{20,}$/.test(url) ? url : null);
-            if (folderId && user?.id) {
-              const data = await fetchSyncDataForAgency(currentAgency.id);
-              if (!hasDataForBackup(data)) {
-                showError('לא נמצאו נתונים עבור הסוכנות הנוכחית.');
-                return;
-              }
-              const sheets = formatDataForSheets(data);
-              const result = await createSheetAndSync(currentAgency.id, folderId, sheets, user.id);
-              if (result.ok && 'queued' in result && result.queued) {
-                subscribeSyncQueue(result.queueId, {
-                  onCompleted: () => success('גיליון גיבוי נוצר ב־Drive ✅'),
-                  onFailed: (msg) => showError(`גיבוי Drive נכשל: ${msg || 'שגיאה לא ידועה'}. ניתן ליצור ידנית בהגדרות → גיבוי נתונים.`),
-                });
-              } else if (result.ok) {
-                success('גיליון גיבוי נוצר ב־Drive ✅');
-              } else {
-                const errMsg = result.detail || result.error || 'שגיאה לא ידועה';
-                showError(`גיבוי Drive נכשל: ${errMsg}. ניתן ליצור ידנית בהגדרות → גיבוי נתונים.`);
-              }
-            }
-          } catch {
-            // Non-blocking; user can trigger backup from Settings
-          }
-        }
 
         // Agreement engine: when artist & client emails present, send agreement + calendar invite
         let clientEmail = (clients.find(c => c.id === clientId) || {} as Client).email?.trim();
@@ -564,9 +522,6 @@ const EventsPage: React.FC = () => {
         }
         const shouldSendAgreement = !!(clientEmail && artistEmail);
         const sendInvites = shouldSendAgreement || formData.send_calendar_invite;
-
-        // Live sheets sync — fire-and-forget on event creation (skips if no spreadsheet configured)
-        triggerImmediateSync(currentAgency.id);
 
         await queueSyncJob({
           agencyId: currentAgency.id,

@@ -160,16 +160,40 @@ const ClientsPage: React.FC = () => {
         return;
       }
 
-      const { error } = await supabase
+      // Unlink events that reference this client (avoids FK violation), then delete client
+      const { data: linkedEvents, error: unlinkErr } = await supabase
+        .from('events')
+        .update({ client_id: null })
+        .eq('agency_id', currentAgency.id)
+        .eq('client_id', id)
+        .select('id');
+
+      if (unlinkErr) {
+        showError(unlinkErr.message || 'שגיאה בניתוק אירועים. נסה שוב.');
+        return;
+      }
+
+      const unlinkedCount = linkedEvents?.length ?? 0;
+
+      const { error: deleteErr } = await supabase
         .from('clients')
         .delete()
         .eq('id', id);
 
-      if (error) throw error;
-      success('לקוח נמחק בהצלחה');
+      if (deleteErr) {
+        const isFk = deleteErr.code === '23503' || String(deleteErr.message || '').toLowerCase().includes('foreign key');
+        if (isFk) {
+          showError('לא ניתן למחוק לקוח עם אירועים מקושרים. ערוך את האירועים בעמוד אירועים והסר את הלקוח מהם.');
+        } else {
+          showError(deleteErr.message || 'אירעה שגיאה במחיקה. אנא נסה שוב.');
+        }
+        return;
+      }
+
+      success(unlinkedCount > 0 ? 'הלקוח נמחק. אירועים שקשרו אליו נותקו.' : 'לקוח נמחק בהצלחה');
       invalidateClients(currentAgency.id);
     } catch (err: any) {
-      showError(err.message || 'אירעה שגיאה במחיקה. אנא נסה שוב.');
+      showError(err?.message || 'אירעה שגיאה במחיקה. אנא נסה שוב.');
     }
   };
 

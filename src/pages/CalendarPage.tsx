@@ -1,17 +1,21 @@
-import React, { useState, useMemo, useCallback, memo } from 'react';
+import React, { useState, useMemo, useCallback, memo, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Calendar as CalendarIcon, List, Grid, ChevronLeft, ChevronRight, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select';
 import { useAgency } from '@/contexts/AgencyContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { formatCurrency } from '@/lib/utils';
 import type { Artist, Event } from '@/types';
 import { buildGoogleCalendarUrl } from '@/lib/googleCalendar';
 import { useEventsQuery, useArtistsQuery } from '@/hooks/useSupabaseQuery';
+import { useQueryClient } from '@tanstack/react-query';
 import { getCompanyName } from '@/lib/settingsStore';
 import { useNavigate } from 'react-router-dom';
 import { useToast } from '@/contexts/ToastContext';
+import { supabase } from '@/lib/supabase';
+import { isDemoMode } from '@/lib/demoStore';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
@@ -58,8 +62,37 @@ const CalendarPage: React.FC = () => {
   // Date filter bar: default = real-time (current month). Optional from/to override.
   const [filterFrom, setFilterFrom] = useState<string>('');
   const [filterTo, setFilterTo] = useState<string>('');
+  // Artist filter: show only one artist's events and use their color for clarity.
+  const [selectedArtistId, setSelectedArtistId] = useState<string | null>(null);
   const companyName = currentAgency ? (getCompanyName(currentAgency.id) || currentAgency.name) : 'NPC';
   const canEditDaybook = user?.role === 'owner';
+  const queryClient = useQueryClient();
+
+  // Realtime: invalidate events and artists so calendar updates across sessions without refresh
+  useEffect(() => {
+    if (!currentAgency?.id || isDemoMode()) return;
+    const agencyId = currentAgency.id;
+    const channel = supabase
+      .channel('calendar-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'events', filter: `agency_id=eq.${agencyId}` },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ['events', agencyId] });
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'artists', filter: `agency_id=eq.${agencyId}` },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ['artists', agencyId] });
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentAgency?.id, queryClient]);
 
   // Surface a toast if the background React Query fetch errors
   const prevEventsError = React.useRef(false);
@@ -70,7 +103,7 @@ const CalendarPage: React.FC = () => {
     prevEventsError.current = !!eventsError;
   }, [eventsError, showError]);
 
-  // Client-side date filter over the React Query cache — zero extra Supabase calls when month changes
+  // Client-side date and artist filter over the React Query cache
   const events = useMemo(() => {
     const start = filterFrom
       ? new Date(filterFrom)
@@ -82,10 +115,12 @@ const CalendarPage: React.FC = () => {
     return allEvents
       .filter(e => {
         const d = new Date(e.event_date);
-        return d >= start && d <= end;
+        if (d < start || d > end) return false;
+        if (selectedArtistId != null) return e.artist_id === selectedArtistId;
+        return true;
       })
       .sort((a, b) => a.event_date.localeCompare(b.event_date));
-  }, [allEvents, currentMonth, filterFrom, filterTo]);
+  }, [allEvents, currentMonth, filterFrom, filterTo, selectedArtistId]);
 
   const nextMonth = () => {
     setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1));
@@ -159,7 +194,7 @@ const CalendarPage: React.FC = () => {
         className="flex flex-wrap items-center justify-between gap-4"
       >
         <div>
-          <h1 className="text-3xl font-bold text-foreground flex items-center gap-2">
+          <h1 className="text-3xl font-bold text-foreground flex items-center gap-2 flex-wrap">
             <CalendarIcon className="w-8 h-8 text-primary animate-pulse" />
             לוח שנה
           </h1>
@@ -188,7 +223,7 @@ const CalendarPage: React.FC = () => {
         </div>
       </motion.div>
 
-      {/* Date filter bar — default: real-time (current month) */}
+      {/* Date and artist filter bar — default: real-time (current month) */}
       <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card/50 p-3">
         <span className="text-sm font-medium text-foreground">טווח תאריכים</span>
         <input
@@ -218,6 +253,30 @@ const CalendarPage: React.FC = () => {
         >
           ברירת מחדל (חודש נוכחי)
         </Button>
+        <span className="text-sm font-medium text-foreground mr-2">אמן</span>
+        <Select
+          value={selectedArtistId ?? 'all'}
+          onValueChange={(v) => setSelectedArtistId(v === 'all' ? null : v)}
+        >
+          <SelectTrigger className="w-[220px] bg-background">
+            <SelectValue placeholder="כל האמנים" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">כל האמנים</SelectItem>
+            {artists.map((a) => (
+              <SelectItem key={a.id} value={a.id}>
+                <span className="inline-flex items-center gap-2">
+                  <span
+                    className="inline-block h-3 w-3 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: (a.color && a.color.startsWith('#') ? a.color : 'hsl(var(--primary))') }}
+                    aria-hidden
+                  />
+                  <span className="truncate">{a.name || '—'}</span>
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <Card className="border-primary/20">
@@ -244,7 +303,9 @@ const CalendarPage: React.FC = () => {
               {events.length === 0 ? (
                 <div className="text-center py-16">
                   <CalendarIcon className="w-16 h-16 text-muted-foreground mx-auto mb-4 opacity-50" />
-                  <p className="text-muted-foreground">אין אירועים בחודש זה</p>
+                  <p className="text-muted-foreground">
+                    {selectedArtistId ? 'אין אירועים לאמן זה בחודש זה' : 'אין אירועים בחודש זה'}
+                  </p>
                 </div>
               ) : (
                 events.map((event, index) => (
@@ -344,7 +405,9 @@ const CalendarPage: React.FC = () => {
                     </span>
                   ))}
                 {events.length === 0 && (
-                  <span className="text-xs text-muted-foreground">אין אירועים בחודש זה</span>
+                  <span className="text-xs text-muted-foreground">
+                    {selectedArtistId ? 'אין אירועים לאמן זה בחודש זה' : 'אין אירועים בחודש זה'}
+                  </span>
                 )}
               </div>
 

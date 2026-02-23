@@ -155,15 +155,42 @@ export const getCurrentUser = async () => {
   return { user, error };
 };
 
+/** True if the error message indicates JWT/clock skew issues that may be fixed by refreshing the session. */
+function isClockSkewOrJwtExpiredError(e: unknown): boolean {
+  const msg = typeof (e as any)?.message === 'string' ? (e as any).message.toLowerCase() : '';
+  return (
+    msg.includes('clock') ||
+    msg.includes('skew') ||
+    msg.includes('jwt expired') ||
+    msg.includes('token has expired') ||
+    msg.includes('invalid claim')
+  );
+}
+
 // Fast boot helper: reads session (Supabase may validate via network).
-// Wraps getSession so AbortError from Supabase internals is not left uncaught.
+// On clock skew / JWT expired, refreshes the session once and retries to avoid spurious logouts.
 export const getSessionUserFast = async (): Promise<{ user: any; error: any }> => {
   try {
     const { data, error } = await supabase.auth.getSession();
-    return { user: data.session?.user ?? null, error };
+    if (!error) return { user: data.session?.user ?? null, error };
+    if (isClockSkewOrJwtExpiredError(error)) {
+      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+      if (!refreshError && refreshData?.session?.user)
+        return { user: refreshData.session.user, error: null };
+    }
+    return { user: data?.session?.user ?? null, error };
   } catch (e: any) {
     if (e?.name === 'AbortError' || (e instanceof DOMException && e.name === 'AbortError')) {
       return { user: null, error: { message: 'Connection aborted or timed out' } };
+    }
+    if (isClockSkewOrJwtExpiredError(e)) {
+      try {
+        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+        if (!refreshError && refreshData?.session?.user)
+          return { user: refreshData.session.user, error: null };
+      } catch {
+        // fall through to throw or return error
+      }
     }
     throw e;
   }

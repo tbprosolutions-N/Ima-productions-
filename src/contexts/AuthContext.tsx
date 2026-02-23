@@ -222,7 +222,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
 
-      // No session: only clear after initial check is done (avoids F5 race where listener fires before getSession)
+      // No session: try one refresh (handles clock skew / JWT expiry) before clearing
       if (!initialCheckDoneRef.current) return;
 
       try {
@@ -233,7 +233,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setLoading(false);
           return;
         }
-      } catch { /* timeout */ }
+        // Clock skew / stale token: attempt refresh once before giving up
+        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+        if (!refreshError && refreshData?.session?.user && mounted) {
+          setSupabaseUser(refreshData.session.user);
+          await fetchUserProfile(refreshData.session.user);
+          setLoading(false);
+          return;
+        }
+      } catch { /* timeout or refresh failed */ }
 
       // SIGNED_OUT / session expiry: clear user
       setUser(null);

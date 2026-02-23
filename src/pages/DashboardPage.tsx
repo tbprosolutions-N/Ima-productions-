@@ -17,7 +17,6 @@ import { supabase } from '@/lib/supabase';
 import { isDemoMode } from '@/lib/demoStore';
 import { getFinanceExpenses } from '@/lib/financeStore';
 import { getActivity, type ActivityEntry } from '@/lib/activityLog';
-import { useSilentSheetsSync } from '@/hooks/useSilentSheetsSync';
 import { useToast } from '@/contexts/ToastContext';
 import {
   useEventsQuery,
@@ -487,7 +486,6 @@ const DashboardPage: React.FC = () => {
   const { user } = useAuth();
   const { currentAgency } = useAgency();
   const queryClient = useQueryClient();
-  useSilentSheetsSync();
 
   const agencyId = currentAgency?.id;
 

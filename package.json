@@ -20,7 +20,8 @@
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
     "test:all": "npm run test:unit && npm run test:e2e",
-    "test:backend": "node tests/backend/integration.example.mjs"
+    "test:backend": "node tests/backend/integration.example.mjs",
+    "verify-sync-integrity": "node scripts/verify-sync-integrity.mjs"
   },
   "dependencies": {
     "@fullcalendar/core": "^6.1.10",

@@ -380,6 +380,8 @@ END;
 $$;
 
 -- 4E. update_agency_user_role (owner only)
+-- Drop first so we can change parameter names if the existing function had different param names (e.g. p_new_role)
+DROP FUNCTION IF EXISTS public.update_agency_user_role(uuid, text);
 CREATE OR REPLACE FUNCTION public.update_agency_user_role(p_user_id uuid, p_role text)
 RETURNS jsonb
 LANGUAGE plpgsql

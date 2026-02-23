@@ -59,12 +59,12 @@ export const AgencyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             12000,
             'ensure_user_profile'
           );
-          const { data: refreshed } = await withTimeout<any>(
-            supabase.from('users').select('agency_id').eq('id', resolvedUser!.id).single() as any,
+          const { data: refreshed, error: refErr } = await withTimeout<any>(
+            supabase.from('users').select('agency_id').eq('id', resolvedUser!.id).maybeSingle() as any,
             8000,
             'Re-fetch user after bootstrap'
           );
-          if (refreshed?.agency_id) {
+          if (!refErr && refreshed?.agency_id) {
             resolvedUser = { ...resolvedUser!, agency_id: refreshed.agency_id };
           }
         } catch (provErr: any) {

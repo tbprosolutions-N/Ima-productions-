@@ -6,7 +6,7 @@
  * 1. generateSnapshot() pulls latest Events, Artists, Clients, Expenses from DB.
  * 2. snapshotToFlatSheets() maps backup_v1 JSON into bilingual 2D arrays:
  *    Row 1 = Hebrew headers, Row 2 = English headers, Row 3+ = flattened data.
- * 3. syncSnapshotToEditableSheet() enqueues syncEditable in sync_queue.
+ * 3. syncSnapshotToEditableSheet() is deprecated; use Settings → Export to Sheets instead.
  * 4. Edge Function writes to Google Sheets with USER_ENTERED (dates/numbers stay editable).
  * Data formatting: dates as ISO strings (YYYY-MM-DD), amounts as numbers; cleanNotes() for notes.
  */
@@ -288,21 +288,46 @@ export function snapshotToFlatSheets(snapshot: BackupSnapshotV1): {
 }
 
 /**
- * Generate bilingual CSV from backup_v1 snapshot. Row 1: Hebrew headers, Row 2: English headers, Row 3+: data.
+ * Generate a clean, bilingual CSV from backup_v1 snapshot for direct download.
+ * Format: title line (agency, date), then per-sheet blocks with Row 1 = Hebrew headers,
+ * Row 2 = English headers, Row 3+ = data. Uses CRLF for Excel compatibility.
  */
 export function generateCsvFromSnapshot(snapshot: BackupSnapshotV1): string {
-  const sections: string[] = [];
+  const CSV_NEWLINE = '\r\n';
+  const title = `NPC Backup,${escapeCsv(snapshot.agency_name)},${escapeCsv(snapshot.exported_at)}`;
+  const sections: string[] = [title];
 
   for (const [, sheet] of Object.entries(snapshot.sheets)) {
     if (!sheet || !sheet.headers || !sheet.rows) continue;
-    const headerRow = sheet.headers;
-    const heRow = headerRow.map((c) => escapeCsv(c.headers.he)).join(',');
-    const enRow = headerRow.map((c) => escapeCsv(c.headers.en)).join(',');
+    const heRow = sheet.headers.map((c) => escapeCsv(c.headers.he)).join(',');
+    const enRow = sheet.headers.map((c) => escapeCsv(c.headers.en)).join(',');
     const dataRows = sheet.rows.map((r) => r.map((c) => escapeCsv(c.value)).join(','));
-    sections.push(`# ${sheet.name_he} / ${sheet.name_en}\n${heRow}\n${enRow}\n${dataRows.join('\n')}`);
+    sections.push('');
+    sections.push(`# ${sheet.name_he} / ${sheet.name_en}`);
+    sections.push(heRow);
+    sections.push(enRow);
+    sections.push(...dataRows);
   }
 
-  return sections.join('\n\n');
+  return sections.join(CSV_NEWLINE);
+}
+
+/** Suggested filename for CSV download (e.g. npc-backup-2026-02-16.csv). */
+export function getCsvDownloadFilename(): string {
+  return `npc-backup-${new Date().toISOString().slice(0, 10)}.csv`;
+}
+
+/**
+ * Generate a clean, bilingual CSV suitable for direct download to the user's device.
+ * Uses generateSnapshot + generateCsvFromSnapshot; includes BOM when building the blob in the UI.
+ */
+export async function getDownloadCsv(
+  agencyId: string,
+  agencyName: string = 'Agency'
+): Promise<{ ok: true; csv: string; suggestedFilename: string } | { ok: false; error: string; code?: string }> {
+  const result = await generateSnapshot(agencyId, agencyName);
+  if (!result.ok) return { ok: false, error: result.error, code: result.code };
+  return { ok: true, csv: result.csv, suggestedFilename: getCsvDownloadFilename() };
 }
 
 // ── Upload to Storage ──────────────────────────────────────────────────────────
@@ -353,7 +378,7 @@ export type SyncEditableResult =
 
 /**
  * Push backup_v1 snapshot to client's Google Sheet as flat, bilingual, editable data.
- * Transcription flow: generateSnapshot → snapshotToFlatSheets → resyncEditableSheet (sync_queue).
+ * Transcription flow: generateSnapshot → snapshotToFlatSheets. (Legacy sync_queue removed.)
  * Edge Function uses USER_ENTERED, ensures sheet tabs exist, bypasses RLS via Service Role.
  * Guards: agency_id, agencyName, spreadsheetId, userId. Circuit breaker blocks empty payloads.
  */

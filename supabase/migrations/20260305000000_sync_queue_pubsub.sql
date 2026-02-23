@@ -19,18 +19,28 @@ CREATE INDEX IF NOT EXISTS idx_sync_queue_created ON public.sync_queue(created_a
 ALTER TABLE public.sync_queue ENABLE ROW LEVEL SECURITY;
 
 -- Users can insert their own sync jobs
+DROP POLICY IF EXISTS "Users can insert own sync jobs" ON public.sync_queue;
 CREATE POLICY "Users can insert own sync jobs" ON public.sync_queue
   FOR INSERT WITH CHECK (
-    auth.uid() = user_id
-    AND agency_id IN (SELECT agency_id FROM public.users WHERE id = auth.uid())
+    (user_id::uuid) = auth.uid()
+    AND (agency_id::uuid) IN (SELECT (agency_id::uuid) FROM public.users WHERE id = auth.uid())
   );
 
 -- Users can read their own sync jobs (for Realtime + status polling)
+DROP POLICY IF EXISTS "Users can read own sync jobs" ON public.sync_queue;
 CREATE POLICY "Users can read own sync jobs" ON public.sync_queue
-  FOR SELECT USING (auth.uid() = user_id);
+  FOR SELECT USING ((user_id::uuid) = auth.uid());
 
 -- No UPDATE/DELETE for users — Edge Function uses Service Role
 GRANT SELECT, INSERT ON public.sync_queue TO authenticated;
 
--- Enable Realtime for status updates
-ALTER PUBLICATION supabase_realtime ADD TABLE public.sync_queue;
+-- Enable Realtime for status updates (idempotent)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND tablename = 'sync_queue'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.sync_queue;
+  END IF;
+END $$;

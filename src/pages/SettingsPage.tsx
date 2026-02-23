@@ -24,9 +24,7 @@ import { updateFaviconForPalette } from '@/lib/favicon';
 import type { IntegrationConnection } from '@/types';
 import { demoGetEvents, demoGetClients, demoGetArtists, isDemoMode } from '@/lib/demoStore';
 import { getFinanceExpenses } from '@/lib/financeStore';
-import { createSheetAndSync, resyncSheet, subscribeSyncQueue } from '@/services/sheetsSyncService';
-import { fetchSyncDataForAgency, formatDataForSheets, hasDataForBackup } from '@/services/sheetsSyncClient';
-import { generateSnapshot, uploadToStorage, syncSnapshotToEditableSheet } from '@/services/backupService';
+import { generateSnapshot, uploadToStorage } from '@/services/backupService';
 // jsPDF is loaded lazily inside the PDF generation handler — not on module import
 
 const SettingsPage: React.FC = () => {
@@ -196,20 +194,27 @@ const SettingsPage: React.FC = () => {
 
   useEffect(() => {
     // Backup: load sheets spreadsheet ID from integrations table if available.
+    // Handle empty or missing integrations without crashing (e.g. no row yet for agency).
     if (!isDemo() && currentAgency?.id) {
       (async () => {
         try {
-          const { data } = await supabase
+          const { data, error } = await supabase
             .from('integrations')
             .select('id,agency_id,provider,status,config,connected_at')
             .eq('agency_id', currentAgency.id);
+          if (error) {
+            setSheetsSpreadsheetId(null);
+            setSavedBackupFolderId(null);
+            return;
+          }
           const list = (data as IntegrationConnection[]) || [];
           const sheetsConn = list.find((x: any) => x.provider === 'sheets');
           const config = (sheetsConn as any)?.config;
           setSheetsSpreadsheetId(config?.spreadsheet_id ?? null);
           setSavedBackupFolderId(config?.folder_id ?? null);
         } catch {
-          toast.warning('לא ניתן לטעון את הגדרות האינטגרציה. אנא רענן את הדף.');
+          setSheetsSpreadsheetId(null);
+          setSavedBackupFolderId(null);
         }
       })();
     }
@@ -238,17 +243,19 @@ const SettingsPage: React.FC = () => {
     }
   }, [agencyId]);
 
-  // When opening Backup tab, refetch integrations so "Open backup sheet" appears after first sync
+  // When opening Backup tab, refetch integrations so "Open backup sheet" appears after first sync.
+  // Empty or failed integrations fetch is non-fatal; state stays null and UI does not crash.
   useEffect(() => {
     if (tab !== 'backup' || isDemo() || !currentAgency?.id) return;
     (async () => {
       try {
-        const { data } = await supabase.from('integrations').select('id,agency_id,provider,status,config,connected_at').eq('agency_id', currentAgency.id);
+        const { data, error } = await supabase.from('integrations').select('id,agency_id,provider,status,config,connected_at').eq('agency_id', currentAgency.id);
+        if (error) return;
         const list = (data as any[]) || [];
         const sheetsConn = list.find((x: any) => x.provider === 'sheets');
         setSheetsSpreadsheetId((sheetsConn as any)?.config?.spreadsheet_id ?? null);
       } catch {
-        // Backup tab integrations refetch failed — non-fatal
+        // Non-fatal: Backup tab works without integrations row
       }
     })();
   }, [tab, currentAgency?.id]);
@@ -1429,133 +1436,71 @@ const SettingsPage: React.FC = () => {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Globe className="w-5 h-5 text-primary" />
-                  סנכרון אוטומטי ל־Google Sheets
+                  גיבוי לגיליון (Data Warehouse)
                 </CardTitle>
                 {!canCreateBackupSheets && (
                   <p className="text-sm text-amber-600 dark:text-amber-400 mt-1">
-                    יצירת גיליון גיבוי זמינה רק לבעלים
+                    ייצוא לגיליון זמין רק לבעלים
                   </p>
                 )}
                 <p className="text-sm text-muted-foreground mt-1">
-                  הדבק קישור לתיקיית Drive — המערכת תיצור גיליון ותסנכרן את כל הנתונים (אירועים, לקוחות, אמנים, פיננסים).
+                  ייצוא snapshot מלא ל־Google Sheets. הגיליון נכתב מחדש בכל ייצוא — אין סנכרון בזמן אמת.
                 </p>
               </CardHeader>
               <CardContent className="space-y-4">
-                {canCreateBackupSheets && sheetsSpreadsheetId && (
-                  <div className="rounded-lg border border-green-300 bg-green-50 dark:bg-green-950/20 dark:border-green-800 p-3 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full bg-green-500" />
-                      <Label className="text-foreground font-semibold">גיליון מסונכרן</Label>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      הגיליון נוצר ומכיל 4 טאבים: אירועים, לקוחות, אמנים, פיננסים.
-                    </p>
+                {canCreateBackupSheets && (
+                  <div className="space-y-3">
+                    {(sheetsSpreadsheetId || null) && (
+                      <div className="rounded-lg border border-green-300 bg-green-50 dark:bg-green-950/20 dark:border-green-800 p-3 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-green-500" />
+                          <Label className="text-foreground font-semibold">גיליון גיבוי</Label>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          אירועים, לקוחות, אמנים, פיננסים — 4 טאבים. כל ייצוא מעדכן את הגיליון במלואו.
+                        </p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => window.open(`https://docs.google.com/spreadsheets/d/${sheetsSpreadsheetId}/edit`, '_blank', 'noopener,noreferrer')}
+                        >
+                          פתח ב־Google Sheets
+                        </Button>
+                      </div>
+                    )}
                     <div className="flex flex-wrap gap-2">
                       <Button
                         type="button"
-                        variant="outline"
-                        onClick={() => window.open(`https://docs.google.com/spreadsheets/d/${sheetsSpreadsheetId}/edit`, '_blank', 'noopener,noreferrer')}
-                      >
-                        פתח ב־Google Sheets
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={sheetsSyncing}
+                        variant="default"
+                        className="btn-magenta"
+                        disabled={sheetsSyncing || !currentAgency?.id}
                         onClick={async () => {
-                          if (!currentAgency?.id || !sheetsSpreadsheetId || !user?.id) return;
+                          if (!currentAgency?.id) return;
                           setSheetsSyncing(true);
                           try {
-                            toast.info('מכין נתונים...');
-                            const data = await fetchSyncDataForAgency(currentAgency.id);
-                            if (!hasDataForBackup(data)) {
-                              toast.error('לא נמצאו נתונים עבור הסוכנות הנוכחית.');
-                              return;
-                            }
-                            const sheets = formatDataForSheets(data);
-                            toast.info('מסנכרן ברקע...');
-                            const result = await resyncSheet(currentAgency.id, sheetsSpreadsheetId, sheets, user.id);
-                            if (result.ok && 'queued' in result && result.queued) {
-                              subscribeSyncQueue(result.queueId, {
-                                onCompleted: (r) => {
-                                  const c = r?.counts;
-                                  toast.success(c ? `סנכרון הושלם: ${c.events} אירועים, ${c.clients} לקוחות, ${c.artists} אמנים, ${c.expenses} הוצאות` : 'סנכרון הושלם');
-                                  setSheetsSyncing(false);
-                                },
-                                onFailed: (msg) => {
-                                  toast.error(msg || 'סנכרון נכשל');
-                                  setSheetsSyncing(false);
-                                },
-                              });
-                            } else if (result.ok) {
-                              const c = (result as { counts?: { events: number; clients: number; artists: number; expenses: number } }).counts;
-                              toast.success(c ? `סנכרון הושלם: ${c.events} אירועים, ${c.clients} לקוחות, ${c.artists} אמנים, ${c.expenses} הוצאות` : 'סנכרון הושלם');
-                              setSheetsSyncing(false);
-                            } else {
-                              toast.error(result.detail || result.error);
-                              setSheetsSyncing(false);
-                            }
+                            toast.info('מייצא לגיליון...');
+                            const { data, error } = await supabase.functions.invoke('export-to-sheets', {
+                              body: { agency_id: currentAgency.id, spreadsheet_id: sheetsSpreadsheetId || undefined },
+                            });
+                            if (error) throw new Error(error.message || 'Export failed');
+                            const res = data as { ok?: boolean; error?: string; spreadsheetId?: string; spreadsheetUrl?: string; counts?: { events: number; clients: number; artists: number; expenses: number } };
+                            if (!res?.ok && res?.error) throw new Error(res.error);
+                            if (res?.spreadsheetId && !sheetsSpreadsheetId) setSheetsSpreadsheetId(res.spreadsheetId);
+                            const c = res?.counts;
+                            toast.success(c ? `גיבוי הושלם: ${c.events} אירועים, ${c.clients} לקוחות, ${c.artists} אמנים, ${c.expenses} הוצאות` : 'גיבוי לגיליון הושלם');
                           } catch (e: any) {
-                            toast.error(e?.message || 'סנכרון נכשל');
+                            toast.error(e?.message || 'ייצוא לגיליון נכשל');
+                          } finally {
                             setSheetsSyncing(false);
                           }
                         }}
                       >
                         {sheetsSyncing ? (
                           <span className="flex items-center gap-2">
-                            <span className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                            מסנכרן...
+                            <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            מייצא...
                           </span>
-                        ) : 'סנכרן שוב'}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={editableSheetLoading || sheetsSyncing || !currentAgency?.id || !user?.id}
-                        onClick={async () => {
-                          if (!currentAgency?.id || !sheetsSpreadsheetId || !user?.id) return;
-                          setEditableSheetLoading(true);
-                          try {
-                            toast.info('מסנכרן לגיליון עבודה חי...');
-                            const result = await syncSnapshotToEditableSheet(
-                              currentAgency.id,
-                              sheetsSpreadsheetId,
-                              currentAgency.name,
-                              user.id
-                            );
-                            if (result.ok && 'queued' in result && result.queued) {
-                              subscribeSyncQueue(result.queueId, {
-                                onCompleted: (r) => {
-                                  const c = r?.counts;
-                                  toast.success(c ? `גיליון עבודה עודכן: ${c.events} אירועים, ${c.clients} לקוחות, ${c.artists} אמנים, ${c.expenses} הוצאות` : 'הגיליון עודכן לגרסה ניתנת לעריכה');
-                                  setEditableSheetLoading(false);
-                                },
-                                onFailed: (msg) => {
-                                  toast.error(msg || 'סנכרון נכשל');
-                                  setEditableSheetLoading(false);
-                                },
-                              });
-                            } else if (result.ok) {
-                              toast.success('הגיליון עודכן לגרסה ניתנת לעריכה');
-                              setEditableSheetLoading(false);
-                            } else {
-                              toast.error(result.error);
-                              setEditableSheetLoading(false);
-                            }
-                          } catch (e: any) {
-                            toast.error(e?.message || 'סנכרון נכשל');
-                            setEditableSheetLoading(false);
-                          }
-                        }}
-                      >
-                        {editableSheetLoading ? (
-                          <span className="flex items-center gap-2">
-                            <span className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                            מסנכרן...
-                          </span>
-                        ) : (
-                          'סנכרן לגיליון עבודה חי (Editable)'
-                        )}
+                        ) : (sheetsSpreadsheetId ? 'ייצוא לגיליון (עדכון)' : 'ייצוא לגיליון (צור גיליון)')}
                       </Button>
                       <Button
                         type="button"
@@ -1587,170 +1532,6 @@ const SettingsPage: React.FC = () => {
                       </Button>
                     </div>
                   </div>
-                )}
-                {canCreateBackupSheets && (
-                <div className="space-y-2">
-                  <Label className="text-foreground">קישור לתיקיית Google Drive</Label>
-                  <Input
-                    value={backupUrl}
-                    onChange={(e) => setBackupUrl(e.target.value)}
-                    placeholder="https://drive.google.com/drive/folders/..."
-                    className="border-primary/30 w-full"
-                    disabled={sheetsSyncing}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    שיתוף התיקייה עם חשבון השירות (Service Account) נדרש — הוסף את המייל שהוגדר ב-Netlify כ־GOOGLE_SA_CLIENT_EMAIL עם הרשאת עורך.
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      className="btn-magenta"
-                      disabled={sheetsSyncing}
-                      onClick={async () => {
-                        const url = backupUrl.trim();
-                        if (!url) { toast.error('נא להזין קישור לתיקיית Drive'); return; }
-                        const folderMatch = url.match(/folders\/([a-zA-Z0-9_-]+)/);
-                        const folderId = folderMatch ? folderMatch[1] : (/^[a-zA-Z0-9_-]{20,}$/.test(url) ? url : null);
-                        if (!folderId) { toast.error('הקישור אינו קישור תיקיית Google Drive תקין. הזן קישור מלא או מזהה תיקייה.'); return; }
-                        if (!currentAgency?.id || !user?.id) { toast.error('אין סוכנות פעילה'); return; }
-                        saveBackupUrl();
-                        setSheetsSyncing(true);
-                        try {
-                          toast.info('מכין נתונים...');
-                          const data = await fetchSyncDataForAgency(currentAgency.id);
-                          if (!hasDataForBackup(data)) {
-                            toast.error('לא נמצאו נתונים עבור הסוכנות הנוכחית.');
-                            return;
-                          }
-                          const sheets = formatDataForSheets(data);
-                          toast.info('מסנכרן ברקע...');
-                          const result = await createSheetAndSync(currentAgency.id, folderId, sheets, user.id);
-                          if (result.ok && 'queued' in result && result.queued) {
-                            subscribeSyncQueue(result.queueId, {
-                              onCompleted: (r) => {
-                                if (r?.spreadsheetId) {
-                                  setSheetsSpreadsheetId(r.spreadsheetId);
-                                  setSavedBackupFolderId(folderId);
-                                }
-                                const c = r?.counts;
-                                toast.success(c ? `גיליון נוצר וסונכרן: ${c.events} אירועים, ${c.clients} לקוחות, ${c.artists} אמנים, ${c.expenses} הוצאות` : 'גיליון נוצר וסונכרן');
-                                setSheetsSyncing(false);
-                              },
-                              onFailed: (msg) => {
-                                toast.error(msg || 'יצירת גיליון נכשלה');
-                                setSheetsSyncing(false);
-                              },
-                            });
-                          } else if (result.ok) {
-                            const r = result as { spreadsheetId?: string; counts?: { events: number; clients: number; artists: number; expenses: number } };
-                            if (r.spreadsheetId) {
-                              setSheetsSpreadsheetId(r.spreadsheetId);
-                              setSavedBackupFolderId(folderId);
-                            }
-                            const c = r.counts!;
-                            toast.success(`גיליון נוצר וסונכרן: ${c.events} אירועים, ${c.clients} לקוחות, ${c.artists} אמנים, ${c.expenses} הוצאות`);
-                            setSheetsSyncing(false);
-                          } else {
-                            toast.error(result.detail || result.error);
-                            setSheetsSyncing(false);
-                          }
-                        } catch (e: any) {
-                          toast.error(e?.message || 'יצירת גיליון נכשלה');
-                          setSheetsSyncing(false);
-                        }
-                      }}
-                    >
-                      {sheetsSyncing ? (
-                        <span className="flex items-center gap-2">
-                          <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                          יוצר ומסנכרן...
-                        </span>
-                      ) : (sheetsSpreadsheetId ? 'צור גיליון חדש וסנכרן' : 'צור גיליון וסנכרן')}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      disabled={sheetsSyncing || manualBackupLoading}
-                      onClick={async () => {
-                        const url = backupUrl.trim();
-                                const fromUrl = url ? (url.match(/folders\/([a-zA-Z0-9_-]+)/)?.[1] ?? (/^[a-zA-Z0-9_-]{20,}$/.test(url) ? url : null)) : null;
-                        const folderId = fromUrl || savedBackupFolderId;
-                        if (!folderId) {
-                          toast.error('הזן קישור לתיקיית Drive או צור גיליון פעם אחת כדי לשמור את התיקייה');
-                          return;
-                        }
-                        if (!currentAgency?.id || !user?.id) {
-                          toast.error('אין סוכנות פעילה');
-                          return;
-                        }
-                        setManualBackupLoading(true);
-                        try {
-                          toast.info('מכין נתונים...');
-                          const data = await fetchSyncDataForAgency(currentAgency.id);
-                          if (!hasDataForBackup(data)) {
-                            toast.error('לא נמצאו נתונים עבור הסוכנות הנוכחית.');
-                            return;
-                          }
-                          const sheets = formatDataForSheets(data);
-                          toast.info('מסנכרן ברקע...');
-                          const result = await createSheetAndSync(currentAgency.id, folderId, sheets, user.id);
-                          if (result.ok && 'queued' in result && result.queued) {
-                            subscribeSyncQueue(result.queueId, {
-                              onCompleted: (r) => {
-                                if (r?.spreadsheetId) {
-                                  setSheetsSpreadsheetId(r.spreadsheetId);
-                                  setSavedBackupFolderId(folderId);
-                                }
-                                const c = r?.counts;
-                                toast.success(c ? `גיבוי יזום הושלם: ${c.events} אירועים, ${c.clients} לקוחות, ${c.artists} אמנים, ${c.expenses} הוצאות` : 'גיבוי יזום הושלם');
-                                setManualBackupLoading(false);
-                              },
-                              onFailed: (msg) => {
-                                toast.error(msg || 'גיבוי יזום נכשל');
-                                setManualBackupLoading(false);
-                              },
-                            });
-                          } else if (result.ok) {
-                            const r = result as { spreadsheetId?: string; counts?: { events: number; clients: number; artists: number; expenses: number } };
-                            if (r.spreadsheetId) {
-                              setSheetsSpreadsheetId(r.spreadsheetId);
-                              setSavedBackupFolderId(folderId);
-                            }
-                            const c = r.counts!;
-                            toast.success(`גיבוי יזום הושלם: ${c.events} אירועים, ${c.clients} לקוחות, ${c.artists} אמנים, ${c.expenses} הוצאות`);
-                            setManualBackupLoading(false);
-                          } else {
-                            toast.error(result.detail || result.error);
-                            setManualBackupLoading(false);
-                          }
-                        } catch (e: any) {
-                          toast.error(e?.message || 'גיבוי יזום נכשל');
-                          setManualBackupLoading(false);
-                        }
-                      }}
-                    >
-                      {manualBackupLoading ? (
-                        <span className="flex items-center gap-2">
-                          <span className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                          גיבוי יזום...
-                        </span>
-                      ) : 'גיבוי יזום'}
-                    </Button>
-                    {backupUrl.trim() && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => {
-                          const url = backupUrl.trim();
-                          if (!url) return toast.error('אין קישור לפתיחה');
-                          window.open(url, '_blank', 'noopener,noreferrer');
-                        }}
-                      >
-                        פתח תיקייה ב־Drive
-                      </Button>
-                    )}
-                  </div>
-                </div>
                 )}
                 <div className="border-t border-border pt-4 mt-4 space-y-3">
                   <Label className="text-foreground">ייצוא גיבוי מקומי (JSON)</Label>

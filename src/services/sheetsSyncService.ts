@@ -1,9 +1,10 @@
 /**
- * Google Sheets Sync — Async Pub/Sub pattern.
- * Inserts into sync_queue; Database Webhook triggers Edge Function; Realtime reports status.
+ * Legacy Google Sheets sync — DEPRECATED.
+ * sync_queue table has been removed. Backup is now on-demand via Settings → Backup → "Export to Sheets"
+ * which calls the export-to-sheets Edge Function (no sync_queue).
+ *
+ * These stubs prevent any frontend code from calling the deleted sync_queue table (404).
  */
-
-import { supabase } from '@/lib/supabase';
 
 export type SheetsSyncResult =
   | { ok: true; queued: true; queueId: string }
@@ -22,138 +23,26 @@ export type SyncQueueRow = {
   updated_at: string;
 };
 
-/** Circuit Breaker: do NOT enqueue when payload has no data. */
-function circuitBreaker(sheets: { 'אירועים': string[][]; 'לקוחות': string[][]; 'אמנים': string[][]; 'פיננסים': string[][] }): SheetsSyncResult | null {
-  const events = (sheets['אירועים']?.length ?? 1) - 1;
-  const artists = (sheets['אמנים']?.length ?? 1) - 1;
-  const expenses = (sheets['פיננסים']?.length ?? 1) - 1;
-  if (events === 0 && artists === 0 && expenses === 0) {
-    return {
-      ok: false,
-      error: 'אין נתונים לסנכרן. הוסף אירועים, אמנים או הוצאות תחילה.',
-      detail: 'Empty payload blocked by circuit breaker.',
-      code: 'EMPTY_PAYLOAD',
-    };
-  }
-  return null;
-}
+const LEGACY_MSG = 'גיבוי לגיליון מתבצע כעת דרך הגדרות → גיבוי נתונים → ייצוא לגיליון.';
 
-/** Agency guard: sync job only created when agency_id is verified. */
-function agencyGuard(agencyId: string): SheetsSyncResult | null {
-  if (!agencyId || typeof agencyId !== 'string' || agencyId.trim().length === 0) {
-    return {
-      ok: false,
-      error: 'טעינת הסוכנות נכשלה. ודא שהסוכנות נטענה ולחץ נסה שוב.',
-      code: 'AGENCY_NOT_LOADED',
-    };
-  }
-  return null;
-}
-
-/**
- * Enqueue create-and-sync job. Returns immediately with queueId.
- * Subscribe via subscribeSyncQueue(queueId, callbacks) for status updates.
- */
+/** @deprecated sync_queue removed. Use Settings → Backup → Export to Sheets. */
 export async function createSheetAndSync(
-  agencyId: string,
-  folderId: string,
-  sheets: { 'אירועים': string[][]; 'לקוחות': string[][]; 'אמנים': string[][]; 'פיננסים': string[][] },
-  userId: string
+  _agencyId: string,
+  _folderId: string,
+  _sheets: { 'אירועים': string[][]; 'לקוחות': string[][]; 'אמנים': string[][]; 'פיננסים': string[][] },
+  _userId: string
 ): Promise<SheetsSyncResult> {
-  const guard = agencyGuard(agencyId);
-  if (guard) return guard;
-  const blocked = circuitBreaker(sheets);
-  if (blocked) return blocked;
-
-  const counts = {
-    events: sheets['אירועים'].length - 1,
-    clients: sheets['לקוחות'].length - 1,
-    artists: sheets['אמנים'].length - 1,
-    expenses: sheets['פיננסים'].length - 1,
-  };
-
-  const { data: row, error } = await supabase
-    .from('sync_queue')
-    .insert({
-      user_id: userId,
-      agency_id: agencyId.trim(),
-      data: {
-        action: 'createAndSync',
-        folderId: folderId.trim(),
-        sheets,
-        counts,
-      },
-      status: 'pending',
-    })
-    .select('id')
-    .single();
-
-  if (error) {
-    return { ok: false, error: error.message, detail: String(error), code: 'INSERT_FAILED' };
-  }
-  return { ok: true, queued: true, queueId: row.id };
+  return { ok: false, error: LEGACY_MSG, code: 'LEGACY_SYNC_REMOVED' };
 }
 
-/**
- * Enqueue resync job. Returns immediately with queueId.
- */
+/** @deprecated sync_queue removed. Use Settings → Backup → Export to Sheets. */
 export async function resyncSheet(
-  agencyId: string,
-  spreadsheetId: string,
-  sheets: { 'אירועים': string[][]; 'לקוחות': string[][]; 'אמנים': string[][]; 'פיננסים': string[][] },
-  userId: string
+  _agencyId: string,
+  _spreadsheetId: string,
+  _sheets: { 'אירועים': string[][]; 'לקוחות': string[][]; 'אמנים': string[][]; 'פיננסים': string[][] },
+  _userId: string
 ): Promise<SheetsSyncResult> {
-  const guard = agencyGuard(agencyId);
-  if (guard) return guard;
-  const blocked = circuitBreaker(sheets);
-  if (blocked) return blocked;
-
-  const counts = {
-    events: sheets['אירועים'].length - 1,
-    clients: sheets['לקוחות'].length - 1,
-    artists: sheets['אמנים'].length - 1,
-    expenses: sheets['פיננסים'].length - 1,
-  };
-
-  const { data: row, error } = await supabase
-    .from('sync_queue')
-    .insert({
-      user_id: userId,
-      agency_id: agencyId.trim(),
-      data: {
-        action: 'sync',
-        spreadsheetId: spreadsheetId.trim(),
-        sheets,
-        counts,
-      },
-      status: 'pending',
-    })
-    .select('id')
-    .single();
-
-  if (error) {
-    return { ok: false, error: error.message, detail: String(error), code: 'INSERT_FAILED' };
-  }
-  return { ok: true, queued: true, queueId: row.id };
-}
-
-/**
- * Circuit breaker for editable sync: skip if no meaningful data.
- * Bilingual format has [heRow, enRow, ...dataRows] so data rows = length - 2.
- */
-function circuitBreakerEditable(flatSheets: EditableFlatSheets): SheetsSyncResult | null {
-  const ev = Math.max(0, (flatSheets['אירועים']?.length ?? 2) - 2);
-  const ar = Math.max(0, (flatSheets['אמנים']?.length ?? 2) - 2);
-  const ex = Math.max(0, (flatSheets['פיננסים']?.length ?? 2) - 2);
-  if (ev === 0 && ar === 0 && ex === 0) {
-    return {
-      ok: false,
-      error: 'אין נתונים לסנכרן לגיליון עבודה. הוסף אירועים, אמנים או הוצאות תחילה.',
-      detail: 'Empty editable payload blocked.',
-      code: 'EMPTY_PAYLOAD',
-    };
-  }
-  return null;
+  return { ok: false, error: LEGACY_MSG, code: 'LEGACY_SYNC_REMOVED' };
 }
 
 export type EditableFlatSheets = {
@@ -163,83 +52,20 @@ export type EditableFlatSheets = {
   'פיננסים': string[][];
 };
 
-/**
- * Enqueue editable continuity sheet sync. Uses bilingual backup_v1 format [heRow, enRow, ...dataRows],
- * USER_ENTERED input mode, and creates missing sheet tabs.
- */
+/** @deprecated sync_queue removed. Use Settings → Backup → Export to Sheets. */
 export async function resyncEditableSheet(
-  agencyId: string,
-  spreadsheetId: string,
-  flatSheets: EditableFlatSheets,
-  userId: string
+  _agencyId: string,
+  _spreadsheetId: string,
+  _flatSheets: EditableFlatSheets,
+  _userId: string
 ): Promise<SheetsSyncResult> {
-  const guard = agencyGuard(agencyId);
-  if (guard) return guard;
-  const blocked = circuitBreakerEditable(flatSheets);
-  if (blocked) return blocked;
-
-  const counts = {
-    events: Math.max(0, (flatSheets['אירועים']?.length ?? 2) - 2),
-    clients: Math.max(0, (flatSheets['לקוחות']?.length ?? 2) - 2),
-    artists: Math.max(0, (flatSheets['אמנים']?.length ?? 2) - 2),
-    expenses: Math.max(0, (flatSheets['פיננסים']?.length ?? 2) - 2),
-  };
-
-  const { data: row, error } = await supabase
-    .from('sync_queue')
-    .insert({
-      user_id: userId,
-      agency_id: agencyId.trim(),
-      data: {
-        action: 'syncEditable',
-        spreadsheetId: spreadsheetId.trim(),
-        sheets: flatSheets,
-        counts,
-      },
-      status: 'pending',
-    })
-    .select('id')
-    .single();
-
-  if (error) {
-    return { ok: false, error: error.message, detail: String(error), code: 'INSERT_FAILED' };
-  }
-  return { ok: true, queued: true, queueId: row.id };
+  return { ok: false, error: LEGACY_MSG, code: 'LEGACY_SYNC_REMOVED' };
 }
 
-/**
- * Subscribe to sync_queue status changes. Callbacks fire when status becomes completed or failed.
- * Returns unsubscribe function.
- */
+/** @deprecated sync_queue removed. No-op subscription. */
 export function subscribeSyncQueue(
-  queueId: string,
-  callbacks: {
-    onCompleted?: (result: SyncQueueRow['result']) => void;
-    onFailed?: (errorMessage: string | null) => void;
-  }
+  _queueId: string,
+  _callbacks: { onCompleted?: (result: SyncQueueRow['result']) => void; onFailed?: (errorMessage: string | null) => void }
 ): () => void {
-  const channel = supabase
-    .channel(`sync_queue:${queueId}`)
-    .on(
-      'postgres_changes',
-      {
-        event: 'UPDATE',
-        schema: 'public',
-        table: 'sync_queue',
-        filter: `id=eq.${queueId}`,
-      },
-      (payload) => {
-        const row = payload.new as SyncQueueRow;
-        if (row.status === 'completed') {
-          callbacks.onCompleted?.(row.result);
-        } else if (row.status === 'failed') {
-          callbacks.onFailed?.(row.error_message);
-        }
-      }
-    )
-    .subscribe();
-
-  return () => {
-    supabase.removeChannel(channel);
-  };
+  return () => {};
 }
