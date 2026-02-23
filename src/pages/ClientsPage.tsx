@@ -15,7 +15,7 @@ import { demoAddSentDoc } from '@/lib/sentDocs';
 import { exportJsonToExcel } from '@/lib/exportUtils';
 import { formatCurrency } from '@/lib/utils';
 import { demoGetClients, demoGetEvents, demoSetClients, demoUpsertClient, isDemoMode } from '@/lib/demoStore';
-import { useClientsQuery, useInvalidateClients } from '@/hooks/useSupabaseQuery';
+import { useClientsInfiniteQuery, useInvalidateClients } from '@/hooks/useSupabaseQuery';
 import { cleanNotes } from '@/lib/notesCleanup';
 
 const CLIENT_COLORS = [
@@ -29,7 +29,17 @@ const ClientsPage: React.FC = () => {
   const { success, error: showError } = useToast();
   const { user } = useAuth();
   const canSeeMoney = user?.role !== 'producer';
-  const { data: clients = [], isLoading: loading } = useClientsQuery(currentAgency?.id);
+  const {
+    data: clientsData,
+    isLoading: loading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useClientsInfiniteQuery(currentAgency?.id);
+  const clients = useMemo(
+    () => (clientsData?.pages ?? []).flatMap((p) => p.data),
+    [clientsData?.pages]
+  );
   const invalidateClients = useInvalidateClients();
   const [searchQuery, setSearchQuery] = useState('');
   const [view, setView] = useState<'grid' | 'table'>('table');
@@ -620,6 +630,24 @@ const ClientsPage: React.FC = () => {
                   </Card>
                 </motion.div>
               ))}
+            </div>
+          )}
+          {hasNextPage && !loading && (
+            <div className="flex justify-center pt-4">
+              <Button
+                variant="outline"
+                onClick={() => fetchNextPage()}
+                disabled={isFetchingNextPage}
+              >
+                {isFetchingNextPage ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin inline-block mr-2" />
+                    טוען...
+                  </>
+                ) : (
+                  'טען עוד לקוחות'
+                )}
+              </Button>
             </div>
           )}
         </CardContent>

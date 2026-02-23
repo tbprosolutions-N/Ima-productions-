@@ -1446,6 +1446,7 @@ const SettingsPage: React.FC = () => {
                           setSheetsSyncing(true);
                           try {
                             toast.info('מייצא לגיליון...');
+                            // Uses VITE_SUPABASE_URL → /functions/v1/export-to-sheets (production Supabase project)
                             const { data, error } = await supabase.functions.invoke('export-to-sheets', {
                               body: { agency_id: currentAgency.id, spreadsheet_id: sheetsSpreadsheetId || undefined },
                             });

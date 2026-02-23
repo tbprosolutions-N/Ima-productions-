@@ -216,15 +216,10 @@ Deno.serve(async (req: Request) => {
 
     const supabase = createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } });
 
-    const markProcessing = async () => {
-      await supabase.from('sync_queue').update({ status: 'processing', updated_at: new Date().toISOString() }).eq('id', queueId);
-    };
-    const markCompleted = async (result: object) => {
-      await supabase.from('sync_queue').update({ status: 'completed', result, updated_at: new Date().toISOString() }).eq('id', queueId);
-    };
-    const markFailed = async (errMsg: string) => {
-      await supabase.from('sync_queue').update({ status: 'failed', error_message: String(errMsg).slice(0, 500), result: null, updated_at: new Date().toISOString() }).eq('id', queueId);
-    };
+    // sync_queue table removed — no-op to avoid 404. Use export-to-sheets for backup.
+    const markProcessing = async () => {};
+    const markCompleted = async (_result: object) => {};
+    const markFailed = async (_errMsg: string) => {};
 
     if (!action) {
       await markFailed('Invalid webhook payload: missing action');

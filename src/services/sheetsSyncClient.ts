@@ -366,8 +366,8 @@ export async function fetchSyncDataForAgency(agencyId: string): Promise<SyncData
 
   const [eventsRes, clientsRes, artistsRes, expensesRes] = await Promise.all([
     supabase.from('events').select(EVENT_SYNC_COLS).eq('agency_id', trimmedId).order('event_date', { ascending: false }).limit(2000),
-    supabase.from('clients').select(CLIENT_SYNC_COLS).eq('agency_id', trimmedId).order('name').limit(2000),
-    supabase.from('artists').select(ARTIST_SYNC_COLS).eq('agency_id', trimmedId).order('name').limit(2000),
+    supabase.from('clients').select(CLIENT_SYNC_COLS).eq('agency_id', trimmedId).order('name', { ascending: true }).limit(2000),
+    supabase.from('artists').select(ARTIST_SYNC_COLS).eq('agency_id', trimmedId).order('name', { ascending: true }).limit(2000),
     supabase.from('finance_expenses').select(EXPENSE_SYNC_COLS).eq('agency_id', trimmedId).order('created_at', { ascending: false }).limit(2000),
   ]);
   return {

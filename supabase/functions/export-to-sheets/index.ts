@@ -116,8 +116,8 @@ async function fetchSnapshotForAgency(supabase: any, agencyId: string): Promise<
   };
   const [er, cr, ar, ex] = await Promise.all([
     supabase.from('events').select(COLS.events).eq('agency_id', agencyId).order('event_date', { ascending: false }).limit(2000),
-    supabase.from('clients').select(COLS.clients).eq('agency_id', agencyId).order('name').limit(2000),
-    supabase.from('artists').select(COLS.artists).eq('agency_id', agencyId).order('name').limit(2000),
+    supabase.from('clients').select(COLS.clients).eq('agency_id', agencyId).order('name', { ascending: true }).limit(2000),
+    supabase.from('artists').select(COLS.artists).eq('agency_id', agencyId).order('name', { ascending: true }).limit(2000),
     supabase.from('finance_expenses').select(COLS.expenses).eq('agency_id', agencyId).order('created_at', { ascending: false }).limit(2000),
   ]);
   return {

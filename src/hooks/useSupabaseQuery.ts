@@ -3,7 +3,7 @@
  * Provides cached, background-revalidating queries for Events, Artists, Clients.
  * Page transitions become instant because data is served from cache first.
  */
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { isDemoMode } from '@/lib/demoStore';
 import { demoGetEvents, demoGetClients, demoGetArtists } from '@/lib/demoStore';
@@ -12,6 +12,7 @@ import type { Event, Artist, Client } from '@/types';
 const STALE_TIME = 2 * 60 * 1000; // 2 minutes before background refetch
 const CACHE_TIME = 10 * 60 * 1000; // 10 minutes in cache
 const PREFETCH_STALE_MIN = 30 * 1000; // Stale-while-revalidate: at least 30s (no duplicate fetch within 30s)
+const CLIENT_PAGE_SIZE = 100; // Paginated to avoid slow 2000+ row fetches and 400 errors
 
 // ── Column selectors ────────────────────────────────────────────────────────
 // Explicit columns instead of SELECT * — avoids fetching large/unused fields
@@ -102,7 +103,8 @@ export function useClientsQuery(agencyId: string | undefined) {
         .from('clients')
         .select(CLIENT_LIST_COLS)
         .eq('agency_id', agencyId)
-        .order('name', { ascending: true });
+        .order('name', { ascending: true })
+        .limit(CLIENT_PAGE_SIZE);
       if (error) throw error;
       return (data || []) as unknown as Client[];
     },
@@ -110,6 +112,37 @@ export function useClientsQuery(agencyId: string | undefined) {
     staleTime: STALE_TIME,
     gcTime: CACHE_TIME,
     refetchOnWindowFocus: false,
+  });
+}
+
+/** Paginated clients for ClientsPage — limit 100 per page, "Load more" for large lists. */
+export function useClientsInfiniteQuery(agencyId: string | undefined) {
+  return useInfiniteQuery({
+    queryKey: ['clients-infinite', agencyId],
+    queryFn: async ({ pageParam = 0 }) => {
+      if (!agencyId) return { data: [], hasMore: false };
+      if (isDemoMode()) {
+        const all = demoGetClients(agencyId);
+        const start = pageParam * CLIENT_PAGE_SIZE;
+        const page = all.slice(start, start + CLIENT_PAGE_SIZE);
+        return { data: page, hasMore: start + page.length < all.length };
+      }
+      const { data, error } = await supabase
+        .from('clients')
+        .select(CLIENT_LIST_COLS)
+        .eq('agency_id', agencyId)
+        .order('name', { ascending: true })
+        .range(pageParam * CLIENT_PAGE_SIZE, (pageParam + 1) * CLIENT_PAGE_SIZE - 1);
+      if (error) throw error;
+      const list = (data || []) as unknown as Client[];
+      return { data: list, hasMore: list.length === CLIENT_PAGE_SIZE };
+    },
+    getNextPageParam: (lastPage, allPages) =>
+      lastPage.hasMore ? allPages.length : undefined,
+    initialPageParam: 0,
+    enabled: !!agencyId,
+    staleTime: STALE_TIME,
+    gcTime: CACHE_TIME,
   });
 }
 
@@ -134,8 +167,13 @@ export function useInvalidateArtists() {
 export function useInvalidateClients() {
   const qc = useQueryClient();
   return (agencyId?: string) => {
-    if (agencyId) qc.invalidateQueries({ queryKey: ['clients', agencyId] });
-    else qc.invalidateQueries({ queryKey: ['clients'] });
+    if (agencyId) {
+      qc.invalidateQueries({ queryKey: ['clients', agencyId] });
+      qc.invalidateQueries({ queryKey: ['clients-infinite', agencyId] });
+    } else {
+      qc.invalidateQueries({ queryKey: ['clients'] });
+      qc.invalidateQueries({ queryKey: ['clients-infinite'] });
+    }
   };
 }
 
@@ -210,7 +248,8 @@ export function getPrefetchOptions(agencyId: string | undefined) {
           .from('clients')
           .select(CLIENT_LIST_COLS)
           .eq('agency_id', agencyId)
-          .order('name', { ascending: true });
+          .order('name', { ascending: true })
+          .limit(CLIENT_PAGE_SIZE);
         if (error) throw error;
         return (data || []) as unknown as Client[];
       },
