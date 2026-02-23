@@ -489,14 +489,12 @@ const EventsPage: React.FC = () => {
 
         if (error) throw error;
         success('אירוע עודכן בהצלחה! ✅');
-        // Google Calendar sync job (company calendar + invite email flow)
-        await queueSyncJob({
-          agencyId: currentAgency.id,
-          provider: 'google',
-          kind: 'calendar_upsert',
-          payload: { event_id: editingEvent.id, send_invites: formData.send_calendar_invite },
-          createdBy: user?.id,
-        });
+        // Direct calendar invite — sendUpdates='all' so artists get email in inbox
+        supabase.functions.invoke('calendar-invite', {
+          body: { event_id: editingEvent.id, send_invites: formData.send_calendar_invite },
+        }).then(({ error: fnErr }) => {
+          if (fnErr) console.warn('[calendar-invite]', fnErr);
+        }).catch(() => {});
       } else {
         const { data: inserted, error } = await supabase.from('events').insert([eventData]).select('id').single();
 
@@ -523,13 +521,12 @@ const EventsPage: React.FC = () => {
         const shouldSendAgreement = !!(clientEmail && artistEmail);
         const sendInvites = shouldSendAgreement || formData.send_calendar_invite;
 
-        await queueSyncJob({
-          agencyId: currentAgency.id,
-          provider: 'google',
-          kind: 'calendar_upsert',
-          payload: { event_id: savedEventId, send_invites: sendInvites },
-          createdBy: user?.id,
-        });
+        // Direct calendar invite — sendUpdates='all' so artists get email in inbox
+        supabase.functions.invoke('calendar-invite', {
+          body: { event_id: savedEventId, send_invites: sendInvites },
+        }).then(({ error: fnErr }) => {
+          if (fnErr) console.warn('[calendar-invite]', fnErr);
+        }).catch(() => {});
 
         if ((shouldSendAgreement || formData.send_agreement) && savedEventId) {
           try {

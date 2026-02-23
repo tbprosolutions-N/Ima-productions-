@@ -526,7 +526,9 @@ async function googleCalendarUpsert(args: {
   const existingGoogleEventId = String((ev as any).google_event_id || "");
   const existingArtistGoogleEventId = String((ev as any).google_artist_event_id || "");
   const sendInvites = args.sendInvites !== false;
-  const sendUpdates = sendInvites ? "all" : "none"; // "all" = send calendar invites to attendees
+  // sendUpdates: "all" = send calendar invites to all attendees (artist, client). "none" = no email.
+  // sendNotifications is deprecated; sendUpdates is the correct way to trigger invite emails.
+  const sendUpdates = sendInvites ? "all" : "none";
 
   let result: any;
   if (existingGoogleEventId) {

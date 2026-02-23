@@ -92,6 +92,24 @@ serve(async (req) => {
     }
   }
 
+  // Invoke sync-runner so pending jobs (calendar_upsert, etc.) are processed immediately
+  const syncRunnerSecret = Deno.env.get("SYNC_RUNNER_SECRET") || "";
+  const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
+  if (syncRunnerSecret && supabaseUrl) {
+    try {
+      await fetch(`${supabaseUrl.replace(/\/$/, "")}/functions/v1/sync-runner`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-sync-secret": syncRunnerSecret,
+        },
+        body: JSON.stringify({ limit: 20 }),
+      });
+    } catch (e) {
+      console.error("[cron-tick] sync-runner invoke error:", e);
+    }
+  }
+
   return json({
     ok: true,
     agencies: byAgency.size,
