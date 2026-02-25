@@ -82,8 +82,10 @@ export interface Event {
   google_artist_event_html_link?: string;
   google_sync_status?: MorningSyncStatus;
   google_synced_at?: string;
-  /** Event time (e.g. "14:30") */
+  /** Event start time (e.g. "14:30") */
   event_time?: string | null;
+  /** Event end time for calendar slots (e.g. "16:30") */
+  event_time_end?: string | null;
 }
 
 export interface Artist {
@@ -114,6 +116,8 @@ export interface Client {
   id: string;
   agency_id: string;
   name: string;
+  /** שם בחשבונית – default name for invoices */
+  invoice_name?: string | null;
   contact_person?: string;
   vat_id?: string;
   phone?: string;

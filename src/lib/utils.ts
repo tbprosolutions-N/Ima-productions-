@@ -13,25 +13,31 @@ export function formatCurrency(amount: number, currency: string = 'ILS'): string
 }
 
 export function formatDate(date: string | Date, locale: string = 'he-IL'): string {
+  const d = new Date(date);
+  if (Number.isNaN(d.getTime())) return '';
   return new Intl.DateTimeFormat(locale, {
     year: 'numeric',
     month: 'long',
     day: 'numeric',
-  }).format(new Date(date));
+  }).format(d);
 }
 
 export function formatDateTime(date: string | Date, locale: string = 'he-IL'): string {
+  const d = new Date(date);
+  if (Number.isNaN(d.getTime())) return '';
   return new Intl.DateTimeFormat(locale, {
     year: 'numeric',
     month: 'long',
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  }).format(new Date(date));
+  }).format(d);
 }
 
 export function getWeekday(date: string | Date, locale: string = 'he-IL'): string {
-  return new Intl.DateTimeFormat(locale, { weekday: 'long' }).format(new Date(date));
+  const d = new Date(date);
+  if (Number.isNaN(d.getTime())) return '';
+  return new Intl.DateTimeFormat(locale, { weekday: 'long' }).format(d);
 }
 
 export function debounce<T extends (...args: any[]) => any>(
@@ -95,8 +101,8 @@ export function formatFileSize(bytes: number): string {
   if (bytes === 0) return '0 Bytes';
   const k = 1024;
   const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+  const i = Math.max(0, Math.floor(Math.log(bytes) / Math.log(k)));
+  return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[Math.min(i, sizes.length - 1)];
 }
 
 export function getInitials(name: string): string {

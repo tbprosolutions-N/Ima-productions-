@@ -1,11 +1,15 @@
 /**
  * Edge Function: calendar-invite
  * Direct Google Calendar invite — called immediately when event is created/updated.
- * Bypasses sync_jobs; sends invite with sendUpdates='all' so artists get email in inbox.
+ * Uses system-wide Google token (no per-user "Connect Google" required).
+ * sendUpdates='all' so artists get email in inbox.
  *
  * Body: { event_id: string, send_invites?: boolean }
  * Requires: JWT (user must be authenticated)
- * Secrets: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET
+ * Secrets: GOOGLE_SYSTEM_REFRESH_TOKEN, GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET
+ * Optional: GOOGLE_SYSTEM_CALENDAR_ID (default: "primary")
+ *
+ * Fallback: integration_tokens row with agency_id = '00000000-0000-0000-0000-000000000000' (system)
  *
  * Deploy: npx supabase functions deploy calendar-invite
  */
@@ -139,50 +143,67 @@ Deno.serve(async (req) => {
   const agencyId = (userRow as { agency_id?: string } | null)?.agency_id;
   if (!agencyId) return json({ error: "User has no agency" }, 403);
 
-  // Fetch Google token
-  const { data: tokenRow, error: tokErr } = await admin
-    .from("integration_tokens")
-    .select("*")
-    .eq("agency_id", agencyId)
-    .eq("provider", "google")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (tokErr) return json({ error: tokErr.message }, 500);
-  if (!tokenRow?.access_token && !tokenRow?.refresh_token) {
-    return json({ error: "Google not connected. Connect Google Calendar in Settings → Integrations." }, 400);
-  }
+  // System-wide Google token: GOOGLE_SYSTEM_REFRESH_TOKEN (secret) or integration_tokens system row
+  const SYSTEM_AGENCY_ID = "00000000-0000-0000-0000-000000000000";
+  const systemRefreshToken = Deno.env.get("GOOGLE_SYSTEM_REFRESH_TOKEN")?.trim();
 
-  let accessToken = (tokenRow as any).access_token || "";
-  const expiry = parseIsoDate((tokenRow as any).expiry_date);
-  if ((tokenRow as any).refresh_token && isExpiredSoon(expiry)) {
+  let accessToken = "";
+  let calendarId = String(Deno.env.get("GOOGLE_SYSTEM_CALENDAR_ID")?.trim() || "primary");
+
+  if (systemRefreshToken) {
+    // Use system secret — refresh every time (no persistence; stateless)
     const refreshed = await refreshGoogleToken({
       clientId: GOOGLE_ID,
       clientSecret: GOOGLE_SECRET,
-      refreshToken: (tokenRow as any).refresh_token,
+      refreshToken: systemRefreshToken,
     });
     accessToken = refreshed.access_token;
-    const nextExpiry = new Date(Date.now() + refreshed.expires_in * 1000).toISOString();
-    await admin
+  } else {
+    // Fallback: integration_tokens system row (agency_id = system UUID)
+    const { data: tokenRow, error: tokErr } = await admin
       .from("integration_tokens")
-      .update({
-        access_token: accessToken,
-        expiry_date: nextExpiry,
-        scope: refreshed.scope || (tokenRow as any).scope,
-        token_type: refreshed.token_type || (tokenRow as any).token_type,
-      })
-      .eq("id", (tokenRow as any).id);
+      .select("*")
+      .eq("agency_id", SYSTEM_AGENCY_ID)
+      .eq("provider", "google")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (tokErr) return json({ error: tokErr.message }, 500);
+    if (!tokenRow?.access_token && !(tokenRow as any)?.refresh_token) {
+      return json({
+        error: "Google Calendar not configured. Set GOOGLE_SYSTEM_REFRESH_TOKEN in Supabase secrets, or add a system row to integration_tokens.",
+      }, 502);
+    }
+    accessToken = (tokenRow as any).access_token || "";
+    const expiry = parseIsoDate((tokenRow as any).expiry_date);
+    if ((tokenRow as any).refresh_token && isExpiredSoon(expiry)) {
+      const refreshed = await refreshGoogleToken({
+        clientId: GOOGLE_ID,
+        clientSecret: GOOGLE_SECRET,
+        refreshToken: (tokenRow as any).refresh_token,
+      });
+      accessToken = refreshed.access_token;
+      const nextExpiry = new Date(Date.now() + refreshed.expires_in * 1000).toISOString();
+      await admin
+        .from("integration_tokens")
+        .update({
+          access_token: accessToken,
+          expiry_date: nextExpiry,
+          scope: refreshed.scope || (tokenRow as any).scope,
+          token_type: refreshed.token_type || (tokenRow as any).token_type,
+        })
+        .eq("id", (tokenRow as any).id);
+    }
+    // Optional: system integrations row for calendar_id override
+    const { data: sysConn } = await admin
+      .from("integrations")
+      .select("config")
+      .eq("agency_id", SYSTEM_AGENCY_ID)
+      .eq("provider", "google")
+      .maybeSingle();
+    const cfg = ((sysConn as any)?.config || {}) as any;
+    if (cfg?.company_calendar_id) calendarId = String(cfg.company_calendar_id);
   }
-
-  // Integration config
-  const { data: googleConn } = await admin
-    .from("integrations")
-    .select("*")
-    .eq("agency_id", agencyId)
-    .eq("provider", "google")
-    .maybeSingle();
-  const googleCfg = ((googleConn as any)?.config || {}) as any;
-  const calendarId = String(googleCfg.company_calendar_id || "primary");
 
   // Fetch event + artist + client
   const { data: ev, error: evErr } = await admin
@@ -201,12 +222,14 @@ Deno.serve(async (req) => {
       ? admin.from("artists").select("id,name,email,calendar_email,google_calendar_id").eq("agency_id", agencyId).eq("id", artistId).maybeSingle()
       : Promise.resolve({ data: null }),
     clientId
-      ? admin.from("clients").select("id,business_name,email").eq("agency_id", agencyId).eq("id", clientId).maybeSingle()
+      ? admin.from("clients").select("id,email").eq("agency_id", agencyId).eq("id", clientId).maybeSingle()
       : Promise.resolve({ data: null }),
   ]);
 
   const eventDate = new Date((ev as any).event_date).toISOString().slice(0, 10);
-  const endDate = addDaysIsoDate(`${eventDate}T00:00:00.000Z`, 1);
+  const eventTime = String((ev as any).event_time || "").trim();
+  const eventTimeEnd = String((ev as any).event_time_end || "").trim();
+  const hasTimeSlots = eventTime && eventTimeEnd;
 
   const summaryParts = [String((ev as any).business_name || "אירוע")];
   if ((artist as any)?.name) summaryParts.push(String((artist as any).name));
@@ -218,18 +241,34 @@ Deno.serve(async (req) => {
   const clientEmail = ((client as any)?.email || "").trim();
   if (clientEmail) attendees.push({ email: clientEmail });
 
+  const descLines: string[] = [];
+  const bizName = String((ev as any).business_name || "").trim();
+  const invName = String((ev as any).invoice_name || "").trim();
+  const notes = String((ev as any).notes || "").trim();
+  if (bizName) descLines.push(`שם העסק: ${bizName}`);
+  if (invName) descLines.push(`שם בחשבונית: ${invName}`);
+  if (notes) descLines.push(`הערות: ${notes}`);
+  const description = descLines.length > 0 ? descLines.join("\n") : "אירוע NPC";
+
+  const TZ = "Asia/Jerusalem";
+  let start: { date?: string; dateTime?: string; timeZone?: string };
+  let end: { date?: string; dateTime?: string; timeZone?: string };
+  if (hasTimeSlots) {
+    const startDt = `${eventDate}T${eventTime}:00`;
+    const endDt = `${eventDate}T${eventTimeEnd}:00`;
+    start = { dateTime: startDt, timeZone: TZ };
+    end = { dateTime: endDt, timeZone: TZ };
+  } else {
+    const endDate = addDaysIsoDate(`${eventDate}T00:00:00.000Z`, 1);
+    start = { date: eventDate };
+    end = { date: endDate };
+  }
+
   const eventBody = {
     summary,
-    description:
-      `NPC\n` +
-      `Event ID: ${(ev as any).id}\n` +
-      `Business: ${(ev as any).business_name}\n` +
-      `Invoice name: ${(ev as any).invoice_name || ""}\n` +
-      `Amount: ${(ev as any).amount || 0}\n` +
-      `Status: ${(ev as any).status || ""}\n` +
-      `Notes: ${(ev as any).notes || ""}\n`,
-    start: { date: eventDate },
-    end: { date: endDate },
+    description,
+    start,
+    end,
     attendees: attendees.length > 0 ? attendees : undefined,
     guestsCanModify: true,
     extendedProperties: {

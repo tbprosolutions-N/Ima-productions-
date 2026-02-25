@@ -19,7 +19,7 @@ const CLIENT_PAGE_SIZE = 100; // Paginated to avoid slow 2000+ row fetches and 4
 // and makes query payloads smaller as data scales.
 
 const EVENT_LIST_COLS = [
-  'id', 'agency_id', 'producer_id', 'event_date', 'event_time', 'weekday',
+  'id', 'agency_id', 'producer_id', 'event_date', 'event_time', 'event_time_end', 'weekday',
   'business_name', 'invoice_name', 'amount', 'payment_date',
   'artist_fee_type', 'artist_fee_value', 'artist_fee_amount', 'approver',
   'doc_type', 'doc_number', 'due_date', 'status', 'notes',
@@ -40,7 +40,7 @@ const ARTIST_LIST_COLS = [
 ].join(',');
 
 const CLIENT_LIST_COLS = [
-  'id', 'agency_id', 'name', 'contact_person', 'vat_id',
+  'id', 'agency_id', 'name', 'invoice_name', 'contact_person', 'vat_id',
   'phone', 'email', 'address', 'notes', 'color',
   'created_at', 'updated_at',
 ].join(',');

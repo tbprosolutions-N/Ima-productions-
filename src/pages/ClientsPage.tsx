@@ -58,6 +58,7 @@ const ClientsPage: React.FC = () => {
   const [folderLoading, setFolderLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
+    invoice_name: '',
     contact_person: '',
     email: '',
     phone: '',
@@ -87,6 +88,7 @@ const ClientsPage: React.FC = () => {
           currentAgency.id,
           {
             name: formData.name,
+            invoice_name: formData.invoice_name || undefined,
             contact_person: formData.contact_person || undefined,
             email: formData.email || undefined,
             phone: formData.phone || undefined,
@@ -112,6 +114,7 @@ const ClientsPage: React.FC = () => {
       if (editingClient) {
         const payload = {
           name: formData.name,
+          invoice_name: formData.invoice_name?.trim() || null,
           contact_person: formData.contact_person || null,
           email: formData.email || null,
           phone: formData.phone || null,
@@ -131,6 +134,7 @@ const ClientsPage: React.FC = () => {
         const payload = {
           agency_id: currentAgency?.id,
           name: formData.name,
+          invoice_name: formData.invoice_name?.trim() || null,
           contact_person: formData.contact_person || null,
           email: formData.email || null,
           phone: formData.phone || null,
@@ -212,6 +216,7 @@ const ClientsPage: React.FC = () => {
       setEditingClient(client);
       setFormData({
         name: client.name,
+        invoice_name: client.invoice_name || '',
         contact_person: client.contact_person || '',
         email: client.email || '',
         phone: client.phone || '',
@@ -224,6 +229,7 @@ const ClientsPage: React.FC = () => {
       setEditingClient(null);
       setFormData({
         name: '',
+        invoice_name: '',
         contact_person: '',
         email: '',
         phone: '',
@@ -239,7 +245,7 @@ const ClientsPage: React.FC = () => {
   const closeDialog = () => {
     setIsDialogOpen(false);
     setEditingClient(null);
-    setFormData({ name: '', contact_person: '', email: '', phone: '', address: '', vat_id: '', notes: '', color: '#3B82F6' });
+    setFormData({ name: '', invoice_name: '', contact_person: '', email: '', phone: '', address: '', vat_id: '', notes: '', color: '#3B82F6' });
   };
 
   const filteredClients = clients.filter(client =>
@@ -767,6 +773,17 @@ const ClientsPage: React.FC = () => {
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   required
                   className="border-primary/30"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="invoice_name" className="text-foreground">שם בחשבונית</Label>
+                <Input
+                  id="invoice_name"
+                  value={formData.invoice_name}
+                  onChange={(e) => setFormData({ ...formData, invoice_name: e.target.value })}
+                  className="border-primary/30"
+                  placeholder="ברירת מחדל לחשבוניות"
                 />
               </div>
 

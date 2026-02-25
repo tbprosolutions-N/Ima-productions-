@@ -89,9 +89,7 @@ const EventsPage: React.FC = () => {
     payment_date: string;
     due_date: string;
     event_time: string;
-    artist_fee_type: 'fixed' | 'percent';
-    artist_fee_value: string;
-    artist_fee_amount_override: string;
+    event_time_end: string;
     doc_type: DocumentType;
     doc_number: string;
     status: EventStatus;
@@ -110,9 +108,7 @@ const EventsPage: React.FC = () => {
     payment_date: '',
     due_date: '',
     event_time: '',
-    artist_fee_type: 'fixed',
-    artist_fee_value: '',
-    artist_fee_amount_override: '',
+    event_time_end: '',
     doc_type: 'tax_invoice',
     doc_number: '',
     status: 'pending',
@@ -173,6 +169,17 @@ const EventsPage: React.FC = () => {
     setSearchParams(next, { replace: true });
   }, [searchParams, loading, events]);
 
+  // When creating a new event and client name matches a client, default invoice_name from client
+  useEffect(() => {
+    if (!isDialogOpen || editingEvent) return;
+    const name = formData.client_business_name.trim();
+    if (!name || formData.invoice_name) return;
+    const client = clients.find(c => c.name === name);
+    if (client) {
+      setFormData(prev => ({ ...prev, invoice_name: client.invoice_name || client.name }));
+    }
+  }, [formData.client_business_name, formData.invoice_name, clients, isDialogOpen, editingEvent]);
+
   const handleDelete = async (id: string) => {
     if (!confirm('האם אתה בטוח שברצונך למחוק אירוע זה?')) return;
 
@@ -220,7 +227,6 @@ const EventsPage: React.FC = () => {
       setEditingEvent(event);
       const clientName = event.client_id ? (clients.find(c => c.id === event.client_id)?.name ?? '') : '';
       const artistName = event.artist_id ? (artists.find(a => a.id === event.artist_id)?.name ?? '') : '';
-      const payout = resolveArtistPayout(event.artist_id, artistName);
       setFormData({
         event_date: String(event.event_date || '').slice(0, 10),
         business_name: event.business_name || '',
@@ -231,12 +237,7 @@ const EventsPage: React.FC = () => {
         payment_date: event.payment_date ? String(event.payment_date).slice(0, 10) : '',
         due_date: event.due_date ? String(event.due_date).slice(0, 10) : '',
         event_time: (event as any).event_time || '',
-        artist_fee_type: (event.artist_fee_type || payout.type) as any,
-        artist_fee_value:
-          event.artist_fee_value === undefined || event.artist_fee_value === null
-            ? String(payout.value || 0)
-            : String(event.artist_fee_value),
-        artist_fee_amount_override: isOwner ? (event.artist_fee_amount ? String(event.artist_fee_amount) : '') : '',
+        event_time_end: (event as any).event_time_end || '',
         doc_type: event.doc_type,
         doc_number: event.doc_number || '',
         status: event.status,
@@ -256,9 +257,7 @@ const EventsPage: React.FC = () => {
         payment_date: '',
         due_date: '',
         event_time: '',
-        artist_fee_type: 'fixed',
-        artist_fee_value: '',
-        artist_fee_amount_override: '',
+        event_time_end: '',
         doc_type: 'tax_invoice',
         doc_number: '',
         status: 'draft',
@@ -274,7 +273,7 @@ const EventsPage: React.FC = () => {
     setIsDialogOpen(false);
     setEditingEvent(null);
     setFormErrors({});
-    setFormData({ event_date: '', business_name: '', client_business_name: '', artist_name: '', invoice_name: '', amount: '', payment_date: '', due_date: '', event_time: '', artist_fee_type: 'fixed', artist_fee_value: '', artist_fee_amount_override: '', doc_type: 'tax_invoice', doc_number: '', status: 'pending', notes: '', send_calendar_invite: true, send_agreement: false });
+    setFormData({ event_date: '', business_name: '', client_business_name: '', artist_name: '', invoice_name: '', amount: '', payment_date: '', due_date: '', event_time: '', event_time_end: '', doc_type: 'tax_invoice', doc_number: '', status: 'pending', notes: '', send_calendar_invite: true, send_agreement: false });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -375,8 +374,7 @@ const EventsPage: React.FC = () => {
         const companyAmount = Number.isFinite(Number(formData.amount)) ? parseFloat(formData.amount) : 0;
         const feeType: 'fixed' | 'percent' = payout.type;
         const feeValue = Number.isFinite(Number(payout.value)) ? payout.value : 0;
-        const override = Number.isFinite(Number(formData.artist_fee_amount_override)) ? parseFloat(formData.artist_fee_amount_override) : NaN;
-        const computedFee = Number.isFinite(override) && override >= 0 ? override : computeArtistFee(companyAmount, feeType, feeValue);
+        const computedFee = computeArtistFee(companyAmount, feeType, feeValue);
 
         const base: Event = {
           id: editingEvent?.id || (globalThis.crypto?.randomUUID?.() ?? `demo-${Math.random().toString(36).slice(2)}`),
@@ -385,13 +383,15 @@ const EventsPage: React.FC = () => {
           event_date: isoEventDate,
           weekday: getWeekday(formData.event_date),
           business_name: effectiveBusinessName,
-          invoice_name: effectiveBusinessName,
+          invoice_name: (formData.invoice_name?.trim() || effectiveBusinessName),
           amount: companyAmount,
           payment_date: isoPaymentDate,
           due_date: formData.due_date ? new Date(formData.due_date).toISOString().slice(0, 10) : undefined,
           artist_fee_type: feeType,
           artist_fee_value: feeValue,
           artist_fee_amount: computedFee,
+          event_time: formData.event_time?.trim() || undefined,
+          event_time_end: formData.event_time_end?.trim() || undefined,
           doc_type: formData.doc_type,
           doc_number: formData.doc_number || undefined,
           status: editingEvent ? formData.status : 'pending',
@@ -454,18 +454,13 @@ const EventsPage: React.FC = () => {
       const eventData = {
         event_date: formData.event_date,
         business_name: effectiveBusinessName,
-        invoice_name: effectiveBusinessName,
+        invoice_name: (formData.invoice_name?.trim() || effectiveBusinessName),
         payment_date: formData.payment_date || null,
         due_date: formData.due_date || null,
         artist_fee_type: isOwner ? payout.type : undefined,
         artist_fee_value: isOwner ? payout.value : undefined,
         artist_fee_amount: isOwner
-          ? (() => {
-              const companyAmount = Number.isFinite(amountNum) ? amountNum : 0;
-              const override = Number(formData.artist_fee_amount_override);
-              if (Number.isFinite(override) && override >= 0) return override;
-              return computeArtistFee(companyAmount, payout.type, payout.value);
-            })()
+          ? computeArtistFee(Number.isFinite(amountNum) ? amountNum : 0, payout.type, payout.value)
           : undefined,
         doc_type: formData.doc_type,
         doc_number: formData.doc_number,
@@ -478,6 +473,7 @@ const EventsPage: React.FC = () => {
         client_id: clientId || null,
         artist_id: artistId || null,
         event_time: formData.event_time?.trim() || null,
+        event_time_end: formData.event_time_end?.trim() || null,
       };
 
       let savedEventId: string | undefined = editingEvent?.id;
@@ -502,7 +498,16 @@ const EventsPage: React.FC = () => {
         savedEventId = (inserted as any)?.id;
         success('Saved to Database');
 
-        // Agreement engine: when artist & client emails present, send agreement + calendar invite
+        // Direct calendar invite — call immediately so we're not blocked by email fetch; sendUpdates='all' so artists get email
+        if (savedEventId) {
+          supabase.functions.invoke('calendar-invite', {
+            body: { event_id: savedEventId, send_invites: formData.send_calendar_invite },
+          }).then(({ error: fnErr }) => {
+            if (fnErr) console.warn('[calendar-invite]', fnErr);
+          }).catch(() => {});
+        }
+
+        // Agreement engine: when artist & client emails present, send agreement
         let clientEmail = (clients.find(c => c.id === clientId) || {} as Client).email?.trim();
         let artistEmail = (artists.find(a => a.id === artistId) || {} as Artist).email?.trim();
         // Fetch any missing emails in parallel to avoid sequential waterfall latency
@@ -519,14 +524,6 @@ const EventsPage: React.FC = () => {
           if (!artistEmail && artistId) artistEmail = (artistRes.data as { email?: string })?.email?.trim();
         }
         const shouldSendAgreement = !!(clientEmail && artistEmail);
-        const sendInvites = shouldSendAgreement || formData.send_calendar_invite;
-
-        // Direct calendar invite — sendUpdates='all' so artists get email in inbox
-        supabase.functions.invoke('calendar-invite', {
-          body: { event_id: savedEventId, send_invites: sendInvites },
-        }).then(({ error: fnErr }) => {
-          if (fnErr) console.warn('[calendar-invite]', fnErr);
-        }).catch(() => {});
 
         if ((shouldSendAgreement || formData.send_agreement) && savedEventId) {
           try {
@@ -1283,8 +1280,8 @@ const EventsPage: React.FC = () => {
                 />
                 {formErrors.event_date && <p className="text-xs text-red-500">{formErrors.event_date}</p>}
               </div>
-              <div className="flex flex-col gap-2 col-span-2">
-                <Label htmlFor="event_time" className="text-foreground">שעת אירוע</Label>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="event_time" className="text-foreground">שעת התחלה</Label>
                 <div className="relative">
                   <Clock className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
                   <Input
@@ -1292,6 +1289,19 @@ const EventsPage: React.FC = () => {
                     type="time"
                     value={formData.event_time}
                     onChange={(e) => setFormData({ ...formData, event_time: e.target.value })}
+                    className="pr-10 rounded-sm border-2 border-primary/30 focus:border-primary focus:ring-2 focus:ring-primary/20 font-mono tracking-wide"
+                  />
+                </div>
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="event_time_end" className="text-foreground">שעת סיום</Label>
+                <div className="relative">
+                  <Clock className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                  <Input
+                    id="event_time_end"
+                    type="time"
+                    value={formData.event_time_end}
+                    onChange={(e) => setFormData({ ...formData, event_time_end: e.target.value })}
                     className="pr-10 rounded-sm border-2 border-primary/30 focus:border-primary focus:ring-2 focus:ring-primary/20 font-mono tracking-wide"
                   />
                 </div>
@@ -1370,28 +1380,13 @@ const EventsPage: React.FC = () => {
               </div>
 
               <div className="flex flex-col gap-2">
-                <Label className="text-foreground">מודל תשלום לאמן (מוגדר בפרופיל)</Label>
-                <div className="rounded-md border border-border bg-card px-3 py-2 text-sm flex flex-col gap-1">
-                  {(() => {
-                    const p = resolveArtistPayout(undefined, formData.artist_name);
-                    return `${p.type === 'percent' ? `${p.value}% מהכנסה` : `${p.value.toLocaleString('he-IL')} סכום קבוע`}`;
-                  })()}
-                  <span className="text-xs text-muted-foreground">ניתן לעקוף סכום ספציפי לאירוע.</span>
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="artist_fee_override" className="text-foreground">סכום לאמן (אופציונלי)</Label>
+                <Label htmlFor="invoice_name" className="text-foreground">שם בחשבונית</Label>
                 <Input
-                  id="artist_fee_override"
-                  type="number"
-                  step="0.01"
-                  value={formData.artist_fee_amount_override}
-                  onChange={(e) => setFormData({ ...formData, artist_fee_amount_override: e.target.value })}
+                  id="invoice_name"
+                  value={formData.invoice_name}
+                  onChange={(e) => setFormData({ ...formData, invoice_name: e.target.value })}
                   className="border-primary/30"
-                  disabled={!isOwner}
-                  placeholder="סכום לאמן (אופציונלי)"
-                  title={!isOwner ? 'אין הרשאה לערוך' : undefined}
+                  placeholder="שם שיופיע בחשבונית"
                 />
               </div>
 
