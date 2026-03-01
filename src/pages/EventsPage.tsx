@@ -507,7 +507,7 @@ const EventsPage: React.FC = () => {
 
         if (error) throw error;
         savedEventId = (inserted as any)?.id;
-        success('Saved to Database');
+        success('אירוע נוסף בהצלחה! 🎉');
 
         // Direct calendar invite — explicit auth to avoid 401
         if (savedEventId) {

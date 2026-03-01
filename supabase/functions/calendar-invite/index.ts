@@ -101,11 +101,6 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
-  const authHeader = req.headers.get("authorization");
-  if (!authHeader?.startsWith("Bearer ")) {
-    return json({ error: "Missing or invalid authorization" }, 401);
-  }
-
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL")?.trim();
   const SUPABASE_SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")?.trim();
   const GOOGLE_ID = Deno.env.get("GOOGLE_OAUTH_CLIENT_ID")?.trim();
@@ -118,7 +113,7 @@ Deno.serve(async (req) => {
     return json({ error: "Google OAuth not configured. Set GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET." }, 502);
   }
 
-  let body: { event_id?: string; send_invites?: boolean };
+  let body: { event_id?: string; send_invites?: boolean; access_token?: string };
   try {
     const text = await req.text();
     body = text ? JSON.parse(text) : {};
@@ -130,10 +125,16 @@ Deno.serve(async (req) => {
   if (!eventId) return json({ error: "Missing event_id" }, 400);
   const sendInvites = body?.send_invites !== false;
 
+  // User JWT: from body.access_token (client sends anon key in Authorization for platform, user JWT in body)
+  const userJwt = typeof body?.access_token === "string" ? body.access_token.trim() : "";
+  const authHeader = req.headers.get("authorization");
+  const bearerToken = authHeader?.replace("Bearer ", "").trim() || "";
+
+  const jwt = userJwt || bearerToken;
+  if (!jwt) return json({ error: "Missing or invalid authorization" }, 401);
+
   const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, { auth: { persistSession: false } });
 
-  // Decode JWT to get user id (request already verified by Supabase when verify_jwt is on)
-  const jwt = authHeader.replace("Bearer ", "").trim();
   let userId: string;
   try {
     const payload = JSON.parse(atob(jwt.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));

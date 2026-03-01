@@ -204,23 +204,30 @@ export const resetPassword = async (email: string) => {
   return { data, error };
 };
 
-/** Invoke calendar-invite Edge Function with explicit auth to avoid 401 from client invoke. */
+/** Invoke calendar-invite Edge Function. Uses anon key for platform auth, user JWT in body for our function. */
 export async function invokeCalendarInvite(
   eventId: string,
   sendInvites: boolean
 ): Promise<{ ok?: boolean; error?: string }> {
-  const { data: { session } } = await supabase.auth.refreshSession();
-  const token = session?.access_token;
+  const { data: { session } } = await supabase.auth.getSession();
+  let token = session?.access_token;
+  if (!token) {
+    const { data: { session: refreshed } } = await supabase.auth.refreshSession();
+    token = refreshed?.access_token;
+  }
   if (!token) throw new Error('Not authenticated');
   const url = `${supabaseUrl}/functions/v1/calendar-invite`;
   const res = await fetch(url, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${supabaseAnonKey}`,
       'Content-Type': 'application/json',
-      apikey: supabaseAnonKey,
     },
-    body: JSON.stringify({ event_id: eventId, send_invites: sendInvites }),
+    body: JSON.stringify({
+      event_id: eventId,
+      send_invites: sendInvites,
+      access_token: token,
+    }),
   });
   const data = (await res.json()) as { ok?: boolean; error?: string };
   if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
