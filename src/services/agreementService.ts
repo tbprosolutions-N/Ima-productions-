@@ -161,6 +161,7 @@ class AgreementService {
           to: recipients,
           subject,
           html,
+          from: 'NPC Collective <onboarding@resend.dev>', // Required if RESEND_FROM not set
           attachments: [{ content: base64, filename: 'agreement.pdf' }],
         },
       });

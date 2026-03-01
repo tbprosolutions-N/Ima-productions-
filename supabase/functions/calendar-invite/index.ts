@@ -40,6 +40,14 @@ function addDaysIsoDate(dateIso: string, days: number) {
   return d.toISOString().slice(0, 10);
 }
 
+function addOneHour(timeStr: string): string {
+  const parts = timeStr.split(":").map((p) => parseInt(p, 10) || 0);
+  let h = parts[0] ?? 0;
+  const m = parts[1] ?? 0;
+  h = (h + 1) % 24;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`;
+}
+
 function parseIsoDate(s: string | null): Date | null {
   if (!s) return null;
   const d = new Date(s);
@@ -229,7 +237,8 @@ Deno.serve(async (req) => {
   const eventDate = new Date((ev as any).event_date).toISOString().slice(0, 10);
   const eventTime = String((ev as any).event_time || "").trim();
   const eventTimeEnd = String((ev as any).event_time_end || "").trim();
-  const hasTimeSlots = eventTime && eventTimeEnd;
+  // Use time slots when we have at least start time; if no end, use start + 1 hour
+  const hasTimeSlots = !!eventTime;
 
   const summaryParts = [String((ev as any).business_name || "אירוע")];
   if ((artist as any)?.name) summaryParts.push(String((artist as any).name));
@@ -241,21 +250,26 @@ Deno.serve(async (req) => {
   const clientEmail = ((client as any)?.email || "").trim();
   if (clientEmail) attendees.push({ email: clientEmail });
 
-  const descLines: string[] = [];
+  // Clean, client-facing description: ONLY שם העסק, שם בחשבונית, הערות (no Event ID, Amount, Status)
   const bizName = String((ev as any).business_name || "").trim();
   const invName = String((ev as any).invoice_name || "").trim();
   const notes = String((ev as any).notes || "").trim();
-  if (bizName) descLines.push(`שם העסק: ${bizName}`);
-  if (invName) descLines.push(`שם בחשבונית: ${invName}`);
-  if (notes) descLines.push(`הערות: ${notes}`);
-  const description = descLines.length > 0 ? descLines.join("\n") : "אירוע NPC";
+  const descParts: string[] = [];
+  if (bizName) descParts.push(`שם העסק: ${bizName}`);
+  if (invName) descParts.push(`שם בחשבונית: ${invName}`);
+  if (notes) descParts.push(`הערות: ${notes}`);
+  const description = descParts.length > 0 ? descParts.join("\n") : "";
 
+  // MUST use start.dateTime and end.dateTime for timed events (not date = all-day)
   const TZ = "Asia/Jerusalem";
   let start: { date?: string; dateTime?: string; timeZone?: string };
   let end: { date?: string; dateTime?: string; timeZone?: string };
   if (hasTimeSlots) {
-    const startDt = `${eventDate}T${eventTime}:00`;
-    const endDt = `${eventDate}T${eventTimeEnd}:00`;
+    const toHms = (t: string) => (t.split(":").length >= 3 ? t : `${t}:00`);
+    const startHms = toHms(eventTime);
+    const endHms = eventTimeEnd ? toHms(eventTimeEnd) : addOneHour(eventTime);
+    const startDt = `${eventDate}T${startHms}`;
+    const endDt = `${eventDate}T${endHms}`;
     start = { dateTime: startDt, timeZone: TZ };
     end = { dateTime: endDt, timeZone: TZ };
   } else {

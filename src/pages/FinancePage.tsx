@@ -294,7 +294,7 @@ const FinancePageContent: React.FC = () => {
         }
         const [aRes, cRes] = await Promise.all([
           supabase.from('artists').select('id,agency_id,name,full_name,color,vat_id,bank_name,bank_branch,bank_account,phone,email,amount').eq('agency_id', currentAgency.id).order('name', { ascending: true }),
-          supabase.from('clients').select('id,agency_id,name,contact_person,phone,email,vat_id,address,notes,color').eq('agency_id', currentAgency.id).order('name', { ascending: true }),
+          supabase.from('clients').select('id,agency_id,name,invoice_name,contact_person,phone,email,vat_id,address,notes,color').eq('agency_id', currentAgency.id).order('name', { ascending: true }),
         ]);
         setArtists(((aRes.data as Artist[]) || []).filter(Boolean));
         setClients(((cRes.data as Client[]) || []).filter(Boolean));

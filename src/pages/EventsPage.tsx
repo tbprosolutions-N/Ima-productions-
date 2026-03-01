@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   useReactTable,
@@ -12,13 +12,14 @@ import {
   ColumnFiltersState,
   RowSelectionState,
 } from '@tanstack/react-table';
-import { Plus, Search, Download, Edit, Trash2, ArrowUpDown, Sparkles, Clock } from 'lucide-react';
+import { Plus, Search, Download, Edit, Trash2, ArrowUpDown, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardContent, CardHeader } from '@/components/ui/Card';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/Dialog';
 import { Label } from '@/components/ui/Label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select';
+import { TimeSelect } from '@/components/ui/TimeSelect';
 import { useAgency } from '@/contexts/AgencyContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
@@ -78,6 +79,7 @@ const EventsPage: React.FC = () => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const invoiceNameInitializedRef = useRef(false);
   const isOwner = user?.role === 'owner';
   type EventFormData = {
     event_date: string;
@@ -169,16 +171,17 @@ const EventsPage: React.FC = () => {
     setSearchParams(next, { replace: true });
   }, [searchParams, loading, events]);
 
-  // When creating a new event and client name matches a client, default invoice_name from client
+  // INITIALIZE Invoice Name only when client is first selected; after that it stays independent
   useEffect(() => {
-    if (!isDialogOpen || editingEvent) return;
+    if (!isDialogOpen || editingEvent || invoiceNameInitializedRef.current) return;
     const name = formData.client_business_name.trim();
-    if (!name || formData.invoice_name) return;
+    if (!name) return;
     const client = clients.find(c => c.name === name);
     if (client) {
       setFormData(prev => ({ ...prev, invoice_name: client.invoice_name || client.name }));
+      invoiceNameInitializedRef.current = true;
     }
-  }, [formData.client_business_name, formData.invoice_name, clients, isDialogOpen, editingEvent]);
+  }, [formData.client_business_name, clients, isDialogOpen, editingEvent]);
 
   const handleDelete = async (id: string) => {
     if (!confirm('האם אתה בטוח שברצונך למחוק אירוע זה?')) return;
@@ -223,6 +226,7 @@ const EventsPage: React.FC = () => {
   };
 
   const openDialog = (event?: Event) => {
+    invoiceNameInitializedRef.current = !!event; // when editing, treat as already initialized so we never overwrite
     if (event) {
       setEditingEvent(event);
       const clientName = event.client_id ? (clients.find(c => c.id === event.client_id)?.name ?? '') : '';
@@ -270,6 +274,7 @@ const EventsPage: React.FC = () => {
   };
 
   const closeDialog = () => {
+    invoiceNameInitializedRef.current = false;
     setIsDialogOpen(false);
     setEditingEvent(null);
     setFormErrors({});
@@ -485,12 +490,29 @@ const EventsPage: React.FC = () => {
 
         if (error) throw error;
         success('אירוע עודכן בהצלחה! ✅');
-        // Direct calendar invite — sendUpdates='all' so artists get email in inbox
-        supabase.functions.invoke('calendar-invite', {
-          body: { event_id: editingEvent.id, send_invites: formData.send_calendar_invite },
-        }).then(({ error: fnErr }) => {
-          if (fnErr) console.warn('[calendar-invite]', fnErr);
-        }).catch(() => {});
+        // Direct calendar invite — refresh session to avoid 401 from expired token, then invoke
+        (async () => {
+          try {
+            const { data: { session } } = await supabase.auth.refreshSession();
+            if (!session?.access_token) {
+              showError('נא להתחבר מחדש כדי לשלוח הזמנה ליומן');
+              return;
+            }
+            const { data, error: fnErr } = await supabase.functions.invoke('calendar-invite', {
+              body: { event_id: editingEvent.id, send_invites: formData.send_calendar_invite },
+            });
+            if (fnErr) {
+              const msg = (fnErr as any)?.context?.body?.error || fnErr.message || 'שגיאה לא ידועה';
+              const is401 = (fnErr as any)?.context?.status === 401 || String(msg).includes('authorization') || String(msg).includes('token');
+              showError(is401 ? 'ההרשאה פגה. נא להתחבר מחדש ולנסות שוב.' : `שליחת הזמנה ליומן נכשלה: ${msg}`);
+            } else if (data?.ok) {
+              success('הזמנה ליומן נשלחה בהצלחה 📅');
+            }
+          } catch (err: any) {
+            console.error('[calendar-invite]', err);
+            showError('שליחת הזמנה ליומן נכשלה');
+          }
+        })();
       } else {
         const { data: inserted, error } = await supabase.from('events').insert([eventData]).select('id').single();
 
@@ -498,13 +520,30 @@ const EventsPage: React.FC = () => {
         savedEventId = (inserted as any)?.id;
         success('Saved to Database');
 
-        // Direct calendar invite — call immediately so we're not blocked by email fetch; sendUpdates='all' so artists get email
+        // Direct calendar invite — refresh session to avoid 401 from expired token, then invoke
         if (savedEventId) {
-          supabase.functions.invoke('calendar-invite', {
-            body: { event_id: savedEventId, send_invites: formData.send_calendar_invite },
-          }).then(({ error: fnErr }) => {
-            if (fnErr) console.warn('[calendar-invite]', fnErr);
-          }).catch(() => {});
+          (async () => {
+            try {
+              const { data: { session } } = await supabase.auth.refreshSession();
+              if (!session?.access_token) {
+                showError('נא להתחבר מחדש כדי לשלוח הזמנה ליומן');
+                return;
+              }
+              const { data, error: fnErr } = await supabase.functions.invoke('calendar-invite', {
+                body: { event_id: savedEventId, send_invites: formData.send_calendar_invite },
+              });
+              if (fnErr) {
+                const msg = (fnErr as any)?.context?.body?.error || fnErr.message || 'שגיאה לא ידועה';
+                const is401 = (fnErr as any)?.context?.status === 401 || String(msg).includes('authorization') || String(msg).includes('token');
+                showError(is401 ? 'ההרשאה פגה. נא להתחבר מחדש ולנסות שוב.' : `שליחת הזמנה ליומן נכשלה: ${msg}`);
+              } else if (data?.ok) {
+                success('הזמנה ליומן נשלחה בהצלחה 📅');
+              }
+            } catch (err: any) {
+              console.error('[calendar-invite]', err);
+              showError('שליחת הזמנה ליומן נכשלה');
+            }
+          })();
         }
 
         // Agreement engine: when artist & client emails present, send agreement
@@ -1280,32 +1319,18 @@ const EventsPage: React.FC = () => {
                 />
                 {formErrors.event_date && <p className="text-xs text-red-500">{formErrors.event_date}</p>}
               </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="event_time" className="text-foreground">שעת התחלה</Label>
-                <div className="relative">
-                  <Clock className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-                  <Input
-                    id="event_time"
-                    type="time"
-                    value={formData.event_time}
-                    onChange={(e) => setFormData({ ...formData, event_time: e.target.value })}
-                    className="pr-10 rounded-sm border-2 border-primary/30 focus:border-primary focus:ring-2 focus:ring-primary/20 font-mono tracking-wide"
-                  />
-                </div>
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="event_time_end" className="text-foreground">שעת סיום</Label>
-                <div className="relative">
-                  <Clock className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-                  <Input
-                    id="event_time_end"
-                    type="time"
-                    value={formData.event_time_end}
-                    onChange={(e) => setFormData({ ...formData, event_time_end: e.target.value })}
-                    className="pr-10 rounded-sm border-2 border-primary/30 focus:border-primary focus:ring-2 focus:ring-primary/20 font-mono tracking-wide"
-                  />
-                </div>
-              </div>
+              <TimeSelect
+                id="event_time"
+                label="שעת התחלה"
+                value={formData.event_time}
+                onChange={(v) => setFormData({ ...formData, event_time: v })}
+              />
+              <TimeSelect
+                id="event_time_end"
+                label="שעת סיום"
+                value={formData.event_time_end}
+                onChange={(v) => setFormData({ ...formData, event_time_end: v })}
+              />
               <div className="flex flex-col gap-2">
                 <Label htmlFor="client_business_name" className="text-foreground">לקוח *</Label>
                 <Input
@@ -1323,6 +1348,17 @@ const EventsPage: React.FC = () => {
                     <option key={c.id} value={c.name} />
                   ))}
                 </datalist>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="invoice_name" className="text-foreground">שם בחשבונית</Label>
+                <Input
+                  id="invoice_name"
+                  value={formData.invoice_name}
+                  onChange={(e) => setFormData({ ...formData, invoice_name: e.target.value })}
+                  className="border-primary/30"
+                  placeholder="שם שיופיע בחשבונית (נמלא אוטומטית מלקוח)"
+                />
               </div>
 
               <div className="flex flex-col gap-2">
@@ -1376,17 +1412,6 @@ const EventsPage: React.FC = () => {
                   value={formData.due_date}
                   onChange={(e) => setFormData({ ...formData, due_date: e.target.value })}
                   className="border-primary/30"
-                />
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="invoice_name" className="text-foreground">שם בחשבונית</Label>
-                <Input
-                  id="invoice_name"
-                  value={formData.invoice_name}
-                  onChange={(e) => setFormData({ ...formData, invoice_name: e.target.value })}
-                  className="border-primary/30"
-                  placeholder="שם שיופיע בחשבונית"
                 />
               </div>
 

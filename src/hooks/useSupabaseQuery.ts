@@ -81,7 +81,15 @@ export function useArtistsQuery(agencyId: string | undefined) {
         .select(ARTIST_LIST_COLS)
         .eq('agency_id', agencyId)
         .order('name', { ascending: true });
-      if (error) throw error;
+      if (error) {
+        const status = (error as any)?.status || (error as any)?.code;
+        if (status === 400 || String(error.message || '').includes('400')) {
+          const { data: fallback, error: e2 } = await supabase.from('artists').select(ARTIST_LIST_COLS).eq('agency_id', agencyId);
+          if (e2) throw e2;
+          return ((fallback || []) as unknown as Artist[]).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        }
+        throw error;
+      }
       return (data || []) as unknown as Artist[];
     },
     enabled: !!agencyId,
@@ -105,7 +113,15 @@ export function useClientsQuery(agencyId: string | undefined) {
         .eq('agency_id', agencyId)
         .order('name', { ascending: true })
         .limit(CLIENT_PAGE_SIZE);
-      if (error) throw error;
+      if (error) {
+        const status = (error as any)?.status || (error as any)?.code;
+        if (status === 400 || String(error.message || '').includes('400')) {
+          const { data: fallback, error: e2 } = await supabase.from('clients').select(CLIENT_LIST_COLS).eq('agency_id', agencyId).limit(CLIENT_PAGE_SIZE);
+          if (e2) throw e2;
+          return ((fallback || []) as unknown as Client[]).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        }
+        throw error;
+      }
       return (data || []) as unknown as Client[];
     },
     enabled: !!agencyId,
@@ -133,7 +149,19 @@ export function useClientsInfiniteQuery(agencyId: string | undefined) {
         .eq('agency_id', agencyId)
         .order('name', { ascending: true })
         .range(pageParam * CLIENT_PAGE_SIZE, (pageParam + 1) * CLIENT_PAGE_SIZE - 1);
-      if (error) throw error;
+      if (error) {
+        if ((error as any)?.status === 400 || String(error.message || '').includes('400')) {
+          const { data: fallback, error: e2 } = await supabase
+            .from('clients')
+            .select(CLIENT_LIST_COLS)
+            .eq('agency_id', agencyId)
+            .range(pageParam * CLIENT_PAGE_SIZE, (pageParam + 1) * CLIENT_PAGE_SIZE - 1);
+          if (e2) throw e2;
+          const sorted = ((fallback || []) as unknown as Client[]).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+          return { data: sorted, hasMore: sorted.length === CLIENT_PAGE_SIZE };
+        }
+        throw error;
+      }
       const list = (data || []) as unknown as Client[];
       return { data: list, hasMore: list.length === CLIENT_PAGE_SIZE };
     },

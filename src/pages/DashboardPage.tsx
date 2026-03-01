@@ -60,11 +60,14 @@ function useActivityLogQuery(agencyId: string | undefined) {
       if (isDemoMode()) return getActivity(agencyId);
       const { data, error } = await supabase
         .from('audit_logs')
-        .select('*')
+        .select('id,agency_id,created_at,actor_name,actor_email,action,message,meta')
         .eq('agency_id', agencyId)
         .order('created_at', { ascending: false })
         .limit(20);
-      if (error) throw error;
+      if (error) {
+        console.warn('[activity-log] Query failed, returning empty:', error.message);
+        return [];
+      }
       return ((data || []) as any[]).map((r) => ({
         id: r.id,
         agency_id: r.agency_id,
