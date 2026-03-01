@@ -146,10 +146,11 @@ Deno.serve(async (req) => {
 
   const { data: userRow } = await admin
     .from("users")
-    .select("agency_id")
+    .select("agency_id, full_name")
     .eq("id", userId)
     .maybeSingle();
   const agencyId = (userRow as { agency_id?: string } | null)?.agency_id;
+  const organizerName = String((userRow as { full_name?: string } | null)?.full_name || "").trim();
   if (!agencyId) return json({ error: "User has no agency" }, 403);
 
   // System-wide Google token: GOOGLE_SYSTEM_REFRESH_TOKEN (secret) or integration_tokens system row
@@ -231,7 +232,7 @@ Deno.serve(async (req) => {
       ? admin.from("artists").select("id,name,email,calendar_email,google_calendar_id").eq("agency_id", agencyId).eq("id", artistId).maybeSingle()
       : Promise.resolve({ data: null }),
     clientId
-      ? admin.from("clients").select("id,email").eq("agency_id", agencyId).eq("id", clientId).maybeSingle()
+      ? admin.from("clients").select("id,name,email").eq("agency_id", agencyId).eq("id", clientId).maybeSingle()
       : Promise.resolve({ data: null }),
   ]);
 
@@ -246,18 +247,33 @@ Deno.serve(async (req) => {
   const summary = summaryParts.join(" · ");
 
   const attendees: { email: string }[] = [];
+  const seenEmails = new Set<string>();
   const artistEmail = String(((artist as any)?.calendar_email || (artist as any)?.email || "")).trim();
-  if (artistEmail) attendees.push({ email: artistEmail });
+  if (artistEmail && !seenEmails.has(artistEmail.toLowerCase())) {
+    attendees.push({ email: artistEmail });
+    seenEmails.add(artistEmail.toLowerCase());
+  }
   const clientEmail = ((client as any)?.email || "").trim();
-  if (clientEmail) attendees.push({ email: clientEmail });
+  if (clientEmail && !seenEmails.has(clientEmail.toLowerCase())) {
+    attendees.push({ email: clientEmail });
+    seenEmails.add(clientEmail.toLowerCase());
+  }
 
-  // Clean, client-facing description: ONLY שם העסק, שם בחשבונית, הערות (no Event ID, Amount, Status)
-  const bizName = String((ev as any).business_name || "").trim();
-  const invName = String((ev as any).invoice_name || "").trim();
-  const notes = String((ev as any).notes || "").trim();
+  const clientName = String((client as any)?.name || "").trim();
+  const artistName = String((artist as any)?.name || "").trim();
+  const amount = Number((ev as any).amount) || 0;
+  const amountStr = amount > 0 ? `₪${amount.toLocaleString("he-IL")}` : "";
+  const hoursStr = hasTimeSlots
+    ? (eventTimeEnd ? `${eventTime} - ${eventTimeEnd}` : eventTime)
+    : "";
+
   const descParts: string[] = [];
-  if (bizName) descParts.push(`שם העסק: ${bizName}`);
-  if (invName) descParts.push(`שם בחשבונית: ${invName}`);
+  if (clientName) descParts.push(`שם הלקוח: ${clientName}`);
+  if (artistName) descParts.push(`שם האמן: ${artistName}`);
+  if (amountStr) descParts.push(`סכום האירוע: ${amountStr}`);
+  if (hoursStr) descParts.push(`שעות האירוע: ${hoursStr}`);
+  if (organizerName) descParts.push(`מארגן: ${organizerName}`);
+  const notes = String((ev as any).notes || "").trim();
   if (notes) descParts.push(`הערות: ${notes}`);
   const description = descParts.length > 0 ? descParts.join("\n") : "";
 
@@ -266,7 +282,13 @@ Deno.serve(async (req) => {
   let start: { date?: string; dateTime?: string; timeZone?: string };
   let end: { date?: string; dateTime?: string; timeZone?: string };
   if (hasTimeSlots) {
-    const toHms = (t: string) => (t.split(":").length >= 3 ? t : `${t}:00`);
+    const toHms = (t: string) => {
+      const parts = t.split(":").map((p) => parseInt(p, 10) || 0);
+      const h = parts[0] ?? 0;
+      const m = parts[1] ?? 0;
+      const s = parts[2] ?? 0;
+      return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+    };
     const startHms = toHms(eventTime);
     const endHms = eventTimeEnd ? toHms(eventTimeEnd) : addOneHour(eventTime);
     const startDt = `${eventDate}T${startHms}`;
@@ -286,6 +308,7 @@ Deno.serve(async (req) => {
     end,
     attendees: attendees.length > 0 ? attendees : undefined,
     guestsCanModify: true,
+    transparency: "opaque",
     extendedProperties: {
       private: {
         ima_agency_id: agencyId,
