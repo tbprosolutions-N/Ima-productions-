@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAgency } from '@/contexts/AgencyContext';
-import { supabase } from '@/lib/supabase';
+import { supabase, invokeCalendarInvite } from '@/lib/supabase';
 import { isDemoMode } from '@/lib/demoStore';
 import { getFinanceExpenses } from '@/lib/financeStore';
 import { getActivity, type ActivityEntry } from '@/lib/activityLog';
@@ -221,11 +221,13 @@ const QuickNewEventDialog: React.FC<{
   const [form, setForm] = useState({
     event_date: new Date().toISOString().slice(0, 10),
     event_time: '',
+    event_time_end: '',
     amount: '',
     client_name: '',
     client_email: '',
     artist_name: '',
     notes: '',
+    send_calendar_invite: true,
   });
   const [saving, setSaving] = useState(false);
 
@@ -319,7 +321,9 @@ const QuickNewEventDialog: React.FC<{
         artist_id: artistId || undefined,
         notes: form.notes.trim() || undefined,
         event_time: form.event_time.trim() || undefined,
+        event_time_end: form.event_time_end.trim() || undefined,
       };
+      let insertedEventId: string | undefined;
       if (isDemoMode()) {
         const { demoSetEvents, demoGetEvents } = await import('@/lib/demoStore');
         const existing = demoGetEvents(agencyId);
@@ -330,15 +334,27 @@ const QuickNewEventDialog: React.FC<{
           updated_at: new Date().toISOString(),
         };
         demoSetEvents(agencyId, [newEvent, ...existing]);
+        insertedEventId = newEvent.id;
       } else {
-        const { error } = await supabase.from('events').insert(payload);
+        const { data: inserted, error } = await supabase.from('events').insert(payload).select('id').single();
         if (error) throw error;
+        insertedEventId = (inserted as { id: string })?.id;
       }
 
       success('אירוע נוצר בהצלחה');
+      if (insertedEventId && form.send_calendar_invite && !isDemoMode()) {
+        (async () => {
+          try {
+            const data = await invokeCalendarInvite(insertedEventId!, true);
+            if (data?.ok) success('הזמנה ליומן נשלחה בהצלחה 📅');
+          } catch (err: any) {
+            console.error('[calendar-invite]', err);
+          }
+        })();
+      }
       onCreated();
       onOpenChange(false);
-      setForm({ event_date: new Date().toISOString().slice(0, 10), event_time: '', amount: '', client_name: '', client_email: '', artist_name: '', notes: '' });
+      setForm({ event_date: new Date().toISOString().slice(0, 10), event_time: '', event_time_end: '', amount: '', client_name: '', client_email: '', artist_name: '', notes: '', send_calendar_invite: true });
     } catch (err: any) {
       void err;
       showError(err?.message || 'יצירת אירוע נכשלה. נסה שוב.');
@@ -361,16 +377,22 @@ const QuickNewEventDialog: React.FC<{
               <Input type="date" value={form.event_date} onChange={e => setForm(f => ({ ...f, event_date: e.target.value }))} />
             </div>
             <div className="flex flex-col gap-2">
-              <Label>שעת אירוע</Label>
-              <div className="relative">
-                <Clock className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-                <Input
-                  type="time"
-                  value={form.event_time}
-                  onChange={e => setForm(f => ({ ...f, event_time: e.target.value }))}
-                  className="pr-10 rounded-sm border-2 border-border focus:border-primary focus:ring-2 focus:ring-primary/20 font-mono tracking-wide"
-                />
-              </div>
+              <Label>שעת התחלה</Label>
+              <Input
+                type="time"
+                value={form.event_time}
+                onChange={e => setForm(f => ({ ...f, event_time: e.target.value }))}
+                className="rounded-sm border-2 border-border focus:border-primary focus:ring-2 focus:ring-primary/20 font-mono tracking-wide"
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label>שעת סיום</Label>
+              <Input
+                type="time"
+                value={form.event_time_end}
+                onChange={e => setForm(f => ({ ...f, event_time_end: e.target.value }))}
+                className="rounded-sm border-2 border-border focus:border-primary focus:ring-2 focus:ring-primary/20 font-mono tracking-wide"
+              />
             </div>
             <div className="flex flex-col gap-2">
               <Label>סכום (₪)</Label>
@@ -415,6 +437,16 @@ const QuickNewEventDialog: React.FC<{
             <div className="flex flex-col gap-2 col-span-2">
               <Label>הערות</Label>
               <Input value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="הערות אופציונליות" />
+            </div>
+            <div className="flex items-center gap-2 col-span-2">
+              <input
+                type="checkbox"
+                id="quick-send-invite"
+                checked={form.send_calendar_invite}
+                onChange={(e) => setForm(f => ({ ...f, send_calendar_invite: e.target.checked }))}
+                className="rounded border-input accent-primary"
+              />
+              <Label htmlFor="quick-send-invite" className="text-sm font-normal cursor-pointer">שלח זימון ליומן במייל</Label>
             </div>
           </div>
           <div className="flex gap-3 justify-end pt-2">

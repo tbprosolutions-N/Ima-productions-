@@ -203,3 +203,26 @@ export const resetPassword = async (email: string) => {
   });
   return { data, error };
 };
+
+/** Invoke calendar-invite Edge Function with explicit auth to avoid 401 from client invoke. */
+export async function invokeCalendarInvite(
+  eventId: string,
+  sendInvites: boolean
+): Promise<{ ok?: boolean; error?: string }> {
+  const { data: { session } } = await supabase.auth.refreshSession();
+  const token = session?.access_token;
+  if (!token) throw new Error('Not authenticated');
+  const url = `${supabaseUrl}/functions/v1/calendar-invite`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      apikey: supabaseAnonKey,
+    },
+    body: JSON.stringify({ event_id: eventId, send_invites: sendInvites }),
+  });
+  const data = (await res.json()) as { ok?: boolean; error?: string };
+  if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+  return data;
+}

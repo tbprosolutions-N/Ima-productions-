@@ -23,7 +23,7 @@ import { TimeSelect } from '@/components/ui/TimeSelect';
 import { useAgency } from '@/contexts/AgencyContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
-import { supabase } from '@/lib/supabase';
+import { supabase, invokeCalendarInvite } from '@/lib/supabase';
 import { formatDate, getWeekday } from '@/lib/utils';
 // exportUtils (xlsx ~643KB) is loaded lazily on first export click
 import type { Client, Artist, DocumentType, Event, EventStatus } from '@/types';
@@ -490,27 +490,16 @@ const EventsPage: React.FC = () => {
 
         if (error) throw error;
         success('אירוע עודכן בהצלחה! ✅');
-        // Direct calendar invite — refresh session to avoid 401 from expired token, then invoke
+        // Direct calendar invite — explicit auth to avoid 401
         (async () => {
           try {
-            const { data: { session } } = await supabase.auth.refreshSession();
-            if (!session?.access_token) {
-              showError('נא להתחבר מחדש כדי לשלוח הזמנה ליומן');
-              return;
-            }
-            const { data, error: fnErr } = await supabase.functions.invoke('calendar-invite', {
-              body: { event_id: editingEvent.id, send_invites: formData.send_calendar_invite },
-            });
-            if (fnErr) {
-              const msg = (fnErr as any)?.context?.body?.error || fnErr.message || 'שגיאה לא ידועה';
-              const is401 = (fnErr as any)?.context?.status === 401 || String(msg).includes('authorization') || String(msg).includes('token');
-              showError(is401 ? 'ההרשאה פגה. נא להתחבר מחדש ולנסות שוב.' : `שליחת הזמנה ליומן נכשלה: ${msg}`);
-            } else if (data?.ok) {
-              success('הזמנה ליומן נשלחה בהצלחה 📅');
-            }
+            const data = await invokeCalendarInvite(editingEvent.id, formData.send_calendar_invite);
+            if (data?.ok) success('הזמנה ליומן נשלחה בהצלחה 📅');
           } catch (err: any) {
             console.error('[calendar-invite]', err);
-            showError('שליחת הזמנה ליומן נכשלה');
+            const msg = err?.message || 'שגיאה לא ידועה';
+            const is401 = String(msg).includes('401') || String(msg).includes('authorization') || String(msg).includes('token');
+            showError(is401 ? 'ההרשאה פגה. נא להתחבר מחדש ולנסות שוב.' : `שליחת הזמנה ליומן נכשלה: ${msg}`);
           }
         })();
       } else {
@@ -520,28 +509,17 @@ const EventsPage: React.FC = () => {
         savedEventId = (inserted as any)?.id;
         success('Saved to Database');
 
-        // Direct calendar invite — refresh session to avoid 401 from expired token, then invoke
+        // Direct calendar invite — explicit auth to avoid 401
         if (savedEventId) {
           (async () => {
             try {
-              const { data: { session } } = await supabase.auth.refreshSession();
-              if (!session?.access_token) {
-                showError('נא להתחבר מחדש כדי לשלוח הזמנה ליומן');
-                return;
-              }
-              const { data, error: fnErr } = await supabase.functions.invoke('calendar-invite', {
-                body: { event_id: savedEventId, send_invites: formData.send_calendar_invite },
-              });
-              if (fnErr) {
-                const msg = (fnErr as any)?.context?.body?.error || fnErr.message || 'שגיאה לא ידועה';
-                const is401 = (fnErr as any)?.context?.status === 401 || String(msg).includes('authorization') || String(msg).includes('token');
-                showError(is401 ? 'ההרשאה פגה. נא להתחבר מחדש ולנסות שוב.' : `שליחת הזמנה ליומן נכשלה: ${msg}`);
-              } else if (data?.ok) {
-                success('הזמנה ליומן נשלחה בהצלחה 📅');
-              }
+              const data = await invokeCalendarInvite(savedEventId, formData.send_calendar_invite);
+              if (data?.ok) success('הזמנה ליומן נשלחה בהצלחה 📅');
             } catch (err: any) {
               console.error('[calendar-invite]', err);
-              showError('שליחת הזמנה ליומן נכשלה');
+              const msg = err?.message || 'שגיאה לא ידועה';
+              const is401 = String(msg).includes('401') || String(msg).includes('authorization') || String(msg).includes('token');
+              showError(is401 ? 'ההרשאה פגה. נא להתחבר מחדש ולנסות שוב.' : `שליחת הזמנה ליומן נכשלה: ${msg}`);
             }
           })();
         }

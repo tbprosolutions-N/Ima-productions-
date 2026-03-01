@@ -174,17 +174,34 @@ const CalendarPage: React.FC = () => {
     return c && c.startsWith('#') ? c : 'hsl(var(--primary))';
   }, [artistForEvent]);
 
-  // Pre-compute FullCalendar events array
-  const calendarEvents = useMemo(() => events.map(e => ({
-    id: e.id,
-    title: `${e.business_name}${artistForEvent(e)?.name ? ` · ${artistForEvent(e)?.name}` : ''}`,
-    start: e.event_date,
-    allDay: true,
-    backgroundColor: artistColorForEvent(e),
-    borderColor: artistColorForEvent(e),
-    textColor: '#ffffff',
-    extendedProps: { raw: e },
-  })), [events, artistForEvent, artistColorForEvent]);
+  // Pre-compute FullCalendar events array — use time slots when event_time is set
+  const calendarEvents = useMemo(() => events.map(e => {
+    const eventTime = (e as any).event_time?.trim();
+    const eventTimeEnd = (e as any).event_time_end?.trim();
+    const hasTimeSlots = !!eventTime;
+    const toHms = (t: string) => (t.split(':').length >= 3 ? t : `${t}:00`);
+    const addOneHour = (t: string) => {
+      const parts = t.split(':').map((p) => parseInt(p, 10) || 0);
+      const h = ((parts[0] ?? 0) + 1) % 24;
+      const m = parts[1] ?? 0;
+      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
+    };
+    const start = hasTimeSlots ? `${e.event_date}T${toHms(eventTime)}` : e.event_date;
+    const end = hasTimeSlots
+      ? (eventTimeEnd ? `${e.event_date}T${toHms(eventTimeEnd)}` : `${e.event_date}T${addOneHour(eventTime)}`)
+      : undefined;
+    return {
+      id: e.id,
+      title: `${e.business_name}${artistForEvent(e)?.name ? ` · ${artistForEvent(e)?.name}` : ''}`,
+      start,
+      end: hasTimeSlots ? end : undefined,
+      allDay: !hasTimeSlots,
+      backgroundColor: artistColorForEvent(e),
+      borderColor: artistColorForEvent(e),
+      textColor: '#ffffff',
+      extendedProps: { raw: e },
+    };
+  }), [events, artistForEvent, artistColorForEvent]);
 
   return (
     <div className="space-y-6">
