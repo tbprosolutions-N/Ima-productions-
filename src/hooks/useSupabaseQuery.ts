@@ -20,7 +20,7 @@ const CLIENT_PAGE_SIZE = 100; // Paginated to avoid slow 2000+ row fetches and 4
 
 const EVENT_LIST_COLS = [
   'id', 'agency_id', 'producer_id', 'event_date', 'event_time', 'event_time_end', 'weekday',
-  'business_name', 'invoice_name', 'amount', 'payment_date',
+  'event_name', 'business_name', 'invoice_name', 'location', 'amount', 'payment_date',
   'artist_fee_type', 'artist_fee_value', 'artist_fee_amount', 'approver',
   'doc_type', 'doc_number', 'due_date', 'status', 'notes',
   'morning_sync_status', 'morning_id', 'morning_document_id',

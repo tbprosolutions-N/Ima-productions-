@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   useReactTable,
@@ -17,35 +17,21 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardContent, CardHeader } from '@/components/ui/Card';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/Dialog';
-import { Label } from '@/components/ui/Label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select';
-import { TimeSelect } from '@/components/ui/TimeSelect';
+import { NewEventForm } from '@/components/NewEventForm';
 import { useAgency } from '@/contexts/AgencyContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
-import { supabase, invokeCalendarInvite } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase';
 import { formatDate, getWeekday } from '@/lib/utils';
 // exportUtils (xlsx ~643KB) is loaded lazily on first export click
-import type { Client, Artist, DocumentType, Event, EventStatus } from '@/types';
-import {
-  demoGetArtists,
-  demoGetClients,
-  demoGetDocuments,
-  demoGetEvents,
-  demoSetArtists,
-  demoSetClients,
-  demoSetEvents,
-  demoUpsertArtist,
-  demoUpsertClient,
-  isDemoMode,
-} from '@/lib/demoStore';
-import { useEventsQuery, useArtistsQuery, useClientsQuery, useInvalidateEvents, useInvalidateClients, useInvalidateArtists } from '@/hooks/useSupabaseQuery';
-import { buildTemplateVariables, demoAddSentDoc, renderTemplate } from '@/lib/sentDocs';
+import type { Event } from '@/types';
+import { demoGetEvents, demoSetEvents, isDemoMode } from '@/lib/demoStore';
+import { useEventsQuery, useArtistsQuery, useClientsQuery, useInvalidateEvents } from '@/hooks/useSupabaseQuery';
 import { getMorningApiKey, getMorningCompanyId, isIntegrationConnected } from '@/lib/settingsStore';
 import { useSearchParams } from 'react-router-dom';
 import { queueSyncJob } from '@/lib/syncJobs';
 import { createEventDocument, checkEventDocumentStatus } from '@/services/morningService';
-import { agreementService } from '@/services/agreementService';
 import { getCollectionStatus } from '@/lib/collectionStatus';
 
 const EventsPage: React.FC = () => {
@@ -61,12 +47,9 @@ const EventsPage: React.FC = () => {
   const { data: clients = [] } = useClientsQuery(currentAgency?.id);
   const { data: artists = [] } = useArtistsQuery(currentAgency?.id);
   const invalidateEvents = useInvalidateEvents();
-  const invalidateClients = useInvalidateClients();
-  const invalidateArtists = useInvalidateArtists();
   const [requestCorrectionEvent, setRequestCorrectionEvent] = useState<Event | null>(null);
 
   const isRowLocked = (ev: Event) => !!(ev.morning_id || ev.morning_sync_status === 'synced');
-  const [isSaving, setIsSaving] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
@@ -78,84 +61,7 @@ const EventsPage: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState('');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
-  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
-  const invoiceNameInitializedRef = useRef(false);
   const isOwner = user?.role === 'owner';
-  type EventFormData = {
-    event_date: string;
-    business_name: string;
-    client_business_name: string;
-    artist_name: string;
-    invoice_name: string;
-    amount: string;
-    payment_date: string;
-    due_date: string;
-    event_time: string;
-    event_time_end: string;
-    doc_type: DocumentType;
-    doc_number: string;
-    status: EventStatus;
-    notes: string;
-    send_calendar_invite: boolean;
-    send_agreement: boolean;
-  };
-
-  const [formData, setFormData] = useState<EventFormData>({
-    event_date: '',
-    business_name: '',
-    client_business_name: '',
-    artist_name: '',
-    invoice_name: '',
-    amount: '',
-    payment_date: '',
-    due_date: '',
-    event_time: '',
-    event_time_end: '',
-    doc_type: 'tax_invoice',
-    doc_number: '',
-    status: 'pending',
-    notes: '',
-    send_calendar_invite: true,
-    send_agreement: false,
-  });
-
-  const computeArtistFee = (companyAmount: number, feeType: 'fixed' | 'percent', feeValue: number) => {
-    if (!Number.isFinite(companyAmount) || companyAmount < 0) return 0;
-    if (!Number.isFinite(feeValue) || feeValue < 0) return 0;
-    if (feeType === 'percent') return Math.max(0, (companyAmount * feeValue) / 100);
-    return Math.max(0, feeValue);
-  };
-
-  // Artist payout model is stored on the artist profile (demo-first).
-  // To avoid DB schema drift, we embed it into Artist.notes as a special marker line.
-  const PAYOUT_MARKER = '__IMA_PAYOUT__=';
-  const parsePayoutFromNotes = (notesRaw: string | undefined | null): { type: 'fixed' | 'percent'; value: number } | null => {
-    try {
-      const line = String(notesRaw || '')
-        .split('\n')
-        .find((l) => l.trim().startsWith(PAYOUT_MARKER));
-      if (!line) return null;
-      const raw = line.trim().slice(PAYOUT_MARKER.length);
-      const parsed = JSON.parse(raw) as any;
-      const type = parsed?.type === 'percent' ? 'percent' : 'fixed';
-      const value = Number(parsed?.value);
-      return { type, value: Number.isFinite(value) ? value : 0 };
-    } catch {
-      return null;
-    }
-  };
-
-  const resolveArtistPayout = (artistId?: string | null, artistName?: string | null) => {
-    const a =
-      (artistId ? artists.find((x) => x.id === artistId) : undefined) ??
-      (artistName ? artists.find((x) => x.name.toLowerCase() === String(artistName).toLowerCase()) : undefined);
-    const parsed = parsePayoutFromNotes(a?.notes);
-    return {
-      type: (parsed?.type || 'fixed') as 'fixed' | 'percent',
-      value: Number(parsed?.value || 0),
-      artist: a,
-    };
-  };
 
   // Deep-link edit support (used by Daybook owner-only edit button)
   useEffect(() => {
@@ -170,18 +76,6 @@ const EventsPage: React.FC = () => {
     next.delete('from');
     setSearchParams(next, { replace: true });
   }, [searchParams, loading, events]);
-
-  // INITIALIZE Invoice Name only when client is first selected; after that it stays independent
-  useEffect(() => {
-    if (!isDialogOpen || editingEvent || invoiceNameInitializedRef.current) return;
-    const name = formData.client_business_name.trim();
-    if (!name) return;
-    const client = clients.find(c => c.name === name);
-    if (client) {
-      setFormData(prev => ({ ...prev, invoice_name: client.invoice_name || client.name }));
-      invoiceNameInitializedRef.current = true;
-    }
-  }, [formData.client_business_name, clients, isDialogOpen, editingEvent]);
 
   const handleDelete = async (id: string) => {
     if (!confirm('האם אתה בטוח שברצונך למחוק אירוע זה?')) return;
@@ -226,371 +120,13 @@ const EventsPage: React.FC = () => {
   };
 
   const openDialog = (event?: Event) => {
-    invoiceNameInitializedRef.current = !!event; // when editing, treat as already initialized so we never overwrite
-    if (event) {
-      setEditingEvent(event);
-      const clientName = event.client_id ? (clients.find(c => c.id === event.client_id)?.name ?? '') : '';
-      const artistName = event.artist_id ? (artists.find(a => a.id === event.artist_id)?.name ?? '') : '';
-      setFormData({
-        event_date: String(event.event_date || '').slice(0, 10),
-        business_name: event.business_name || '',
-        client_business_name: clientName,
-        artist_name: artistName,
-        invoice_name: event.invoice_name || '',
-        amount: event.amount != null ? String(event.amount) : '',
-        payment_date: event.payment_date ? String(event.payment_date).slice(0, 10) : '',
-        due_date: event.due_date ? String(event.due_date).slice(0, 10) : '',
-        event_time: (event as any).event_time || '',
-        event_time_end: (event as any).event_time_end || '',
-        doc_type: event.doc_type,
-        doc_number: event.doc_number || '',
-        status: event.status,
-        notes: event.notes || '',
-        send_calendar_invite: true,
-        send_agreement: false,
-      });
-    } else {
-      setEditingEvent(null);
-      setFormData({
-        event_date: '',
-        business_name: '',
-        client_business_name: '',
-        artist_name: '',
-        invoice_name: '',
-        amount: '',
-        payment_date: '',
-        due_date: '',
-        event_time: '',
-        event_time_end: '',
-        doc_type: 'tax_invoice',
-        doc_number: '',
-        status: 'draft',
-        notes: '',
-        send_calendar_invite: true,
-        send_agreement: false,
-      });
-    }
+    setEditingEvent(event || null);
     setIsDialogOpen(true);
   };
 
   const closeDialog = () => {
-    invoiceNameInitializedRef.current = false;
     setIsDialogOpen(false);
     setEditingEvent(null);
-    setFormErrors({});
-    setFormData({ event_date: '', business_name: '', client_business_name: '', artist_name: '', invoice_name: '', amount: '', payment_date: '', due_date: '', event_time: '', event_time_end: '', doc_type: 'tax_invoice', doc_number: '', status: 'pending', notes: '', send_calendar_invite: true, send_agreement: false });
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const clientName = formData.client_business_name.trim();
-    const artistName = formData.artist_name.trim();
-    const err: Record<string, string> = {};
-    if (!formData.event_date?.trim()) err.event_date = 'נא לבחור תאריך אירוע';
-    if (!clientName) err.client_business_name = 'נא להזין שם לקוח';
-    if (!artistName) err.artist_name = 'נא להזין שם אמן';
-    if (Object.keys(err).length > 0) {
-      setFormErrors(err);
-      const parts = [];
-      if (err.event_date) parts.push('תאריך אירוע');
-      if (err.client_business_name) parts.push('לקוח');
-      if (err.artist_name) parts.push('אמן');
-      showError('נא למלא את השדות החובה: ' + parts.join(', '));
-      return;
-    }
-    setFormErrors({});
-    setIsSaving(true);
-    const effectiveBusinessName = clientName || artistName || 'אירוע';
-    try {
-      if (!currentAgency) {
-        showError('לא נמצאה סוכנות פעילה. רענן את הדף ונסה שוב.');
-        setIsSaving(false);
-        return;
-      }
-
-      type EnsureResult = { id?: string; existed: boolean };
-
-      const ensureClient = async (): Promise<EnsureResult> => {
-        if (!clientName) return { id: undefined, existed: false };
-        if (isDemoMode()) {
-          const existing = demoGetClients(currentAgency.id);
-          const found = existing.find(c => c.name.toLowerCase() === clientName.toLowerCase());
-          if (found) return { id: found.id, existed: true };
-          const created = demoUpsertClient(currentAgency.id, { name: clientName });
-          demoSetClients(currentAgency.id, [created, ...existing]);
-          invalidateClients(currentAgency.id);
-          return { id: created.id, existed: false };
-        }
-        const { data: found } = await supabase
-          .from('clients')
-          .select('id,name')
-          .eq('agency_id', currentAgency.id)
-          .ilike('name', clientName)
-          .limit(1)
-          .maybeSingle();
-        if ((found as any)?.id) return { id: (found as any).id as string, existed: true };
-        const { data: inserted, error } = await supabase
-          .from('clients')
-          .insert([{ agency_id: currentAgency.id, name: clientName }])
-          .select('id')
-          .single();
-        if (error) throw error;
-        return { id: (inserted as any).id as string, existed: false };
-      };
-
-      const ensureArtist = async (): Promise<EnsureResult> => {
-        if (!artistName) return { id: undefined, existed: false };
-        if (isDemoMode()) {
-          const existing = demoGetArtists(currentAgency.id);
-          const found = existing.find(a => a.name.toLowerCase() === artistName.toLowerCase());
-          if (found) return { id: found.id, existed: true };
-          const created = demoUpsertArtist(currentAgency.id, { name: artistName });
-          demoSetArtists(currentAgency.id, [created, ...existing]);
-          invalidateArtists(currentAgency.id);
-          return { id: created.id, existed: false };
-        }
-        const { data: found } = await supabase
-          .from('artists')
-          .select('id,name')
-          .eq('agency_id', currentAgency.id)
-          .ilike('name', artistName)
-          .limit(1)
-          .maybeSingle();
-        if ((found as any)?.id) return { id: (found as any).id as string, existed: true };
-        const { data: inserted, error } = await supabase
-          .from('artists')
-          .insert([{ agency_id: currentAgency.id, name: artistName }])
-          .select('id')
-          .single();
-        if (error) throw error;
-        return { id: (inserted as any).id as string, existed: false };
-      };
-
-      const [clientRes, artistRes] = await Promise.all([ensureClient(), ensureArtist()]);
-      const clientId = clientRes.id;
-      const artistId = artistRes.id;
-      const payout = resolveArtistPayout(artistId, artistName);
-
-      // DEMO MODE: create/update in localStorage so it always works
-      if (isDemoMode()) {
-        const now = new Date().toISOString();
-        const isoEventDate = formData.event_date ? new Date(formData.event_date).toISOString() : now;
-        const isoPaymentDate = formData.payment_date ? new Date(formData.payment_date).toISOString() : undefined;
-        const companyAmount = Number.isFinite(Number(formData.amount)) ? parseFloat(formData.amount) : 0;
-        const feeType: 'fixed' | 'percent' = payout.type;
-        const feeValue = Number.isFinite(Number(payout.value)) ? payout.value : 0;
-        const computedFee = computeArtistFee(companyAmount, feeType, feeValue);
-
-        const base: Event = {
-          id: editingEvent?.id || (globalThis.crypto?.randomUUID?.() ?? `demo-${Math.random().toString(36).slice(2)}`),
-          agency_id: currentAgency.id || 'ima-productions-id',
-          producer_id: user?.id || 'demo-user-id',
-          event_date: isoEventDate,
-          weekday: getWeekday(formData.event_date),
-          business_name: effectiveBusinessName,
-          invoice_name: (formData.invoice_name?.trim() || effectiveBusinessName),
-          amount: companyAmount,
-          payment_date: isoPaymentDate,
-          due_date: formData.due_date ? new Date(formData.due_date).toISOString().slice(0, 10) : undefined,
-          artist_fee_type: feeType,
-          artist_fee_value: feeValue,
-          artist_fee_amount: computedFee,
-          event_time: formData.event_time?.trim() || undefined,
-          event_time_end: formData.event_time_end?.trim() || undefined,
-          doc_type: formData.doc_type,
-          doc_number: formData.doc_number || undefined,
-          status: editingEvent ? formData.status : 'pending',
-          notes: formData.notes || undefined,
-          morning_sync_status: editingEvent?.morning_sync_status || 'not_synced',
-          created_at: editingEvent?.created_at || now,
-          updated_at: now,
-          client_id: clientId ?? editingEvent?.client_id,
-          artist_id: artistId ?? editingEvent?.artist_id,
-        };
-
-        const existing = demoGetEvents(currentAgency.id);
-        const next = editingEvent
-          ? existing.map(e => (e.id === editingEvent.id ? base : e))
-          : [base, ...existing];
-
-        demoSetEvents(currentAgency.id, next);
-        invalidateEvents(currentAgency.id);
-        success(editingEvent ? 'אירוע עודכן בהצלחה! ✅' : 'אירוע נוסף בהצלחה! 🎉');
-
-        // Auto-send agreement ONLY if artist/client already existed in the system
-        if (!editingEvent) {
-          const docs = demoGetDocuments(currentAgency.id);
-          const clientTemplate = docs.find(d => d.type === 'client_agreement');
-          const artistTemplate = docs.find(d => d.type === 'artist_agreement');
-          const client = clientId ? demoGetClients(currentAgency.id).find(c => c.id === clientId) : undefined;
-          const artist = artistId ? demoGetArtists(currentAgency.id).find(a => a.id === artistId) : undefined;
-          const vars = buildTemplateVariables({ event: base, client, artist });
-
-          if (clientRes.existed && clientTemplate && client) {
-            demoAddSentDoc(currentAgency.id, {
-              kind: 'agreement',
-              to: 'client',
-              to_id: client.id,
-              to_name: client.name,
-              to_email: client.email,
-              event_id: base.id,
-              title: clientTemplate.title,
-              rendered: renderTemplate(clientTemplate.content, vars),
-            });
-          }
-          if (artistRes.existed && artistTemplate && artist) {
-            demoAddSentDoc(currentAgency.id, {
-              kind: 'agreement',
-              to: 'artist',
-              to_id: artist.id,
-              to_name: artist.name,
-              to_email: artist.email,
-              event_id: base.id,
-              title: artistTemplate.title,
-              rendered: renderTemplate(artistTemplate.content, vars),
-            });
-          }
-        }
-        closeDialog();
-        return;
-      }
-
-      const amountNum = Number(formData.amount);
-      const eventData = {
-        event_date: formData.event_date,
-        business_name: effectiveBusinessName,
-        invoice_name: (formData.invoice_name?.trim() || effectiveBusinessName),
-        payment_date: formData.payment_date || null,
-        due_date: formData.due_date || null,
-        artist_fee_type: isOwner ? payout.type : undefined,
-        artist_fee_value: isOwner ? payout.value : undefined,
-        artist_fee_amount: isOwner
-          ? computeArtistFee(Number.isFinite(amountNum) ? amountNum : 0, payout.type, payout.value)
-          : undefined,
-        doc_type: formData.doc_type,
-        doc_number: formData.doc_number,
-        status: editingEvent ? formData.status : 'pending',
-        notes: formData.notes,
-        amount: Number.isFinite(amountNum) ? amountNum : 0,
-        agency_id: currentAgency.id,
-        producer_id: user?.id ?? editingEvent?.producer_id ?? currentAgency.id,
-        weekday: getWeekday(formData.event_date),
-        client_id: clientId || null,
-        artist_id: artistId || null,
-        event_time: formData.event_time?.trim() || null,
-        event_time_end: formData.event_time_end?.trim() || null,
-      };
-
-      let savedEventId: string | undefined = editingEvent?.id;
-      if (editingEvent) {
-        const { error } = await supabase
-          .from('events')
-          .update(eventData)
-          .eq('id', editingEvent.id);
-
-        if (error) throw error;
-        success('אירוע עודכן בהצלחה! ✅');
-        // Direct calendar invite — explicit auth to avoid 401
-        (async () => {
-          try {
-            const data = await invokeCalendarInvite(editingEvent.id, formData.send_calendar_invite);
-            if (data?.ok) success('הזמנה ליומן נשלחה בהצלחה 📅');
-          } catch (err: any) {
-            console.error('[calendar-invite]', err);
-            const msg = err?.message || 'שגיאה לא ידועה';
-            const is401 = String(msg).includes('401') || String(msg).includes('authorization') || String(msg).includes('token');
-            showError(is401 ? 'ההרשאה פגה. נא להתחבר מחדש ולנסות שוב.' : `שליחת הזמנה ליומן נכשלה: ${msg}`);
-          }
-        })();
-      } else {
-        const { data: inserted, error } = await supabase.from('events').insert([eventData]).select('id').single();
-
-        if (error) throw error;
-        savedEventId = (inserted as any)?.id;
-        success('אירוע נוסף בהצלחה! 🎉');
-
-        // Direct calendar invite — explicit auth to avoid 401
-        if (savedEventId) {
-          (async () => {
-            try {
-              const data = await invokeCalendarInvite(savedEventId, formData.send_calendar_invite);
-              if (data?.ok) success('הזמנה ליומן נשלחה בהצלחה 📅');
-            } catch (err: any) {
-              console.error('[calendar-invite]', err);
-              const msg = err?.message || 'שגיאה לא ידועה';
-              const is401 = String(msg).includes('401') || String(msg).includes('authorization') || String(msg).includes('token');
-              showError(is401 ? 'ההרשאה פגה. נא להתחבר מחדש ולנסות שוב.' : `שליחת הזמנה ליומן נכשלה: ${msg}`);
-            }
-          })();
-        }
-
-        // Agreement engine: when artist & client emails present, send agreement
-        let clientEmail = (clients.find(c => c.id === clientId) || {} as Client).email?.trim();
-        let artistEmail = (artists.find(a => a.id === artistId) || {} as Artist).email?.trim();
-        // Fetch any missing emails in parallel to avoid sequential waterfall latency
-        if ((!clientEmail && clientId) || (!artistEmail && artistId)) {
-          const [clientRes, artistRes] = await Promise.all([
-            (!clientEmail && clientId)
-              ? supabase.from('clients').select('email').eq('id', clientId).maybeSingle()
-              : Promise.resolve({ data: null }),
-            (!artistEmail && artistId)
-              ? supabase.from('artists').select('email').eq('id', artistId).maybeSingle()
-              : Promise.resolve({ data: null }),
-          ]);
-          if (!clientEmail && clientId) clientEmail = (clientRes.data as { email?: string })?.email?.trim();
-          if (!artistEmail && artistId) artistEmail = (artistRes.data as { email?: string })?.email?.trim();
-        }
-        const shouldSendAgreement = !!(clientEmail && artistEmail);
-
-        if ((shouldSendAgreement || formData.send_agreement) && savedEventId) {
-          try {
-            const { data: ownerRow } = await supabase
-              .from('users')
-              .select('email')
-              .eq('agency_id', currentAgency.id)
-              .eq('role', 'owner')
-              .limit(1)
-              .maybeSingle();
-            const ownerEmail = (ownerRow as { email?: string })?.email?.trim() || undefined;
-            await agreementService.generateAgreement({
-              eventId: savedEventId,
-              sendEmail: shouldSendAgreement || formData.send_agreement,
-              ownerEmail,
-            });
-            success('הסכם הופעה נוצר ונשלח ✅');
-          } catch (err: any) {
-            showError(err?.message || 'שליחת הסכם נכשלה');
-          }
-        }
-      }
-      if (formData.send_agreement && savedEventId && editingEvent) {
-        try {
-          const { data: ownerRow } = await supabase
-            .from('users')
-            .select('email')
-            .eq('agency_id', currentAgency.id)
-            .eq('role', 'owner')
-            .limit(1)
-            .maybeSingle();
-          const ownerEmail = (ownerRow as { email?: string })?.email?.trim() || undefined;
-          await agreementService.generateAgreement({
-            eventId: savedEventId,
-            sendEmail: true,
-            ownerEmail,
-          });
-          success('הסכם נוצר ונשלח ללקוח במייל ✅');
-        } catch (err: any) {
-          showError(err?.message || 'שליחת הסכם נכשלה');
-        }
-      }
-
-      invalidateEvents(currentAgency?.id);
-      closeDialog();
-    } catch (err: any) {
-      showError(err?.message || 'אירעה שגיאה בשמירת האירוע. אנא נסה שוב.');
-    } finally {
-      setIsSaving(false);
-    }
   };
 
   const columns: ColumnDef<Event>[] = [
@@ -1271,9 +807,9 @@ const EventsPage: React.FC = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Add/Edit Dialog */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-3xl glass border-primary/20">
+      {/* Add/Edit Dialog — NewEventForm (NPC Collective Production) */}
+      <Dialog open={isDialogOpen} onOpenChange={(open) => { setIsDialogOpen(open); if (!open) setEditingEvent(null); }}>
+        <DialogContent className="max-w-3xl glass border-primary/20 max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-2xl text-foreground">
               {editingEvent ? 'עריכת אירוע' : 'אירוע חדש'}
@@ -1282,193 +818,41 @@ const EventsPage: React.FC = () => {
               מלא את פרטי האירוע
             </DialogDescription>
           </DialogHeader>
-
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="flex flex-col gap-2 col-span-2">
-                <Label htmlFor="event_date" className="text-foreground">תאריך אירוע *</Label>
-                <Input
-                  id="event_date"
-                  type="date"
-                  value={formData.event_date}
-                  onChange={(e) => { setFormData({ ...formData, event_date: e.target.value }); setFormErrors((prev) => ({ ...prev, event_date: '' })); }}
-                  required
-                  className={formErrors.event_date ? 'border-red-500 border-2' : 'border-primary/30'}
-                />
-                {formErrors.event_date && <p className="text-xs text-red-500">{formErrors.event_date}</p>}
-              </div>
-              <TimeSelect
-                id="event_time"
-                label="שעת התחלה"
-                value={formData.event_time}
-                onChange={(v) => setFormData({ ...formData, event_time: v })}
-              />
-              <TimeSelect
-                id="event_time_end"
-                label="שעת סיום"
-                value={formData.event_time_end}
-                onChange={(v) => setFormData({ ...formData, event_time_end: v })}
-              />
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="client_business_name" className="text-foreground">לקוח *</Label>
-                <Input
-                  id="client_business_name"
-                  value={formData.client_business_name}
-                  onChange={(e) => { setFormData({ ...formData, client_business_name: e.target.value }); setFormErrors((p) => ({ ...p, client_business_name: '' })); }}
-                  required
-                  className={formErrors.client_business_name ? 'border-red-500 border-2' : 'border-primary/30'}
-                  placeholder="לדוגמה: הבאר הקוקטייל (ניתן להקליד שם חדש)"
-                  list="clients-list"
-                />
-                {formErrors.client_business_name && <p className="text-xs text-red-500">{formErrors.client_business_name}</p>}
-                <datalist id="clients-list">
-                  {clients.slice(0, 50).map(c => (
-                    <option key={c.id} value={c.name} />
-                  ))}
-                </datalist>
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="invoice_name" className="text-foreground">שם בחשבונית</Label>
-                <Input
-                  id="invoice_name"
-                  value={formData.invoice_name}
-                  onChange={(e) => setFormData({ ...formData, invoice_name: e.target.value })}
-                  className="border-primary/30"
-                  placeholder="שם שיופיע בחשבונית (נמלא אוטומטית מלקוח)"
-                />
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="artist_name" className="text-foreground">אמן *</Label>
-                <Input
-                  id="artist_name"
-                  value={formData.artist_name}
-                  onChange={(e) => { setFormData({ ...formData, artist_name: e.target.value }); setFormErrors((p) => ({ ...p, artist_name: '' })); }}
-                  required
-                  className={formErrors.artist_name ? 'border-red-500 border-2' : 'border-primary/30'}
-                  placeholder="לדוגמה: Static & Ben El"
-                  list="artists-list"
-                />
-                <datalist id="artists-list">
-                  {artists.slice(0, 50).map(a => (
-                    <option key={a.id} value={a.name} />
-                  ))}
-                </datalist>
-                {formErrors.artist_name && <p className="text-xs text-red-500">{formErrors.artist_name}</p>}
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="amount" className="text-foreground">סכום האירוע *</Label>
-                <Input
-                  id="amount"
-                  type="number"
-                  step="0.01"
-                  value={formData.amount}
-                  onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                  required
-                  className="border-primary/30"
-                />
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="payment_date" className="text-foreground">תאריך תשלום</Label>
-                <Input
-                  id="payment_date"
-                  type="date"
-                  value={formData.payment_date}
-                  onChange={(e) => setFormData({ ...formData, payment_date: e.target.value })}
-                  className="border-primary/30"
-                />
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="due_date" className="text-foreground">תאריך יעד לשליחת חשבונית</Label>
-                <Input
-                  id="due_date"
-                  type="date"
-                  value={formData.due_date}
-                  onChange={(e) => setFormData({ ...formData, due_date: e.target.value })}
-                  className="border-primary/30"
-                />
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="doc_type" className="text-foreground">סוג מסמך</Label>
-                <Select value={formData.doc_type} onValueChange={(val: DocumentType) => setFormData({ ...formData, doc_type: val })}>
-                  <SelectTrigger className="border-primary/30">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="tax_invoice">חשבונית מס</SelectItem>
-                    <SelectItem value="receipt">קבלה</SelectItem>
-                    <SelectItem value="payment_request">חשבון עסקה</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="doc_number" className="text-foreground">מספר מסמך</Label>
-                <Input
-                  id="doc_number"
-                  value={formData.doc_number}
-                  onChange={(e) => setFormData({ ...formData, doc_number: e.target.value })}
-                  className="border-primary/30"
-                />
-              </div>
-
-              <div className="col-span-2 flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="send_calendar_invite"
-                  checked={formData.send_calendar_invite}
-                  onChange={(e) => setFormData({ ...formData, send_calendar_invite: e.target.checked })}
-                  className="rounded border-input accent-primary"
-                />
-                <Label htmlFor="send_calendar_invite" className="text-foreground cursor-pointer">
-                  שליחת הזמנה ליומן לאמן וללקוח (אם יש כתובת אימייל)
-                </Label>
-              </div>
-
-              <div className="col-span-2 flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="send_agreement"
-                  checked={formData.send_agreement}
-                  onChange={(e) => setFormData({ ...formData, send_agreement: e.target.checked })}
-                  className="rounded border-input accent-primary"
-                />
-                <Label htmlFor="send_agreement" className="text-foreground cursor-pointer">
-                  שלח הסכם ללקוח (PDF במייל)
-                </Label>
-              </div>
-
-              <div className="flex flex-col gap-2 col-span-2">
-                <Label htmlFor="notes" className="text-foreground">הערות</Label>
-                <textarea
-                  id="notes"
-                  value={formData.notes}
-                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                  rows={3}
-                  className="w-full px-3 py-2 bg-background border border-primary/30 rounded-md text-foreground placeholder:text-muted-foreground"
-                />
-              </div>
-            </div>
-
-            <div className="flex gap-2 justify-end pt-4">
-              <Button type="button" variant="outline" onClick={closeDialog} disabled={isSaving}>
-                ביטול
-              </Button>
-              <Button type="submit" className="btn-magenta" disabled={isSaving}>
-                {isSaving ? (
-                  <span className="flex items-center gap-2">
-                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    שומר...
-                  </span>
-                ) : editingEvent ? 'עדכן' : 'הוסף'}
-              </Button>
-            </div>
-          </form>
+          {!isDemoMode() && currentAgency && (
+            <NewEventForm
+              open={isDialogOpen}
+              onClose={closeDialog}
+              onSuccess={() => { invalidateEvents(currentAgency.id); closeDialog(); }}
+              agencyId={currentAgency.id}
+              userId={user?.id}
+              artists={artists}
+              clients={clients}
+              editingEvent={editingEvent ? {
+                id: editingEvent.id,
+                event_name: (editingEvent as { event_name?: string }).event_name,
+                business_name: editingEvent.business_name,
+                invoice_name: editingEvent.invoice_name,
+                event_date: String(editingEvent.event_date || '').slice(0, 10),
+                event_time: editingEvent.event_time,
+                event_time_end: editingEvent.event_time_end,
+                location: (editingEvent as { location?: string }).location,
+                amount: editingEvent.amount,
+                payment_date: editingEvent.payment_date,
+                due_date: editingEvent.due_date,
+                doc_type: editingEvent.doc_type,
+                doc_number: editingEvent.doc_number,
+                status: editingEvent.status,
+                notes: editingEvent.notes,
+                client_id: editingEvent.client_id,
+                artist_id: editingEvent.artist_id,
+              } : undefined}
+              onError={showError}
+              onSuccessToast={success}
+            />
+          )}
+          {isDemoMode() && (
+            <p className="text-muted-foreground py-4">מצב דמו — השתמש בטופס המלא בדשבורד או הפעל חיבור ל-Supabase.</p>
+          )}
         </DialogContent>
       </Dialog>
     </div>

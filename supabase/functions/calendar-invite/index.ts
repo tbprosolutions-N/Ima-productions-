@@ -301,9 +301,11 @@ Deno.serve(async (req) => {
     end = { date: endDate };
   }
 
+  const location = String((ev as any).location || "").trim();
   const eventBody = {
     summary,
     description,
+    ...(location && { location }),
     start,
     end,
     attendees: attendees.length > 0 ? attendees : undefined,

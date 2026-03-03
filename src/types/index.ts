@@ -45,8 +45,12 @@ export interface Event {
   producer_id: string;
   event_date: string;
   weekday: string;
+  /** Event display name (e.g. Wedding at Hilton) */
+  event_name?: string | null;
   business_name: string;
   invoice_name: string;
+  /** Event location (synced with Google Calendar) */
+  location?: string | null;
   // Company income for this event (client -> IMA)
   amount: number;
   // Client payment date (expected/actual depends on workflow)
