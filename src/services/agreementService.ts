@@ -156,12 +156,15 @@ class AgreementService {
         </div>
       `;
 
+      const from =
+        (import.meta.env.VITE_EMAIL_FROM as string)?.trim() ||
+        'NPC Collective <noreply@npc-am.com>';
       const { error } = await supabase.functions.invoke('send-email', {
         body: {
           to: recipients,
           subject,
           html,
-          from: 'NPC Collective <onboarding@resend.dev>', // Required if RESEND_FROM not set
+          from,
           attachments: [{ content: base64, filename: 'agreement.pdf' }],
         },
       });

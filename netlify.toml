@@ -1,43 +1,4 @@
-# Production domain: https://npc-am.com (configure in Netlify → Domain management)
-[build]
-  command = "npm run build"
-  publish = "dist"
-  functions = "netlify/functions"
-[build.environment]
-  NODE_VERSION = "20"
-
-[dev]
-  targetPort = 5173
-
-# Explicit function proxies — ensures CDN edge routes to functions, not SPA fallback
-[[redirects]]
-  from = "/api/morning"
-  to = "/.netlify/functions/morning-api"
-  status = 200
-  force = true
-
-[[redirects]]
-  from = "/api/sheets-sync"
-  to = "/.netlify/functions/sheets-sync-api"
-  status = 200
-  force = true
-
-[[redirects]]
-  from = "/api/morning-save-credentials"
-  to = "/.netlify/functions/morning-save-credentials"
-  status = 200
-  force = true
-
-# SPA routing (React Router)
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200
-
-# Basic security headers (safe defaults)
-[[headers]]
-  for = "/*"
-  [headers.values]
-    X-Content-Type-Options = "nosniff"
-    X-Frame-Options = "DENY"
-    Referrer-Policy = "strict-origin-when-cross-origin"
+# DEPRECATED: Project migrated to Vercel.
+# Morning API routes: /api/morning, /api/morning-save-credentials (Vercel API Routes).
+# Production: https://npc-am.com (Vercel)
+# This file is kept for reference only. Do not use for deployment.

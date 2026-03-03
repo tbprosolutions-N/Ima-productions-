@@ -3,7 +3,7 @@
 //
 // Required secrets:
 // - RESEND_API_KEY (from Resend dashboard)
-// - RESEND_FROM (optional): default sender e.g. "NPC Collective <onboarding@resend.dev>"
+// - RESEND_FROM (optional): default sender e.g. "NPC Collective <noreply@npc-am.com>"
 // - RESEND_REPLY_TO (optional): reply-to address e.g. "npcollectivebooking@gmail.com"
 //
 // POST body: { to: string[], subject: string, html: string, from?: string, attachments?: { content: string, filename: string }[] }

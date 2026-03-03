@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Deploy dist/ to Netlify production.
- * If NETLIFY_SITE_ID and NETLIFY_AUTH_TOKEN are set, runs non-interactively.
- * Otherwise runs netlify deploy (may prompt to link or log in).
+ * @deprecated Netlify deployment deprecated. Frontend now on Vercel.
+ * Deploy = git push origin master (triggers Cloudflare Pages build).
+ * This script is kept for reference only.
  */
 import { spawn } from 'child_process';
 

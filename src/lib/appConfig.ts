@@ -1,5 +1,5 @@
 /**
- * App metadata from environment (Netlify/production).
+ * App metadata from environment (Vercel/production).
  * Used for document title and any UI that shows app name or version.
  */
 export const appName =

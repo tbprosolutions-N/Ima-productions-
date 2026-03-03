@@ -802,7 +802,7 @@ const EventsPage: React.FC = () => {
                   return;
                 }
 
-                // Production: call Netlify Function (Morning API proxy; credentials server-side)
+                // Production: call Vercel API Route (Morning API proxy; credentials server-side)
                 const result = await createEventDocument(currentAgency.id, eventId);
                 if (result.ok) {
                   success('המסמך נוצר ב־Morning בהצלחה ✅');
@@ -1359,7 +1359,7 @@ const EventsPage: React.FC = () => {
               </div>
 
               <div className="flex flex-col gap-2">
-                <Label htmlFor="amount" className="text-foreground">סכום לחברה (הכנסה) *</Label>
+                <Label htmlFor="amount" className="text-foreground">סכום האירוע *</Label>
                 <Input
                   id="amount"
                   type="number"

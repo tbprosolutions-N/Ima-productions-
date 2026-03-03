@@ -1,7 +1,7 @@
 /**
- * Morning (Green Invoice) API via Netlify Function proxy.
+ * Morning (Green Invoice) API via Vercel API Route proxy.
  * Never sends API Secret to the client; all auth is server-side.
- * Uses /api/morning (redirected to /.netlify/functions/morning-api via netlify.toml).
+ * Uses /api/morning (Vercel serverless function).
  * Requires JWT: pass session.access_token in Authorization header.
  */
 
@@ -76,7 +76,7 @@ export async function checkEventDocumentStatus(
 
 /**
  * Request creation of a document (invoice/receipt) in Morning for the given event.
- * Calls the Netlify Function which uses server-side credentials.
+ * Calls the Vercel API Route which uses server-side credentials.
  */
 export async function createEventDocument(
   agencyId: string,

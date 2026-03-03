@@ -1,5 +1,5 @@
 /**
- * Client-side Google Sheets sync — bypasses Netlify to avoid 502.
+ * Client-side Google Sheets sync — uses Supabase Edge Functions and Google APIs directly.
  * Calls Google Sheets/Drive APIs directly from the browser using the user's OAuth token.
  * Saves spreadsheet ID to Supabase integrations via RLS (owner can write).
  */

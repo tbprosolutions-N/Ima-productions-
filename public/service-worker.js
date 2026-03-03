@@ -1,4 +1,4 @@
-/* NPC PWA Service Worker - Network-first, cache fallback for static assets. Compatible with Netlify (HTTPS). */
+/* NPC PWA Service Worker - Network-first, cache fallback for static assets. Compatible with Vercel (HTTPS). */
 const CACHE_NAME = 'npc-pwa-v4';
 const STATIC_ASSETS = ['/', '/index.html', '/favicon.svg', '/logo.svg', '/manifest.json'];
 

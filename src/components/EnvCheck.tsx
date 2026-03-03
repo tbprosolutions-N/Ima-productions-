@@ -2,7 +2,7 @@
  * EnvCheck – startup guard for the NPC Management System.
  *
  * Checks all VITE_* variables that are available at build-time.
- * Netlify-side server variables (SUPABASE_SERVICE_ROLE_KEY, GOOGLE_SA_*) cannot be
+ * Server-side variables (SUPABASE_SERVICE_ROLE_KEY, etc.) cannot be
  * checked here (they are never sent to the browser); they are documented in docs/RUNBOOK.md.
  *
  * Shows a detailed checklist UI when required variables are missing or malformed.
@@ -55,9 +55,9 @@ const ENV_VARS: EnvVar[] = [
   },
 ];
 
-// ── Netlify-only vars (documented, not checkable in browser) ──────────────
+// ── Server-only vars (documented, not checkable in browser) ──────────────
 
-const NETLIFY_VARS = [
+const SERVER_VARS = [
   { name: 'SUPABASE_URL',           label: 'Supabase URL (server)',        required: true  },
   { name: 'SUPABASE_SERVICE_ROLE_KEY', label: 'Supabase Service Role Key', required: true  },
   { name: 'GOOGLE_SA_CLIENT_EMAIL', label: 'Google SA Client Email',       required: true  },
@@ -126,7 +126,7 @@ const EnvCheck: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         {/* Frontend Variables Checklist */}
         <div className="bg-[#0B0B0B] border border-yellow-500/30 rounded-lg p-5 space-y-3">
           <h2 className="text-white font-semibold text-sm uppercase tracking-wider mb-1">
-            Frontend Variables (Netlify → Site configuration → Environment variables)
+            Frontend Variables (Vercel → Project → Settings → Environment Variables)
           </h2>
           {statuses.map((v) => (
             <div key={v.name} className="flex items-start gap-3">
@@ -147,12 +147,12 @@ const EnvCheck: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         {/* Server-side vars (informational only) */}
         <div className="bg-[#0B0B0B] border border-gray-700 rounded-lg p-5 space-y-3">
           <h2 className="text-gray-400 font-semibold text-sm uppercase tracking-wider mb-1">
-            Server-only Variables (Netlify — not visible to browser)
+            Server-only Variables (Vercel API routes — not visible to browser)
           </h2>
           <p className="text-gray-500 text-xs">
-            These cannot be verified here. Set them in Netlify → Site configuration → Environment variables and redeploy.
+            These cannot be verified here. Set them in Vercel → Project → Settings → Environment Variables and redeploy.
           </p>
-          {NETLIFY_VARS.map((v) => (
+          {SERVER_VARS.map((v) => (
             <div key={v.name} className="flex items-center gap-3">
               <span className="w-4 h-4 flex-shrink-0 text-gray-600 text-xs">?</span>
               <code className="text-gray-400 text-sm flex-1">{v.name}</code>
@@ -171,7 +171,7 @@ const EnvCheck: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           <h3 className="text-yellow-400 font-semibold mb-3">🛠️ How to Fix</h3>
           <ol className="text-sm text-gray-300 space-y-2 list-decimal list-inside">
             <li>
-              Go to <strong>Netlify → Your site → Site configuration → Environment variables</strong>
+              Go to <strong>Vercel → Your project → Settings → Environment Variables</strong>
             </li>
             <li>Add or update the variables listed above (red = missing, yellow = wrong format)</li>
             <li>

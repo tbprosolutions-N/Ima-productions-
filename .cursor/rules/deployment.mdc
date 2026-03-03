@@ -1,0 +1,19 @@
+---
+description: Deployment and hosting context
+globs: "**/*"
+alwaysApply: true
+---
+
+# Deployment
+
+## Frontend: Vercel
+
+- **Site:** https://npc-am.com
+- **Hosting:** Vercel
+- **Deploy:** Git push to `master` triggers automatic build on Vercel. API routes at `/api/morning`, `/api/morning-save-credentials`.
+- **Ignore:** Netlify deployment scripts, `netlify.toml`, `netlify/` folder.
+
+## When user says "deploy"
+
+- **Frontend:** `git push origin master` — Vercel builds and deploys automatically.
+- **Supabase Edge Functions:** `npx supabase functions deploy <function-name>` (e.g. `send-email`, `calendar-invite`).

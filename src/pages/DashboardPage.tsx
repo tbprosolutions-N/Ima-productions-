@@ -224,12 +224,26 @@ const QuickNewEventDialog: React.FC<{
     event_time_end: '',
     amount: '',
     client_name: '',
+    invoice_name: '',
     client_email: '',
     artist_name: '',
     notes: '',
     send_calendar_invite: true,
   });
+  const invoiceNameInitialized = React.useRef(false);
   const [saving, setSaving] = useState(false);
+
+  // Initialize invoice_name from client when first selected; stays editable after
+  React.useEffect(() => {
+    if (!open || invoiceNameInitialized.current) return;
+    const name = form.client_name.trim();
+    if (!name) return;
+    const client = clients.find(c => c.name === name);
+    if (client) {
+      setForm(f => ({ ...f, invoice_name: (client as { invoice_name?: string }).invoice_name || client.name }));
+      invoiceNameInitialized.current = true;
+    }
+  }, [open, form.client_name, clients]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -307,11 +321,12 @@ const QuickNewEventDialog: React.FC<{
       }
 
       const displayName = form.client_name.trim() || form.artist_name.trim() || 'אירוע';
+      const invoiceName = form.invoice_name?.trim() || displayName;
       const payload = {
         agency_id: agencyId,
         producer_id: userId || agencyId,
         business_name: displayName,
-        invoice_name: displayName,
+        invoice_name: invoiceName,
         event_date: form.event_date,
         weekday: weekdays[eventDate.getDay()],
         amount: Number(form.amount) || 0,
@@ -354,7 +369,8 @@ const QuickNewEventDialog: React.FC<{
       }
       onCreated();
       onOpenChange(false);
-      setForm({ event_date: new Date().toISOString().slice(0, 10), event_time: '', event_time_end: '', amount: '', client_name: '', client_email: '', artist_name: '', notes: '', send_calendar_invite: true });
+      setForm({ event_date: new Date().toISOString().slice(0, 10), event_time: '', event_time_end: '', amount: '', client_name: '', invoice_name: '', client_email: '', artist_name: '', notes: '', send_calendar_invite: true });
+      invoiceNameInitialized.current = false;
     } catch (err: any) {
       void err;
       showError(err?.message || 'יצירת אירוע נכשלה. נסה שוב.');
@@ -363,8 +379,16 @@ const QuickNewEventDialog: React.FC<{
     }
   };
 
+  const handleOpenChange = (next: boolean) => {
+    if (!next) {
+      setForm({ event_date: new Date().toISOString().slice(0, 10), event_time: '', event_time_end: '', amount: '', client_name: '', invoice_name: '', client_email: '', artist_name: '', notes: '', send_calendar_invite: true });
+      invoiceNameInitialized.current = false;
+    }
+    onOpenChange(next);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>אירוע חדש (מהיר)</DialogTitle>
@@ -402,7 +426,7 @@ const QuickNewEventDialog: React.FC<{
               <Label>לקוח *</Label>
               <Input
                 value={form.client_name}
-                onChange={e => setForm(f => ({ ...f, client_name: e.target.value }))}
+                onChange={e => { setForm(f => ({ ...f, client_name: e.target.value })); invoiceNameInitialized.current = false; }}
                 placeholder="הקלד או בחר מהרשימה"
                 list="quick-clients-list"
               />
@@ -410,6 +434,14 @@ const QuickNewEventDialog: React.FC<{
                 {clients.slice(0, 50).map(c => <option key={c.id} value={c.name} />)}
               </datalist>
               <p className="text-xs text-muted-foreground">ניתן להקליד שם חדש — ייווצר אוטומטית</p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label>שם בחשבונית</Label>
+              <Input
+                value={form.invoice_name}
+                onChange={e => setForm(f => ({ ...f, invoice_name: e.target.value }))}
+                placeholder="שם שיופיע בחשבונית (נמלא אוטומטית מלקוח)"
+              />
             </div>
             <div className="flex flex-col gap-2">
               <Label>אימייל לקוח</Label>

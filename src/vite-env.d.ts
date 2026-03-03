@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  // ── Required: Supabase (set in Netlify → Environment variables, scope: all) ──
+  // ── Required: Supabase (set in Vercel → Environment variables, scope: all) ──
   readonly VITE_SUPABASE_URL: string;
   readonly VITE_SUPABASE_ANON_KEY: string;
 
@@ -10,6 +10,8 @@ interface ImportMetaEnv {
   readonly VITE_APP_VERSION?: string;
   /** Canonical public URL of this deployment (e.g. https://npc-am.com). Used for OAuth redirects. */
   readonly VITE_APP_URL?: string;
+  /** Resend "from" address for agreement emails (e.g. NPC Collective <noreply@npc-am.com>). */
+  readonly VITE_EMAIL_FROM?: string;
 
   // ── Optional: Morning / Green Invoice sandbox ─────────────────────────────
   readonly VITE_MORNING_API_URL?: string;

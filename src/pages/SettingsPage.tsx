@@ -153,7 +153,7 @@ const SettingsPage: React.FC = () => {
   const [sheetsSyncing, setSheetsSyncing] = useState(false);
   const [snapshotLoading, setSnapshotLoading] = useState(false);
 
-  // Morning (Green Invoice): API credentials — stored in DB via Netlify function (not shown after save)
+  // Morning (Green Invoice): API credentials — stored in DB via Vercel API Route (not shown after save)
   const [morningCompanyId, setMorningCompanyId] = useState('');
   const [morningApiSecret, setMorningApiSecret] = useState('');
   const [morningSaving, setMorningSaving] = useState(false);

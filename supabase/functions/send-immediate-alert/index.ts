@@ -115,7 +115,8 @@ Deno.serve(async (req: Request) => {
   const artistId = record?.artist_id as string | undefined;
   const clientId = record?.client_id as string | undefined;
 
-  const from = Deno.env.get('RESEND_FROM')?.trim() || 'NPC Alerts <onboarding@resend.dev>';
+  const from =
+    Deno.env.get('RESEND_FROM')?.trim() || 'NPC Collective <noreply@npc-am.com>';
 
   // 1. Owner alert
   const { data: ownerRow } = await supabase

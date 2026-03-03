@@ -1,6 +1,6 @@
 /**
  * PWA registration and install prompt for NPC.
- * Ensures app is installable on Netlify (HTTPS) and supports beforeinstallprompt.
+ * Ensures app is installable on Vercel (HTTPS) and supports beforeinstallprompt.
  * Optimized to avoid redundant re-registrations.
  */
 

@@ -1,0 +1,397 @@
+/**
+ * Vercel API Route: Morning (Green Invoice) API proxy.
+ * Replaces Netlify function. Requires JWT: Authorization: Bearer <session_token>.
+ * Credentials from integration_secrets only (no env fallback in production).
+ *
+ * Env (Vercel): SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (required).
+ */
+
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+
+const DEFAULT_BASE_URL = 'https://api.greeninvoice.co.il/api/v1';
+
+function toStructuredError(
+  status: number,
+  text: string,
+  parsed?: { errors?: unknown[]; errorCode?: number; message?: string }
+): string {
+  const obj: Record<string, unknown> = {
+    status,
+    message: parsed?.message || text.slice(0, 500),
+    raw: text.slice(0, 1000),
+  };
+  if (parsed?.errorCode != null) obj.code = parsed.errorCode;
+  if (parsed?.errors?.length) obj.errors = parsed.errors;
+  return JSON.stringify(obj);
+}
+
+async function greenInvoiceRequest(args: {
+  baseUrl: string;
+  path: string;
+  method?: string;
+  token?: string;
+  body?: unknown;
+}) {
+  const url = `${args.baseUrl}${args.path}`;
+  const res = await fetch(url, {
+    method: args.method || 'GET',
+    headers: {
+      'content-type': 'application/json',
+      ...(args.token ? { authorization: `Bearer ${args.token}` } : {}),
+    },
+    body: args.body ? JSON.stringify(args.body) : undefined,
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    let parsed: { errors?: unknown[]; errorCode?: number; message?: string } | undefined;
+    try {
+      parsed = JSON.parse(text) as typeof parsed;
+    } catch {
+      /* ignore */
+    }
+    throw { status: res.status, text, parsed };
+  }
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return text;
+  }
+}
+
+async function getToken(baseUrl: string, id: string, secret: string): Promise<string> {
+  const out = (await greenInvoiceRequest({
+    baseUrl,
+    path: '/account/token',
+    method: 'POST',
+    body: { id, secret },
+  })) as { token?: string };
+  const token = out?.token ? String(out.token) : '';
+  if (!token) throw new Error('Morning token missing (bad id/secret?)');
+  return token;
+}
+
+function docTypeCode(docType: string): number {
+  if (docType === 'receipt') return 400;
+  if (docType === 'payment_request') return 320;
+  return 320;
+}
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  res.setHeader('Content-Type', 'application/json');
+
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const supabaseUrl = process.env.SUPABASE_URL?.trim();
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  if (!supabaseUrl || !supabaseServiceKey) {
+    return res.status(500).json({
+      error: 'Supabase not configured (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)',
+    });
+  }
+
+  const authHeader = req.headers.authorization ?? req.headers.Authorization;
+  const token =
+    typeof authHeader === 'string' ? authHeader.replace(/^Bearer\s+/i, '').trim() : '';
+  if (!token) {
+    return res.status(401).json({
+      error: 'Unauthorized',
+      detail: 'Missing Authorization: Bearer <token>',
+    });
+  }
+
+  const body = (req.body || {}) as {
+    action?: string;
+    agencyId?: string;
+    eventId?: string;
+  };
+  const action = body.action || '';
+  const agencyId = body.agencyId?.trim();
+  const eventId = body.eventId?.trim();
+
+  if (!agencyId || !eventId) {
+    return res.status(400).json({ error: 'Missing agencyId or eventId' });
+  }
+
+  const { createClient } = await import('@supabase/supabase-js');
+  const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+    auth: { persistSession: false },
+  });
+
+  const {
+    data: { user },
+    error: authErr,
+  } = await supabase.auth.getUser(token);
+  if (authErr || !user) {
+    return res.status(401).json({
+      error: 'Unauthorized',
+      detail: authErr?.message || 'Invalid or expired token',
+    });
+  }
+
+  const { data: appUser } = await supabase
+    .from('users')
+    .select('agency_id, role')
+    .eq('id', user.id)
+    .single();
+  const userAgencyId = (appUser as { agency_id?: string } | null)?.agency_id;
+  if (!userAgencyId || userAgencyId !== agencyId) {
+    return res.status(403).json({
+      error: 'Forbidden',
+      detail: 'You do not have access to this agency',
+    });
+  }
+
+  let apiKey: string | undefined;
+  let apiSecret: string | undefined;
+  let baseUrl = (process.env.MORNING_BASE_URL || DEFAULT_BASE_URL).trim();
+
+  const { data: secretRow } = await supabase
+    .from('integration_secrets')
+    .select('secret')
+    .eq('agency_id', agencyId)
+    .eq('provider', 'morning')
+    .maybeSingle();
+
+  const secretPayload = secretRow as {
+    secret?: { id?: string; secret?: string; base_url?: string };
+  } | null;
+  if (secretPayload?.secret?.id && secretPayload?.secret?.secret) {
+    apiKey = String(secretPayload.secret.id).trim();
+    apiSecret = String(secretPayload.secret.secret).trim();
+    if (secretPayload.secret.base_url) baseUrl = String(secretPayload.secret.base_url).trim();
+  }
+  if (!apiKey || !apiSecret) {
+    return res.status(500).json({
+      error:
+        'Morning credentials not configured for this agency. Add Company ID and API Secret in Settings → גיבוי נתונים.',
+    });
+  }
+
+  if (action === 'getDocumentStatus') {
+    const { data: ev, error: evErr } = await supabase
+      .from('events')
+      .select('id, morning_document_id, status')
+      .eq('agency_id', agencyId)
+      .eq('id', eventId)
+      .single();
+    if (evErr || !ev) {
+      return res.status(404).json({
+        error: 'Event not found',
+        detail: (evErr as { message?: string })?.message,
+      });
+    }
+    const docId = (ev as { morning_document_id?: string }).morning_document_id;
+    if (!docId) {
+      return res.status(200).json({
+        ok: true,
+        morning_doc_status: null,
+        status: (ev as { status?: string }).status,
+        message: 'No document in Morning yet',
+      });
+    }
+    let jwt: string;
+    try {
+      jwt = await getToken(baseUrl, apiKey, apiSecret);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return res.status(502).json({ error: 'Morning auth failed', detail: msg });
+    }
+    let docData: { status?: number; payment?: unknown[]; url?: { origin?: string } };
+    try {
+      docData = (await greenInvoiceRequest({
+        baseUrl,
+        path: `/documents/${encodeURIComponent(docId)}`,
+        method: 'GET',
+        token: jwt,
+      })) as { status?: number; payment?: unknown[]; url?: { origin?: string } };
+    } catch (e: unknown) {
+      const err = e as {
+        status?: number;
+        text?: string;
+        parsed?: { errorCode?: number; message?: string; errors?: unknown[] };
+      };
+      const msg =
+        err?.parsed?.message || err?.text || (e instanceof Error ? e.message : String(e));
+      const stored =
+        typeof err === 'object' && err?.status != null
+          ? toStructuredError(err.status, err.text || msg, err.parsed)
+          : JSON.stringify({ message: msg });
+      await supabase
+        .from('events')
+        .update({ morning_last_error: stored } as Record<string, unknown>)
+        .eq('agency_id', agencyId)
+        .eq('id', eventId);
+      return res.status(502).json({ error: 'Failed to fetch document status', detail: msg });
+    }
+    const hasPayment = Array.isArray(docData?.payment) && docData.payment.length > 0;
+    const greenStatus = docData?.status;
+    const isPaid = hasPayment || greenStatus === 2 || greenStatus === 400;
+    const morningDocStatus = isPaid
+      ? 'paid'
+      : greenStatus != null
+        ? String(greenStatus)
+        : 'open';
+    await supabase
+      .from('events')
+      .update({
+        morning_doc_status: morningDocStatus,
+        ...(isPaid ? { status: 'paid' as const } : {}),
+        morning_last_error: null,
+      } as Record<string, unknown>)
+      .eq('agency_id', agencyId)
+      .eq('id', eventId);
+    return res.status(200).json({
+      ok: true,
+      morning_doc_status: morningDocStatus,
+      status: isPaid ? 'paid' : (ev as { status?: string }).status,
+    });
+  }
+
+  if (action !== 'createDocument') {
+    return res.status(400).json({
+      error: 'Unknown action. Use createDocument or getDocumentStatus',
+    });
+  }
+
+  let jwt: string;
+  try {
+    jwt = await getToken(baseUrl, apiKey, apiSecret);
+  } catch (e: unknown) {
+    const err = e as { parsed?: { message?: string }; text?: string };
+    const msg =
+      err?.parsed?.message || err?.text || (e instanceof Error ? e.message : String(e));
+    return res.status(502).json({ error: 'Morning auth failed', detail: msg });
+  }
+
+  const { data: ev, error: evErr } = await supabase
+    .from('events')
+    .select('*')
+    .eq('agency_id', agencyId)
+    .eq('id', eventId)
+    .single();
+
+  if (evErr || !ev) {
+    return res.status(404).json({
+      error: 'Event not found',
+      detail: (evErr as { message?: string })?.message,
+    });
+  }
+
+  const clientId = (ev as { client_id?: string }).client_id;
+  const artistId = (ev as { artist_id?: string }).artist_id;
+
+  const [{ data: client }, { data: artist }] = await Promise.all([
+    clientId
+      ? supabase
+          .from('clients')
+          .select('*')
+          .eq('agency_id', agencyId)
+          .eq('id', clientId)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+    artistId
+      ? supabase
+          .from('artists')
+          .select('*')
+          .eq('agency_id', agencyId)
+          .eq('id', artistId)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+  ]);
+
+  const currency = 'ILS';
+  const lang = 'he';
+  const eventDate = new Date((ev as { event_date: string }).event_date).toISOString().slice(0, 10);
+  const paymentDate = (ev as { payment_date?: string }).payment_date
+    ? new Date((ev as { payment_date: string }).payment_date).toISOString().slice(0, 10)
+    : eventDate;
+  const amount = Number((ev as { amount?: number }).amount || 0);
+  const docType = String((ev as { doc_type?: string }).doc_type || 'tax_invoice');
+  const businessName = String((ev as { business_name?: string }).business_name || '');
+  const invoiceName = String((ev as { invoice_name?: string }).invoice_name || '');
+
+  const docPayload: Record<string, unknown> = {
+    type: docTypeCode(docType),
+    description: `NPC · אירוע ${eventDate} · ${businessName}`,
+    lang,
+    currency,
+    client: {
+      name:
+        (client as { business_name?: string })?.business_name ||
+        invoiceName ||
+        businessName ||
+        'לקוח',
+      emails: (client as { email?: string })?.email ? [(client as { email: string }).email] : [],
+      phone: (client as { phone?: string })?.phone || undefined,
+      address: (client as { address?: string })?.address || undefined,
+    },
+    income: [
+      {
+        description:
+          `אירוע ${eventDate} · ${businessName}` +
+          ((artist as { name?: string })?.name ? ` · ${(artist as { name: string }).name}` : ''),
+        quantity: 1,
+        price: amount,
+        currency,
+      },
+    ],
+  };
+
+  if (docType === 'receipt') {
+    (docPayload as { payment?: unknown[] }).payment = [
+      { price: amount, currency, date: paymentDate, type: 'credit' },
+    ];
+  }
+
+  let created: { id?: number; number?: string; url?: { origin?: string } };
+  try {
+    created = (await greenInvoiceRequest({
+      baseUrl,
+      path: '/documents',
+      method: 'POST',
+      token: jwt,
+      body: docPayload,
+    })) as { id?: number; number?: string; url?: { origin?: string } };
+  } catch (e: unknown) {
+    const err = e as {
+      status?: number;
+      text?: string;
+      parsed?: { errorCode?: number; message?: string; errors?: unknown[] };
+    };
+    const msg =
+      err?.parsed?.message || err?.text || (e instanceof Error ? e.message : String(e));
+    const stored =
+      typeof err === 'object' && err?.status != null
+        ? toStructuredError(err.status, err.text || msg, err.parsed)
+        : JSON.stringify({ message: msg });
+    await supabase
+      .from('events')
+      .update({
+        morning_sync_status: 'error',
+        morning_last_error: stored,
+      } as Record<string, unknown>)
+      .eq('agency_id', agencyId)
+      .eq('id', eventId);
+    return res.status(502).json({ error: 'Document create failed', detail: msg });
+  }
+
+  const docId = created?.id != null ? String(created.id) : null;
+  const docNumber = created?.number != null ? String(created.number) : null;
+  const docUrl = created?.url?.origin ? String(created.url.origin) : null;
+
+  await supabase
+    .from('events')
+    .update({
+      morning_sync_status: 'synced',
+      morning_document_id: docId,
+      morning_document_number: docNumber,
+      morning_document_url: docUrl,
+      morning_last_error: null,
+    } as Record<string, unknown>)
+    .eq('agency_id', agencyId)
+    .eq('id', eventId);
+
+  return res.status(200).json({ ok: true, docId, docNumber, docUrl });
+}
