@@ -279,7 +279,7 @@ export function NewEventForm({
   const statusColor = STATUS_COLORS[form.status] || 'bg-gray-500/20 text-gray-300';
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+    <form onSubmit={handleSubmit} className="flex flex-col gap-5 modu-form-input touch-manipulation">
       {/* Event Identification */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="flex flex-col gap-2">
@@ -487,25 +487,25 @@ export function NewEventForm({
         />
       </div>
 
-      {/* Checkboxes */}
+      {/* Checkboxes — iOS: min 44px touch target */}
       <div className="flex flex-col gap-3">
-        <label className="flex items-center gap-2 cursor-pointer">
+        <label className="flex items-center gap-3 cursor-pointer min-h-[44px] py-2 -my-1">
           <input
             type="checkbox"
             checked={form.send_invitation}
             onChange={(e) => setForm((f) => ({ ...f, send_invitation: e.target.checked }))}
-            className="rounded border-input accent-primary"
+            className="rounded border-input accent-primary w-5 h-5 shrink-0 mt-0.5"
           />
           <span className="text-sm text-foreground">
             שלח הזמנה — לשלוח אימייל לאמן וללקוח ולהוסיף להיומן שלי ב-Google Calendar
           </span>
         </label>
-        <label className="flex items-center gap-2 cursor-pointer">
+        <label className="flex items-center gap-3 cursor-pointer min-h-[44px] py-2 -my-1">
           <input
             type="checkbox"
             checked={form.send_agreement}
             onChange={(e) => setForm((f) => ({ ...f, send_agreement: e.target.checked }))}
-            className="rounded border-input accent-primary"
+            className="rounded border-input accent-primary w-5 h-5 shrink-0 mt-0.5"
           />
           <span className="text-sm text-foreground">
             שלח הסכם — לשלוח את תבנית ההסכם ללקוח במייל (מלא בפרטי האירוע)
@@ -517,12 +517,12 @@ export function NewEventForm({
         <p className="text-sm text-red-500 bg-red-500/10 px-3 py-2 rounded">{errors.submit}</p>
       )}
 
-      {/* Buttons */}
-      <div className="flex gap-2 justify-end pt-2">
-        <Button type="button" variant="outline" onClick={handleCancel} disabled={saving}>
+      {/* Buttons — iOS: min 44px touch target */}
+      <div className="flex flex-col-reverse sm:flex-row gap-3 justify-end pt-4">
+        <Button type="button" variant="outline" onClick={handleCancel} disabled={saving} className="min-h-[44px]">
           ביטול
         </Button>
-        <Button type="submit" className="btn-magenta" disabled={saving}>
+        <Button type="submit" className="btn-magenta min-h-[44px]" disabled={saving}>
           {saving ? (
             <span className="flex items-center gap-2">
               <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />

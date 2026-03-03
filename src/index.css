@@ -23,6 +23,27 @@
   gap: var(--modu-space-3);
 }
 
+/* iOS/touch UX: prevent zoom on input focus, smooth scroll in modals */
+@supports (-webkit-touch-callout: none) {
+  .modu-form-input input[type="text"],
+  .modu-form-input input[type="number"],
+  .modu-form-input input[type="date"],
+  .modu-form-input input[type="time"],
+  .modu-form-input input[type="email"],
+  .modu-form-input textarea {
+    font-size: 16px; /* Prevents iOS zoom on focus */
+  }
+}
+.modu-form-input input,
+.modu-form-input textarea,
+.modu-form-input [role="combobox"] {
+  min-height: 44px; /* Apple HIG touch target */
+}
+.modu-dialog-scroll {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
 /* Dark mode elevation layers */
 .dark .modu-elevation-1 {
   background: hsl(var(--card));

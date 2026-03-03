@@ -8,12 +8,13 @@ The frontend is deployed on **Vercel**.
 
 ### How to deploy
 
-1. **Push to master** — Git push triggers an automatic build on Vercel:
+1. **Push to main/master** — Git push triggers an automatic build on Vercel:
    ```bash
    git add -A
    git commit -m "Your message"
-   git push origin master
+   git push origin master:main
    ```
+   (Vercel deploys from `main`; ensure your local branch is pushed to `origin/main`.)
 
 2. Vercel builds and deploys automatically. API routes at `/api/morning`, `/api/morning-save-credentials`.
 
@@ -38,6 +39,8 @@ Set in **Vercel → Project → Settings → Environment Variables** (Production
 Optional:
 - `RESEND_API_KEY` — Only if using Resend from Vercel (emails use Supabase Edge Functions)
 - `MORNING_API_KEY` — Not needed; Morning credentials stored per-agency in `integration_secrets`
+
+**Build warning fix:** If you see `npm warn Unknown env config "legacy-peer-dep"`, remove or fix the env var in Vercel: it should be `NPM_CONFIG_LEGACY_PEER_DEPS` (with an **S**), not `NPM_CONFIG_LEGACY_PEER_DEP`.
 
 ### Local .env
 

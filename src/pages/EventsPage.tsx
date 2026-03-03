@@ -809,7 +809,7 @@ const EventsPage: React.FC = () => {
 
       {/* Add/Edit Dialog — NewEventForm (NPC Collective Production) */}
       <Dialog open={isDialogOpen} onOpenChange={(open) => { setIsDialogOpen(open); if (!open) setEditingEvent(null); }}>
-        <DialogContent className="max-w-3xl glass border-primary/20 max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl glass border-primary/20 max-h-[90vh] overflow-y-auto modu-dialog-scroll pb-[env(safe-area-inset-bottom)]">
           <DialogHeader>
             <DialogTitle className="text-2xl text-foreground">
               {editingEvent ? 'עריכת אירוע' : 'אירוע חדש'}
