@@ -77,8 +77,26 @@ const emptyForm = () => ({
   send_agreement: false,
 });
 
-/** Common time presets for datalist (manual edit + pick) */
-const TIME_PRESETS = Array.from({ length: 15 }, (_, i) => `${String(8 + i).padStart(2, '0')}:00`);
+/** Time presets: 08:00–22:30 every 30 min (scrollable + manual typing) */
+const TIME_PRESETS = (() => {
+  const out: string[] = [];
+  for (let h = 8; h <= 22; h++) {
+    out.push(`${String(h).padStart(2, '0')}:00`);
+    if (h < 22) out.push(`${String(h).padStart(2, '0')}:30`);
+  }
+  return out;
+})();
+
+function toTimeValue(v: string): string {
+  if (!v || typeof v !== 'string') return '09:00';
+  const m = v.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (m) {
+    const h = Math.min(23, Math.max(0, parseInt(m[1], 10) || 9));
+    const min = Math.min(59, Math.max(0, parseInt(m[2], 10) || 0));
+    return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+  }
+  return v.slice(0, 5) || '09:00';
+}
 
 export function NewEventForm({
   open,
@@ -258,9 +276,10 @@ export function NewEventForm({
           try {
             const data = await invokeCalendarInvite(savedId, true);
             if (data?.ok) onSuccessToast?.('הזמנה ליומן נשלחה בהצלחה 📅');
+            else onError?.(data?.error || 'שגיאה בשליחת הזמנה');
           } catch (err: unknown) {
             console.error('[calendar-invite]', err);
-            onError?.((err as Error)?.message || 'שגיאה בשליחת הזמנה');
+            onError?.('האירוע נוצר, אך שליחת ההזמנה נכשלה. בדוק חיבור ל-Google Calendar.');
           }
         }
 
@@ -353,36 +372,58 @@ export function NewEventForm({
         </div>
         <div className="flex flex-col gap-2">
           <Label htmlFor="start_time">שעת התחלה *</Label>
-          <Input
-            id="start_time"
-            type="time"
-            list="time-presets"
-            value={form.start_time}
-            onChange={(e) => setForm((f) => ({ ...f, start_time: e.target.value }))}
-            className={errors.start_time ? 'border-red-500' : 'border-primary/30'}
-          />
-          <datalist id="time-presets">
-            {TIME_PRESETS.map((t) => (
-              <option key={t} value={t} />
-            ))}
-          </datalist>
+          <div className="flex gap-2">
+            <Input
+              id="start_time"
+              type="time"
+              value={toTimeValue(form.start_time)}
+              onChange={(e) => setForm((f) => ({ ...f, start_time: e.target.value || '09:00' }))}
+              className={`flex-1 ${errors.start_time ? 'border-red-500' : 'border-primary/30'}`}
+            />
+            <Select
+              value={TIME_PRESETS.includes(form.start_time) ? form.start_time : ''}
+              onValueChange={(v) => v && setForm((f) => ({ ...f, start_time: v }))}
+            >
+              <SelectTrigger className="w-[100px] border-primary/30" title="בחר שעה">
+                <SelectValue placeholder="בחר" />
+              </SelectTrigger>
+              <SelectContent className="max-h-[200px] overflow-y-auto modu-dialog-scroll">
+                {TIME_PRESETS.map((t) => (
+                  <SelectItem key={t} value={t}>
+                    {t}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           {errors.start_time && <p className="text-xs text-red-500">{errors.start_time}</p>}
         </div>
         <div className="flex flex-col gap-2">
           <Label htmlFor="end_time">שעת סיום *</Label>
-          <Input
-            id="end_time"
-            type="time"
-            list="time-presets-end"
-            value={form.end_time}
-            onChange={(e) => setForm((f) => ({ ...f, end_time: e.target.value }))}
-            className={errors.end_time ? 'border-red-500' : 'border-primary/30'}
-          />
-          <datalist id="time-presets-end">
-            {TIME_PRESETS.map((t) => (
-              <option key={t} value={t} />
-            ))}
-          </datalist>
+          <div className="flex gap-2">
+            <Input
+              id="end_time"
+              type="time"
+              value={toTimeValue(form.end_time)}
+              onChange={(e) => setForm((f) => ({ ...f, end_time: e.target.value || '17:00' }))}
+              className={`flex-1 ${errors.end_time ? 'border-red-500' : 'border-primary/30'}`}
+            />
+            <Select
+              value={TIME_PRESETS.includes(form.end_time) ? form.end_time : ''}
+              onValueChange={(v) => v && setForm((f) => ({ ...f, end_time: v }))}
+            >
+              <SelectTrigger className="w-[100px] border-primary/30" title="בחר שעה">
+                <SelectValue placeholder="בחר" />
+              </SelectTrigger>
+              <SelectContent className="max-h-[200px] overflow-y-auto modu-dialog-scroll">
+                {TIME_PRESETS.map((t) => (
+                  <SelectItem key={t} value={t}>
+                    {t}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           {errors.end_time && <p className="text-xs text-red-500">{errors.end_time}</p>}
         </div>
       </div>

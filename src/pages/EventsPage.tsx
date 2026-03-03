@@ -183,7 +183,7 @@ const EventsPage: React.FC = () => {
     {
       accessorKey: 'weekday',
       header: 'יום',
-      cell: ({ row }) => row.getValue('weekday') || getWeekday(row.original.event_date),
+      cell: ({ row }) => getWeekday(row.original.event_date),
     },
     {
       accessorKey: 'business_name',

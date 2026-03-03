@@ -62,3 +62,8 @@ For local development, copy `.env.example` to `.env` and fill in real values. Th
 **Supabase secrets** (for Edge Functions):
 - `RESEND_API_KEY`, `RESEND_FROM` (e.g. `NPC Collective <noreply@npc-am.com>`)
 - `SUPABASE_SERVICE_ROLE_KEY` (injected automatically)
+- `GOOGLE_SYSTEM_REFRESH_TOKEN`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` (for calendar-invite)
+
+**CORS / הזמנות במייל:** אם הזמנות ליומן לא נשלחות (שגיאת CORS), ודא:
+1. `calendar-invite` נפרס: `npx supabase functions deploy calendar-invite`
+2. ב-Supabase Dashboard → Authentication → URL Configuration: הוסף `https://www.npc-am.com` ל-Redirect URLs אם האתר נגיש עם www
