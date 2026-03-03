@@ -27,7 +27,7 @@ import { formatDate, getWeekday } from '@/lib/utils';
 // exportUtils (xlsx ~643KB) is loaded lazily on first export click
 import type { Event } from '@/types';
 import { demoGetEvents, demoSetEvents, isDemoMode } from '@/lib/demoStore';
-import { useEventsQuery, useArtistsQuery, useClientsQuery, useInvalidateEvents } from '@/hooks/useSupabaseQuery';
+import { useEventsQuery, useArtistsQuery, useClientsQuery, useInvalidateEvents, useInvalidateArtists } from '@/hooks/useSupabaseQuery';
 import { getMorningApiKey, getMorningCompanyId, isIntegrationConnected } from '@/lib/settingsStore';
 import { useSearchParams } from 'react-router-dom';
 import { queueSyncJob } from '@/lib/syncJobs';
@@ -47,6 +47,7 @@ const EventsPage: React.FC = () => {
   const { data: clients = [] } = useClientsQuery(currentAgency?.id);
   const { data: artists = [] } = useArtistsQuery(currentAgency?.id);
   const invalidateEvents = useInvalidateEvents();
+  const invalidateArtists = useInvalidateArtists();
   const [requestCorrectionEvent, setRequestCorrectionEvent] = useState<Event | null>(null);
 
   const isRowLocked = (ev: Event) => !!(ev.morning_id || ev.morning_sync_status === 'synced');
@@ -829,7 +830,6 @@ const EventsPage: React.FC = () => {
               clients={clients}
               editingEvent={editingEvent ? {
                 id: editingEvent.id,
-                event_name: (editingEvent as { event_name?: string }).event_name,
                 business_name: editingEvent.business_name,
                 invoice_name: editingEvent.invoice_name,
                 event_date: String(editingEvent.event_date || '').slice(0, 10),
@@ -848,6 +848,7 @@ const EventsPage: React.FC = () => {
               } : undefined}
               onError={showError}
               onSuccessToast={success}
+              onArtistsInvalidate={currentAgency ? () => invalidateArtists(currentAgency.id) : undefined}
             />
           )}
           {isDemoMode() && (

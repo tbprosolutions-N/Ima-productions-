@@ -37,7 +37,6 @@ export interface NewEventFormProps {
   clients: Client[];
   editingEvent?: {
     id: string;
-    event_name?: string | null;
     business_name: string;
     invoice_name: string;
     event_date: string;
@@ -56,10 +55,10 @@ export interface NewEventFormProps {
   } | null;
   onError?: (message: string) => void;
   onSuccessToast?: (message: string) => void;
+  onArtistsInvalidate?: () => void;
 }
 
 const emptyForm = () => ({
-  event_name: '',
   customer_name: '',
   invoice_name: '',
   event_date: new Date().toISOString().slice(0, 10),
@@ -72,11 +71,14 @@ const emptyForm = () => ({
   doc_type: 'tax_invoice' as DocumentType,
   doc_number: '',
   status: 'pending' as EventStatus,
-  artist_id: '',
+  artist_name: '',
   notes: '',
   send_invitation: true,
   send_agreement: false,
 });
+
+/** Common time presets for datalist (manual edit + pick) */
+const TIME_PRESETS = Array.from({ length: 15 }, (_, i) => `${String(8 + i).padStart(2, '0')}:00`);
 
 export function NewEventForm({
   open,
@@ -89,18 +91,20 @@ export function NewEventForm({
   editingEvent,
   onError,
   onSuccessToast,
+  onArtistsInvalidate,
 }: NewEventFormProps) {
   const [form, setForm] = useState(emptyForm());
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const invoiceNameInitialized = useRef(false);
+  const submittingRef = useRef(false);
 
   useEffect(() => {
     if (!open) return;
     if (editingEvent) {
       const ev = editingEvent;
+      const artistName = ev.artist_id ? artists.find((a) => a.id === ev.artist_id)?.name || '' : '';
       setForm({
-        event_name: ev.event_name || '',
         customer_name: ev.business_name || '',
         invoice_name: ev.invoice_name || '',
         event_date: String(ev.event_date || '').slice(0, 10),
@@ -113,7 +117,7 @@ export function NewEventForm({
         doc_type: ev.doc_type || 'tax_invoice',
         doc_number: ev.doc_number || '',
         status: (ev.status as EventStatus) || 'pending',
-        artist_id: ev.artist_id || '',
+        artist_name: artistName,
         notes: ev.notes || '',
         send_invitation: true,
         send_agreement: false,
@@ -123,7 +127,7 @@ export function NewEventForm({
     }
     setErrors({});
     invoiceNameInitialized.current = false;
-  }, [open, editingEvent]);
+  }, [open, editingEvent, artists]);
 
   // Auto-fill invoice_name from client when customer selected
   useEffect(() => {
@@ -142,9 +146,8 @@ export function NewEventForm({
 
   const validate = (): boolean => {
     const err: Record<string, string> = {};
-    if (!form.event_name?.trim()) err.event_name = 'נדרש שם אירוע';
     if (!form.event_date?.trim()) err.event_date = 'נדרש תאריך';
-    if (!form.artist_id) err.artist_id = 'נדרש לבחור אמן';
+    if (!form.artist_name?.trim()) err.artist_name = 'נדרש שם אמן';
     if (!form.customer_name?.trim()) err.customer_name = 'נדרש שם לקוח';
     // Prevent all-day: require start and end time
     if (!form.start_time?.trim()) err.start_time = 'נדרשת שעת התחלה';
@@ -158,7 +161,9 @@ export function NewEventForm({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingRef.current) return;
     if (!validate()) return;
+    submittingRef.current = true;
     setSaving(true);
     setErrors({});
 
@@ -185,7 +190,26 @@ export function NewEventForm({
         }
       }
 
-      const effectiveBusinessName = customerName || form.event_name || 'אירוע';
+      let artistId: string | undefined;
+      const artistName = form.artist_name.trim();
+      if (artistName) {
+        const existing = artists.find((a) => a.name.trim().toLowerCase() === artistName.toLowerCase());
+        if (existing) {
+          artistId = existing.id;
+        } else {
+          const { data: inserted } = await supabase
+            .from('artists')
+            .insert({ agency_id: agencyId, name: artistName })
+            .select('id')
+            .single();
+          if ((inserted as { id?: string } | null)?.id) {
+            artistId = (inserted as { id: string }).id;
+            onArtistsInvalidate?.();
+          }
+        }
+      }
+
+      const effectiveBusinessName = customerName || 'אירוע';
       const effectiveInvoiceName = form.invoice_name?.trim() || effectiveBusinessName;
       const amountNum = Number(form.amount) || 0;
 
@@ -198,7 +222,6 @@ export function NewEventForm({
         producer_id: userId || agencyId,
         event_date: eventDate,
         weekday: getWeekday(eventDate),
-        event_name: form.event_name?.trim() || null,
         business_name: effectiveBusinessName,
         invoice_name: effectiveInvoiceName,
         location: form.location?.trim() || null,
@@ -211,7 +234,7 @@ export function NewEventForm({
         doc_number: form.doc_number || null,
         status: editingEvent ? form.status : 'pending',
         client_id: clientId || null,
-        artist_id: form.artist_id || null,
+        artist_id: artistId || null,
         notes: form.notes?.trim() || null,
       };
 
@@ -264,6 +287,7 @@ export function NewEventForm({
       setErrors({ submit: msg });
       onError?.(msg);
     } finally {
+      submittingRef.current = false;
       setSaving(false);
     }
   };
@@ -282,17 +306,6 @@ export function NewEventForm({
     <form onSubmit={handleSubmit} className="flex flex-col gap-5 modu-form-input touch-manipulation">
       {/* Event Identification */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="event_name">שם אירוע *</Label>
-          <Input
-            id="event_name"
-            value={form.event_name}
-            onChange={(e) => setForm((f) => ({ ...f, event_name: e.target.value }))}
-            placeholder="לדוגמה: חתונה במלון הילטון"
-            className={errors.event_name ? 'border-red-500' : 'border-primary/30'}
-          />
-          {errors.event_name && <p className="text-xs text-red-500">{errors.event_name}</p>}
-        </div>
         <div className="flex flex-col gap-2">
           <Label htmlFor="customer_name">שם לקוח *</Label>
           <Input
@@ -343,10 +356,16 @@ export function NewEventForm({
           <Input
             id="start_time"
             type="time"
+            list="time-presets"
             value={form.start_time}
             onChange={(e) => setForm((f) => ({ ...f, start_time: e.target.value }))}
             className={errors.start_time ? 'border-red-500' : 'border-primary/30'}
           />
+          <datalist id="time-presets">
+            {TIME_PRESETS.map((t) => (
+              <option key={t} value={t} />
+            ))}
+          </datalist>
           {errors.start_time && <p className="text-xs text-red-500">{errors.start_time}</p>}
         </div>
         <div className="flex flex-col gap-2">
@@ -354,10 +373,16 @@ export function NewEventForm({
           <Input
             id="end_time"
             type="time"
+            list="time-presets-end"
             value={form.end_time}
             onChange={(e) => setForm((f) => ({ ...f, end_time: e.target.value }))}
             className={errors.end_time ? 'border-red-500' : 'border-primary/30'}
           />
+          <datalist id="time-presets-end">
+            {TIME_PRESETS.map((t) => (
+              <option key={t} value={t} />
+            ))}
+          </datalist>
           {errors.end_time && <p className="text-xs text-red-500">{errors.end_time}</p>}
         </div>
       </div>
@@ -453,25 +478,23 @@ export function NewEventForm({
         )}
       </div>
 
-      {/* Artist */}
+      {/* Artist — בחירה מהרשימה או הקלדת שם חדש */}
       <div className="flex flex-col gap-2">
-        <Label htmlFor="artist_id">אמן *</Label>
-        <Select
-          value={form.artist_id}
-          onValueChange={(v) => setForm((f) => ({ ...f, artist_id: v }))}
-        >
-          <SelectTrigger className={errors.artist_id ? 'border-red-500' : 'border-primary/30'}>
-            <SelectValue placeholder="בחר אמן" />
-          </SelectTrigger>
-          <SelectContent>
-            {artists.map((a) => (
-              <SelectItem key={a.id} value={a.id}>
-                {a.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {errors.artist_id && <p className="text-xs text-red-500">{errors.artist_id}</p>}
+        <Label htmlFor="artist_name">אמן *</Label>
+        <Input
+          id="artist_name"
+          value={form.artist_name}
+          onChange={(e) => setForm((f) => ({ ...f, artist_name: e.target.value }))}
+          placeholder="בחר מהרשימה או הקלד שם חדש"
+          list="artist-list"
+          className={errors.artist_name ? 'border-red-500' : 'border-primary/30'}
+        />
+        <datalist id="artist-list">
+          {artists.map((a) => (
+            <option key={a.id} value={a.name} />
+          ))}
+        </datalist>
+        {errors.artist_name && <p className="text-xs text-red-500">{errors.artist_name}</p>}
       </div>
 
       {/* Notes */}
