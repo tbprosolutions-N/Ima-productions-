@@ -204,7 +204,7 @@ export const resetPassword = async (email: string) => {
   return { data, error };
 };
 
-/** Invoke calendar-invite Edge Function. Uses anon key for platform auth, user JWT in body for our function. */
+/** Invoke calendar-invite via Vercel API proxy (avoids CORS). */
 export async function invokeCalendarInvite(
   eventId: string,
   sendInvites: boolean
@@ -216,18 +216,15 @@ export async function invokeCalendarInvite(
     token = refreshed?.access_token;
   }
   if (!token) throw new Error('Not authenticated');
-  const url = `${supabaseUrl}/functions/v1/calendar-invite`;
+  const base = typeof window !== 'undefined' ? window.location.origin : '';
+  const url = `${base}/api/calendar-invite`;
   const res = await fetch(url, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${supabaseAnonKey}`,
+      Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      event_id: eventId,
-      send_invites: sendInvites,
-      access_token: token,
-    }),
+    body: JSON.stringify({ event_id: eventId, send_invites: sendInvites }),
   });
   const data = (await res.json()) as { ok?: boolean; error?: string };
   if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);

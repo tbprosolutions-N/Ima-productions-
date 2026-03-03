@@ -372,58 +372,36 @@ export function NewEventForm({
         </div>
         <div className="flex flex-col gap-2">
           <Label htmlFor="start_time">שעת התחלה *</Label>
-          <div className="flex gap-2">
-            <Input
-              id="start_time"
-              type="time"
-              value={toTimeValue(form.start_time)}
-              onChange={(e) => setForm((f) => ({ ...f, start_time: e.target.value || '09:00' }))}
-              className={`flex-1 ${errors.start_time ? 'border-red-500' : 'border-primary/30'}`}
-            />
-            <Select
-              value={TIME_PRESETS.includes(form.start_time) ? form.start_time : ''}
-              onValueChange={(v) => v && setForm((f) => ({ ...f, start_time: v }))}
-            >
-              <SelectTrigger className="w-[100px] border-primary/30" title="בחר שעה">
-                <SelectValue placeholder="בחר" />
-              </SelectTrigger>
-              <SelectContent className="max-h-[200px] overflow-y-auto modu-dialog-scroll">
-                {TIME_PRESETS.map((t) => (
-                  <SelectItem key={t} value={t}>
-                    {t}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <Input
+            id="start_time"
+            type="time"
+            list="time-presets"
+            value={toTimeValue(form.start_time)}
+            onChange={(e) => setForm((f) => ({ ...f, start_time: e.target.value || '09:00' }))}
+            className={errors.start_time ? 'border-red-500' : 'border-primary/30'}
+          />
+          <datalist id="time-presets">
+            {TIME_PRESETS.map((t) => (
+              <option key={t} value={t} />
+            ))}
+          </datalist>
           {errors.start_time && <p className="text-xs text-red-500">{errors.start_time}</p>}
         </div>
         <div className="flex flex-col gap-2">
           <Label htmlFor="end_time">שעת סיום *</Label>
-          <div className="flex gap-2">
-            <Input
-              id="end_time"
-              type="time"
-              value={toTimeValue(form.end_time)}
-              onChange={(e) => setForm((f) => ({ ...f, end_time: e.target.value || '17:00' }))}
-              className={`flex-1 ${errors.end_time ? 'border-red-500' : 'border-primary/30'}`}
-            />
-            <Select
-              value={TIME_PRESETS.includes(form.end_time) ? form.end_time : ''}
-              onValueChange={(v) => v && setForm((f) => ({ ...f, end_time: v }))}
-            >
-              <SelectTrigger className="w-[100px] border-primary/30" title="בחר שעה">
-                <SelectValue placeholder="בחר" />
-              </SelectTrigger>
-              <SelectContent className="max-h-[200px] overflow-y-auto modu-dialog-scroll">
-                {TIME_PRESETS.map((t) => (
-                  <SelectItem key={t} value={t}>
-                    {t}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <Input
+            id="end_time"
+            type="time"
+            list="time-presets-end"
+            value={toTimeValue(form.end_time)}
+            onChange={(e) => setForm((f) => ({ ...f, end_time: e.target.value || '17:00' }))}
+            className={errors.end_time ? 'border-red-500' : 'border-primary/30'}
+          />
+          <datalist id="time-presets-end">
+            {TIME_PRESETS.map((t) => (
+              <option key={t} value={t} />
+            ))}
+          </datalist>
           {errors.end_time && <p className="text-xs text-red-500">{errors.end_time}</p>}
         </div>
       </div>
@@ -443,17 +421,20 @@ export function NewEventForm({
       {/* Financials */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="flex flex-col gap-2">
-          <Label htmlFor="amount">סכום לתשלום</Label>
-          <Input
-            id="amount"
-            type="number"
-            min="0"
-            step="0.01"
-            value={form.amount}
-            onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
-            placeholder="0.00"
-            className="border-primary/30"
-          />
+          <Label htmlFor="amount">סכום לתשלום (₪)</Label>
+          <div className="flex items-center gap-2">
+            <Input
+              id="amount"
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.amount}
+              onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
+              placeholder="0.00"
+              className="border-primary/30"
+            />
+            <span className="text-muted-foreground shrink-0">₪</span>
+          </div>
         </div>
         <div className="flex flex-col gap-2">
           <Label htmlFor="payment_date">תאריך תשלום</Label>
