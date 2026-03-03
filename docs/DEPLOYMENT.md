@@ -1,34 +1,47 @@
 # Deployment
 
-## Frontend: Cloudflare Pages
+## Frontend: Vercel
 
 **Site:** https://npc-am.com
 
-The frontend is deployed on **Cloudflare Pages** (migrated from Netlify).
+The frontend is deployed on **Vercel**.
 
 ### How to deploy
 
-1. **Push to master** — Git push triggers an automatic build on Cloudflare Pages:
+1. **Push to master** — Git push triggers an automatic build on Vercel:
    ```bash
    git add -A
    git commit -m "Your message"
    git push origin master
    ```
 
-2. Cloudflare Pages builds and deploys automatically. No CLI or manual deploy needed.
+2. Vercel builds and deploys automatically. API routes at `/api/morning`, `/api/morning-save-credentials`.
 
 ### Build configuration
 
 - **Build command:** `npm run build`
 - **Output directory:** `dist`
-- **Node version:** 20 (configure in Cloudflare Pages → Settings → Build & deployments)
+- **Framework:** None (Vite SPA + API routes)
 
-### Environment variables
+### Environment variables (Vercel Dashboard)
 
-Set in Cloudflare Pages → Settings → Environment variables:
+Set in **Vercel → Project → Settings → Environment Variables** (Production + Preview):
 
-- `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (required)
-- Other `VITE_*` vars as needed
+| Variable | Required | Notes |
+|----------|----------|-------|
+| `VITE_SUPABASE_URL` | Yes | Supabase project URL |
+| `VITE_SUPABASE_ANON_KEY` | Yes | Supabase anon/public key (JWT) |
+| `VITE_APP_URL` | Recommended | `https://npc-am.com` (OAuth redirects) |
+| `SUPABASE_URL` | Yes | Same as VITE_SUPABASE_URL (for API routes) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Supabase service_role key (for API routes) |
+
+Optional:
+- `RESEND_API_KEY` — Only if using Resend from Vercel (emails use Supabase Edge Functions)
+- `MORNING_API_KEY` — Not needed; Morning credentials stored per-agency in `integration_secrets`
+
+### Local .env
+
+For local development, copy `.env.example` to `.env` and fill in real values. The postinstall script creates `.env` from `.env.example` if missing. On Vercel/CI, the "No .env found" message is suppressed — Vercel uses dashboard variables.
 
 ---
 
@@ -38,12 +51,11 @@ Set in Cloudflare Pages → Settings → Environment variables:
 - **Edge Functions:** Deploy manually:
   ```bash
   npx supabase functions deploy send-email
+  npx supabase functions deploy send-immediate-alert
   npx supabase functions deploy calendar-invite
   npx supabase functions deploy extract-invoice-vision
   ```
 
----
-
-## Legacy (Netlify)
-
-Netlify deployment is **deprecated**. The `netlify.toml`, `netlify/` folder, and `scripts/deploy-netlify.js` remain for reference. The `netlify/functions/` (morning-api, sheets-sync-api) may need to be migrated to Cloudflare Workers or another serverless platform if those APIs are still required.
+**Supabase secrets** (for Edge Functions):
+- `RESEND_API_KEY`, `RESEND_FROM` (e.g. `NPC Collective <noreply@npc-am.com>`)
+- `SUPABASE_SERVICE_ROLE_KEY` (injected automatically)
