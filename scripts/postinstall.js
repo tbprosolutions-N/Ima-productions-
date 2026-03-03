@@ -20,7 +20,7 @@ if (!process.env.CI && process.env.VERCEL !== '1') {
 // Check for .env file (skip warning on Vercel/CI — they use dashboard env vars)
 const envPath = path.join(__dirname, '..', '.env');
 const envExamplePath = path.join(__dirname, '..', '.env.example');
-const isCI = process.env.CI === 'true' || process.env.VERCEL === '1';
+const isCI = process.env.CI === 'true' || process.env.CI === '1' || process.env.VERCEL === '1';
 
 if (!fs.existsSync(envPath)) {
   if (!isCI) {
