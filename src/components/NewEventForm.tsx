@@ -219,16 +219,16 @@ export function NewEventForm({
       weekday: getWeekday(eventDate),
       business_name: effectiveBusinessName,
       invoice_name: effectiveInvoiceName,
-      location: form.location?.trim() || null,
-      event_time: eventTime,
-      event_time_end: eventTimeEnd,
+      location: form.location?.trim() || undefined,
+      event_time: eventTime ?? undefined,
+      event_time_end: eventTimeEnd ?? undefined,
       amount: Number.isFinite(amountNum) ? amountNum : 0,
-      payment_date: form.payment_date || null,
-      due_date: form.invoice_send_date || null,
+      payment_date: form.payment_date || undefined,
+      due_date: form.invoice_send_date || undefined,
       doc_type: form.doc_type,
-      doc_number: form.doc_number || null,
+      doc_number: form.doc_number || undefined,
       status: (editingEvent ? form.status : 'pending') as EventStatus,
-      notes: form.notes?.trim() || null,
+      notes: form.notes?.trim() || undefined,
     };
 
     try {
@@ -290,8 +290,8 @@ export function NewEventForm({
 
       const eventData = {
         ...baseEventData,
-        client_id: clientId || null,
-        artist_id: artistId || null,
+        client_id: clientId,
+        artist_id: artistId,
       };
 
       if (editingEvent) {
