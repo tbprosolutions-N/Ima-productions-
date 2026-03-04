@@ -226,7 +226,13 @@ export async function invokeCalendarInvite(
     },
     body: JSON.stringify({ event_id: eventId, send_invites: sendInvites }),
   });
-  const data = (await res.json()) as { ok?: boolean; error?: string };
+  const text = await res.text();
+  let data: { ok?: boolean; error?: string };
+  try {
+    data = text ? (JSON.parse(text) as { ok?: boolean; error?: string }) : {};
+  } catch {
+    data = { error: text?.slice(0, 100) || `HTTP ${res.status}` };
+  }
   if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
   return data;
 }
