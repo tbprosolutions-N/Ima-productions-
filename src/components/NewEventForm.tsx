@@ -1,6 +1,11 @@
 /**
  * New Event Form — NPC Collective Production Version
- * Full-featured event creation with Supabase, Morning API mapping, and Resend integration.
+ *
+ * Time Logic: ISO 8601 — date + start/end time combined for full timestamps (no all-day).
+ * Checkboxes: Send Invitation → /api/calendar-invite (via invokeCalendarInvite)
+ *             Send Agreement → agreementService.generateAgreement (send-email Edge Function)
+ * Morning: All invoice fields saved to events; /api/morning createDocument reads from DB.
+ *   Mapping: business_name, invoice_name, amount, payment_date, due_date, doc_type, doc_number
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -9,8 +14,19 @@ import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select';
 import { supabase, invokeCalendarInvite } from '@/lib/supabase';
-import { getWeekday } from '@/lib/utils';
+import { getWeekday, toISO8601 } from '@/lib/utils';
 import { agreementService } from '@/services/agreementService';
+import {
+  demoGetEvents,
+  demoSetEvents,
+  demoGetClients,
+  demoSetClients,
+  demoGetArtists,
+  demoSetArtists,
+  demoUpsertEvent,
+  demoUpsertClient,
+  demoUpsertArtist,
+} from '@/lib/demoStore';
 import type { Artist, Client, DocumentType, EventStatus } from '@/types';
 
 const DOC_TYPES: { value: DocumentType; label: string }[] = [
@@ -35,6 +51,8 @@ export interface NewEventFormProps {
   userId: string | undefined;
   artists: Artist[];
   clients: Client[];
+  /** When true, persist to demoStore instead of Supabase; skip calendar-invite/agreement API calls. */
+  isDemoMode?: boolean;
   editingEvent?: {
     id: string;
     business_name: string;
@@ -106,6 +124,7 @@ export function NewEventForm({
   userId,
   artists,
   clients,
+  isDemoMode = false,
   editingEvent,
   onError,
   onSuccessToast,
@@ -167,10 +186,12 @@ export function NewEventForm({
     if (!form.event_date?.trim()) err.event_date = 'נדרש תאריך';
     if (!form.artist_name?.trim()) err.artist_name = 'נדרש שם אמן';
     if (!form.customer_name?.trim()) err.customer_name = 'נדרש שם לקוח';
-    // Prevent all-day: require start and end time
+    // ISO 8601: require start/end time (prevents all-day)
     if (!form.start_time?.trim()) err.start_time = 'נדרשת שעת התחלה';
     if (!form.end_time?.trim()) err.end_time = 'נדרשת שעת סיום';
-    if (form.start_time && form.end_time && form.start_time >= form.end_time) {
+    const startIso = toISO8601(form.event_date, form.start_time);
+    const endIso = toISO8601(form.event_date, form.end_time);
+    if (startIso && endIso && startIso >= endIso) {
       err.end_time = 'שעת סיום חייבת להיות אחרי שעת התחלה';
     }
     setErrors(err);
@@ -185,26 +206,61 @@ export function NewEventForm({
     setSaving(true);
     setErrors({});
 
+    const effectiveBusinessName = form.customer_name.trim() || 'אירוע';
+    const effectiveInvoiceName = form.invoice_name?.trim() || effectiveBusinessName;
+    const amountNum = Number(form.amount) || 0;
+    const eventDate = form.event_date;
+    const eventTime = form.start_time?.trim() || null;
+    const eventTimeEnd = form.end_time?.trim() || null;
+
+    const baseEventData = {
+      producer_id: userId || agencyId,
+      event_date: eventDate,
+      weekday: getWeekday(eventDate),
+      business_name: effectiveBusinessName,
+      invoice_name: effectiveInvoiceName,
+      location: form.location?.trim() || null,
+      event_time: eventTime,
+      event_time_end: eventTimeEnd,
+      amount: Number.isFinite(amountNum) ? amountNum : 0,
+      payment_date: form.payment_date || null,
+      due_date: form.invoice_send_date || null,
+      doc_type: form.doc_type,
+      doc_number: form.doc_number || null,
+      status: (editingEvent ? form.status : 'pending') as EventStatus,
+      notes: form.notes?.trim() || null,
+    };
+
     try {
       let clientId: string | undefined;
       const customerName = form.customer_name.trim();
       if (customerName) {
-        const { data: found } = await supabase
-          .from('clients')
-          .select('id')
-          .eq('agency_id', agencyId)
-          .ilike('name', customerName)
-          .limit(1)
-          .maybeSingle();
-        if ((found as { id?: string } | null)?.id) {
-          clientId = (found as { id: string }).id;
+        if (isDemoMode) {
+          const existing = demoGetClients(agencyId).find((c) => c.name === customerName);
+          if (existing) clientId = existing.id;
+          else {
+            const created = demoUpsertClient(agencyId, { name: customerName });
+            clientId = created.id;
+            demoSetClients(agencyId, [created, ...demoGetClients(agencyId)]);
+          }
         } else {
-          const { data: inserted } = await supabase
+          const { data: found } = await supabase
             .from('clients')
-            .insert({ agency_id: agencyId, name: customerName })
             .select('id')
-            .single();
-          if ((inserted as { id?: string } | null)?.id) clientId = (inserted as { id: string }).id;
+            .eq('agency_id', agencyId)
+            .ilike('name', customerName)
+            .limit(1)
+            .maybeSingle();
+          if ((found as { id?: string } | null)?.id) {
+            clientId = (found as { id: string }).id;
+          } else {
+            const { data: inserted } = await supabase
+              .from('clients')
+              .insert({ agency_id: agencyId, name: customerName })
+              .select('id')
+              .single();
+            if ((inserted as { id?: string } | null)?.id) clientId = (inserted as { id: string }).id;
+          }
         }
       }
 
@@ -214,6 +270,11 @@ export function NewEventForm({
         const existing = artists.find((a) => a.name.trim().toLowerCase() === artistName.toLowerCase());
         if (existing) {
           artistId = existing.id;
+        } else if (isDemoMode) {
+          const created = demoUpsertArtist(agencyId, { name: artistName });
+          artistId = created.id;
+          demoSetArtists(agencyId, [created, ...demoGetArtists(agencyId)]);
+          onArtistsInvalidate?.();
         } else {
           const { data: inserted } = await supabase
             .from('artists')
@@ -227,76 +288,69 @@ export function NewEventForm({
         }
       }
 
-      const effectiveBusinessName = customerName || 'אירוע';
-      const effectiveInvoiceName = form.invoice_name?.trim() || effectiveBusinessName;
-      const amountNum = Number(form.amount) || 0;
-
-      const eventDate = form.event_date;
-      const eventTime = form.start_time?.trim() || null;
-      const eventTimeEnd = form.end_time?.trim() || null;
-
       const eventData = {
-        agency_id: agencyId,
-        producer_id: userId || agencyId,
-        event_date: eventDate,
-        weekday: getWeekday(eventDate),
-        business_name: effectiveBusinessName,
-        invoice_name: effectiveInvoiceName,
-        location: form.location?.trim() || null,
-        event_time: eventTime,
-        event_time_end: eventTimeEnd,
-        amount: Number.isFinite(amountNum) ? amountNum : 0,
-        payment_date: form.payment_date || null,
-        due_date: form.invoice_send_date || null,
-        doc_type: form.doc_type,
-        doc_number: form.doc_number || null,
-        status: editingEvent ? form.status : 'pending',
+        ...baseEventData,
         client_id: clientId || null,
         artist_id: artistId || null,
-        notes: form.notes?.trim() || null,
       };
 
       if (editingEvent) {
-        const { error } = await supabase
-          .from('events')
-          .update(eventData)
-          .eq('id', editingEvent.id);
-        if (error) throw error;
-        onSuccessToast?.('אירוע עודכן בהצלחה! ✅');
+        if (isDemoMode) {
+          const next = demoGetEvents(agencyId).map((e) =>
+            e.id === editingEvent.id ? { ...e, ...eventData } : e
+          );
+          demoSetEvents(agencyId, next);
+          onSuccessToast?.('אירוע עודכן בהצלחה! ✅');
+        } else {
+          const { error } = await supabase
+            .from('events')
+            .update(eventData)
+            .eq('id', editingEvent.id);
+          if (error) throw error;
+          onSuccessToast?.('אירוע עודכן בהצלחה! ✅');
+        }
       } else {
-        const { data: inserted, error } = await supabase
-          .from('events')
-          .insert([eventData])
-          .select('id')
-          .single();
-        if (error) throw error;
-        const savedId = (inserted as { id?: string } | null)?.id;
+        let savedId: string | undefined;
+        if (isDemoMode) {
+          const newEvent = demoUpsertEvent(agencyId, eventData as any);
+          savedId = newEvent.id;
+          demoSetEvents(agencyId, [newEvent, ...demoGetEvents(agencyId)]);
+          onSuccessToast?.('אירוע נוסף בהצלחה! 🎉');
+        } else {
+          const { data: inserted, error } = await supabase
+            .from('events')
+            .insert([{ ...eventData, agency_id: agencyId }])
+            .select('id')
+            .single();
+          if (error) throw error;
+          savedId = (inserted as { id?: string } | null)?.id;
 
-        if (savedId && form.send_invitation) {
-          try {
-            const data = await invokeCalendarInvite(savedId, true);
-            if (data?.ok) onSuccessToast?.('הזמנה ליומן נשלחה בהצלחה 📅');
-            else onError?.(data?.error || 'שגיאה בשליחת הזמנה');
-          } catch (err: unknown) {
-            console.error('[calendar-invite]', err);
-            onError?.('האירוע נוצר, אך שליחת ההזמנה נכשלה. בדוק חיבור ל-Google Calendar.');
+          if (savedId && form.send_invitation) {
+            try {
+              const data = await invokeCalendarInvite(savedId, true);
+              if (data?.ok) onSuccessToast?.('הזמנה ליומן נשלחה בהצלחה 📅');
+              else onError?.(data?.error || 'שגיאה בשליחת הזמנה');
+            } catch (err: unknown) {
+              console.error('[calendar-invite]', err);
+              onError?.('האירוע נוצר, אך שליחת ההזמנה נכשלה. בדוק חיבור ל-Google Calendar.');
+            }
           }
-        }
 
-        if (savedId && form.send_agreement) {
-          try {
-            await agreementService.generateAgreement({
-              eventId: savedId,
-              sendEmail: true,
-            });
-            onSuccessToast?.('הסכם נשלח ללקוח במייל');
-          } catch (err: unknown) {
-            console.error('[agreement]', err);
-            onError?.((err as Error)?.message || 'שגיאה בשליחת הסכם');
+          if (savedId && form.send_agreement) {
+            try {
+              await agreementService.generateAgreement({
+                eventId: savedId,
+                sendEmail: true,
+              });
+              onSuccessToast?.('הסכם נשלח ללקוח במייל');
+            } catch (err: unknown) {
+              console.error('[agreement]', err);
+              onError?.((err as Error)?.message || 'שגיאה בשליחת הסכם');
+            }
           }
-        }
 
-        onSuccessToast?.('אירוע נוסף בהצלחה! 🎉');
+          onSuccessToast?.('אירוע נוסף בהצלחה! 🎉');
+        }
       }
 
       onSuccess();
@@ -418,7 +472,7 @@ export function NewEventForm({
         />
       </div>
 
-      {/* Financials */}
+      {/* Financials — Morning mapping: amount, payment_date, due_date, doc_type, doc_number, business_name, invoice_name */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="flex flex-col gap-2">
           <Label htmlFor="amount">סכום לתשלום (₪)</Label>
@@ -532,7 +586,7 @@ export function NewEventForm({
         />
       </div>
 
-      {/* Checkboxes — iOS: min 44px touch target */}
+      {/* Checkboxes — Send Invitation → calendar-invite; Send Agreement → agreementService (send-email) */}
       <div className="flex flex-col gap-3">
         <label className="flex items-center gap-3 cursor-pointer min-h-[44px] py-2 -my-1">
           <input
@@ -542,7 +596,7 @@ export function NewEventForm({
             className="rounded border-input accent-primary w-5 h-5 shrink-0 mt-0.5"
           />
           <span className="text-sm text-foreground">
-            שלח הזמנה — לשלוח אימייל לאמן וללקוח ולהוסיף להיומן שלי ב-Google Calendar
+            שלח הזמנה — אימייל לאמן וללקוח + הוספה ל-Google Calendar
           </span>
         </label>
         <label className="flex items-center gap-3 cursor-pointer min-h-[44px] py-2 -my-1">
@@ -553,7 +607,7 @@ export function NewEventForm({
             className="rounded border-input accent-primary w-5 h-5 shrink-0 mt-0.5"
           />
           <span className="text-sm text-foreground">
-            שלח הסכם — לשלוח את תבנית ההסכם ללקוח במייל (מלא בפרטי האירוע)
+            שלח הסכם — PDF ללקוח במייל (Resend)
           </span>
         </label>
       </div>
@@ -562,12 +616,18 @@ export function NewEventForm({
         <p className="text-sm text-red-500 bg-red-500/10 px-3 py-2 rounded">{errors.submit}</p>
       )}
 
-      {/* Buttons — iOS: min 44px touch target */}
-      <div className="flex flex-col-reverse sm:flex-row gap-3 justify-end pt-4">
-        <Button type="button" variant="outline" onClick={handleCancel} disabled={saving} className="min-h-[44px]">
+      {/* Actions — Add / Cancel */}
+      <div className="flex flex-col-reverse sm:flex-row gap-3 justify-end pt-6 border-t border-border/50">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={handleCancel}
+          disabled={saving}
+          className="min-h-[44px] px-6"
+        >
           ביטול
         </Button>
-        <Button type="submit" className="btn-magenta min-h-[44px]" disabled={saving}>
+        <Button type="submit" className="btn-magenta min-h-[44px] px-8" disabled={saving}>
           {saving ? (
             <span className="flex items-center gap-2">
               <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />

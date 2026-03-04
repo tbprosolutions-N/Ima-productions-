@@ -3,7 +3,7 @@
  * Solves CORS by calling Supabase server-side (same-origin from client perspective).
  *
  * Client: POST /api/calendar-invite with body { event_id, send_invites } and Authorization: Bearer <user_jwt>
- * Env (Vercel): SUPABASE_URL, VITE_SUPABASE_ANON_KEY (or SUPABASE_ANON_KEY)
+ * Env (Vercel): SUPABASE_URL, SUPABASE_ANON_KEY (or VITE_SUPABASE_ANON_KEY)
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
@@ -33,10 +33,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const SUPABASE_URL = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').replace(/\/$/, '');
-    const ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
+    const ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
 
     if (!SUPABASE_URL || !ANON_KEY) {
-      return json(res, 502, { error: 'Server not configured. Set SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel.' });
+      return json(res, 502, { error: 'Server not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY in Vercel.' });
     }
 
     let body: { event_id?: string; send_invites?: boolean } = {};

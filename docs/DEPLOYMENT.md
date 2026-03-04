@@ -34,8 +34,8 @@ Set in **Vercel → Project → Settings → Environment Variables** (Production
 | `VITE_SUPABASE_ANON_KEY` | Yes | Supabase anon/public key (JWT) |
 | `VITE_APP_URL` | Recommended | `https://npc-am.com` (OAuth redirects) |
 | `SUPABASE_URL` | Yes | Same as VITE_SUPABASE_URL (for API routes) |
-| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Supabase service_role key (for API routes) |
-| `VITE_SUPABASE_ANON_KEY` | Yes (build + API) | Anon key. **חשוב:** הוסף גם `SUPABASE_ANON_KEY` עם אותו ערך ב-Vercel אם calendar-invite מחזיר 502 |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Supabase service_role key (JWT, for API routes) |
+| `SUPABASE_ANON_KEY` | Yes (calendar-invite) | Same value as VITE_SUPABASE_ANON_KEY |
 
 Optional:
 - `RESEND_API_KEY` — Only if using Resend from Vercel (emails use Supabase Edge Functions)

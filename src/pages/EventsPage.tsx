@@ -819,7 +819,7 @@ const EventsPage: React.FC = () => {
               מלא את פרטי האירוע
             </DialogDescription>
           </DialogHeader>
-          {!isDemoMode() && currentAgency && (
+          {currentAgency && (
             <NewEventForm
               open={isDialogOpen}
               onClose={closeDialog}
@@ -828,6 +828,7 @@ const EventsPage: React.FC = () => {
               userId={user?.id}
               artists={artists}
               clients={clients}
+              isDemoMode={isDemoMode()}
               editingEvent={editingEvent ? {
                 id: editingEvent.id,
                 business_name: editingEvent.business_name,
@@ -850,9 +851,6 @@ const EventsPage: React.FC = () => {
               onSuccessToast={success}
               onArtistsInvalidate={currentAgency ? () => invalidateArtists(currentAgency.id) : undefined}
             />
-          )}
-          {isDemoMode() && (
-            <p className="text-muted-foreground py-4">מצב דמו — השתמש בטופס המלא בדשבורד או הפעל חיבור ל-Supabase.</p>
           )}
         </DialogContent>
       </Dialog>

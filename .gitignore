@@ -30,3 +30,7 @@ dist-ssr
 
 # Local Netlify folder
 .netlify
+
+# Playwright
+playwright-report/
+test-results/

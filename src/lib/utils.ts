@@ -40,6 +40,14 @@ export function getWeekday(date: string | Date, locale: string = 'he-IL'): strin
   return new Intl.DateTimeFormat(locale, { weekday: 'long' }).format(d);
 }
 
+/** Build ISO 8601 datetime from date (YYYY-MM-DD) + time (HH:MM). Prevents all-day events. */
+export function toISO8601(date: string, time: string): string {
+  const d = String(date || '').trim().slice(0, 10);
+  const t = String(time || '09:00').trim().slice(0, 5);
+  if (!d || !t) return '';
+  return `${d}T${t}:00`;
+}
+
 export function debounce<T extends (...args: any[]) => any>(
   func: T,
   wait: number
