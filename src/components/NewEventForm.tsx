@@ -294,22 +294,55 @@ export function NewEventForm({
         artist_id: artistId ?? undefined,
       };
 
-      const toEvent = (ev: EventType): EventType => ({
-        ...ev,
-        client_id: ev.client_id ?? undefined,
-        artist_id: ev.artist_id ?? undefined,
-        location: ev.location ?? undefined,
-        event_time: ev.event_time ?? undefined,
-        event_time_end: ev.event_time_end ?? undefined,
-        payment_date: ev.payment_date ?? undefined,
-        due_date: ev.due_date ?? undefined,
+      /** Sanitize raw event data: convert null to undefined for Event[] compatibility. */
+      const sanitizeEvent = (raw: EventType): EventType => ({
+        id: raw.id,
+        agency_id: raw.agency_id,
+        producer_id: raw.producer_id,
+        event_date: raw.event_date,
+        weekday: raw.weekday,
+        business_name: raw.business_name,
+        invoice_name: raw.invoice_name,
+        amount: raw.amount,
+        doc_type: raw.doc_type,
+        status: raw.status,
+        created_at: raw.created_at,
+        updated_at: raw.updated_at,
+        event_name: raw.event_name ?? undefined,
+        location: raw.location ?? undefined,
+        payment_date: raw.payment_date ?? undefined,
+        artist_fee_type: raw.artist_fee_type ?? undefined,
+        artist_fee_value: raw.artist_fee_value ?? undefined,
+        artist_fee_amount: raw.artist_fee_amount ?? undefined,
+        approver: raw.approver ?? undefined,
+        doc_number: raw.doc_number ?? undefined,
+        due_date: raw.due_date ?? undefined,
+        notes: raw.notes ?? undefined,
+        morning_sync_status: raw.morning_sync_status ?? undefined,
+        morning_id: raw.morning_id ?? undefined,
+        morning_document_id: raw.morning_document_id ?? undefined,
+        morning_document_number: raw.morning_document_number ?? undefined,
+        morning_document_url: raw.morning_document_url ?? undefined,
+        morning_last_error: raw.morning_last_error ?? undefined,
+        morning_doc_status: raw.morning_doc_status ?? undefined,
+        client_id: raw.client_id ?? undefined,
+        artist_id: raw.artist_id ?? undefined,
+        google_event_id: raw.google_event_id ?? undefined,
+        google_event_html_link: raw.google_event_html_link ?? undefined,
+        google_artist_event_id: raw.google_artist_event_id ?? undefined,
+        google_artist_event_html_link: raw.google_artist_event_html_link ?? undefined,
+        google_sync_status: raw.google_sync_status ?? undefined,
+        google_synced_at: raw.google_synced_at ?? undefined,
+        event_time: raw.event_time ?? undefined,
+        event_time_end: raw.event_time_end ?? undefined,
       });
 
       if (editingEvent) {
         if (isDemoMode) {
-          const next = demoGetEvents(agencyId).map((e) =>
-            e.id === editingEvent.id ? toEvent({ ...e, ...eventData }) : toEvent(e)
-          );
+          const next = demoGetEvents(agencyId).map((e) => {
+            const raw = e.id === editingEvent.id ? { ...e, ...eventData } : e;
+            return sanitizeEvent(raw);
+          });
           demoSetEvents(agencyId, next);
           onSuccessToast?.('אירוע עודכן בהצלחה! ✅');
         } else {
@@ -325,7 +358,9 @@ export function NewEventForm({
         if (isDemoMode) {
           const newEvent = demoUpsertEvent(agencyId, eventData as any);
           savedId = newEvent.id;
-          demoSetEvents(agencyId, [toEvent(newEvent), ...demoGetEvents(agencyId).map(toEvent)]);
+          const eventToSync = sanitizeEvent(newEvent);
+          const existing = demoGetEvents(agencyId).map(sanitizeEvent);
+          demoSetEvents(agencyId, [eventToSync, ...existing]);
           onSuccessToast?.('אירוע נוסף בהצלחה! 🎉');
         } else {
           const { data: inserted, error } = await supabase
