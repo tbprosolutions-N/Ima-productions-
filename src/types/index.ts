@@ -54,17 +54,17 @@ export interface Event {
   // Company income for this event (client -> IMA)
   amount: number;
   // Client payment date (expected/actual depends on workflow)
-  payment_date?: string | null;
+  payment_date?: string;
   // Artist payout per event
   artist_fee_type?: 'fixed' | 'percent' | 'none';
   artist_fee_value?: number;
   artist_fee_amount?: number;
   approver?: string;
   doc_type: DocumentType;
-  doc_number?: string | null;
-  due_date?: string | null;
+  doc_number?: string;
+  due_date?: string;
   status: EventStatus;
-  notes?: string | null;
+  notes?: string;
   morning_sync_status?: MorningSyncStatus;
   /** When set, row is read-only (official document in Morning). Use "Request Correction" to ask for changes. */
   morning_id?: string;
@@ -76,8 +76,8 @@ export interface Event {
   morning_doc_status?: string | null;
   created_at: string;
   updated_at: string;
-  client_id?: string | null;
-  artist_id?: string | null;
+  client_id?: string;
+  artist_id?: string;
   // Google Calendar sync (company calendar)
   google_event_id?: string;
   google_event_html_link?: string;

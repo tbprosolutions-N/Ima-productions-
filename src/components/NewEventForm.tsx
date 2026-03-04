@@ -27,7 +27,7 @@ import {
   demoUpsertClient,
   demoUpsertArtist,
 } from '@/lib/demoStore';
-import type { Artist, Client, DocumentType, EventStatus } from '@/types';
+import type { Artist, Client, DocumentType, Event as EventType, EventStatus } from '@/types';
 
 const DOC_TYPES: { value: DocumentType; label: string }[] = [
   { value: 'tax_invoice', label: 'חשבונית מס' },
@@ -210,8 +210,8 @@ export function NewEventForm({
     const effectiveInvoiceName = form.invoice_name?.trim() || effectiveBusinessName;
     const amountNum = Number(form.amount) || 0;
     const eventDate = form.event_date;
-    const eventTime = form.start_time?.trim() || null;
-    const eventTimeEnd = form.end_time?.trim() || null;
+    const eventTime = form.start_time?.trim() ?? undefined;
+    const eventTimeEnd = form.end_time?.trim() ?? undefined;
 
     const baseEventData = {
       producer_id: userId || agencyId,
@@ -219,16 +219,16 @@ export function NewEventForm({
       weekday: getWeekday(eventDate),
       business_name: effectiveBusinessName,
       invoice_name: effectiveInvoiceName,
-      location: form.location?.trim() || undefined,
+      location: form.location?.trim() ?? undefined,
       event_time: eventTime ?? undefined,
       event_time_end: eventTimeEnd ?? undefined,
       amount: Number.isFinite(amountNum) ? amountNum : 0,
-      payment_date: form.payment_date || undefined,
-      due_date: form.invoice_send_date || undefined,
+      payment_date: form.payment_date ?? undefined,
+      due_date: form.invoice_send_date ?? undefined,
       doc_type: form.doc_type,
-      doc_number: form.doc_number || undefined,
+      doc_number: form.doc_number ?? undefined,
       status: (editingEvent ? form.status : 'pending') as EventStatus,
-      notes: form.notes?.trim() || undefined,
+      notes: form.notes?.trim() ?? undefined,
     };
 
     try {
@@ -290,14 +290,25 @@ export function NewEventForm({
 
       const eventData = {
         ...baseEventData,
-        client_id: clientId,
-        artist_id: artistId,
+        client_id: clientId ?? undefined,
+        artist_id: artistId ?? undefined,
       };
+
+      const toEvent = (ev: EventType): EventType => ({
+        ...ev,
+        client_id: ev.client_id ?? undefined,
+        artist_id: ev.artist_id ?? undefined,
+        location: ev.location ?? undefined,
+        event_time: ev.event_time ?? undefined,
+        event_time_end: ev.event_time_end ?? undefined,
+        payment_date: ev.payment_date ?? undefined,
+        due_date: ev.due_date ?? undefined,
+      });
 
       if (editingEvent) {
         if (isDemoMode) {
           const next = demoGetEvents(agencyId).map((e) =>
-            e.id === editingEvent.id ? { ...e, ...eventData } : e
+            e.id === editingEvent.id ? toEvent({ ...e, ...eventData }) : toEvent(e)
           );
           demoSetEvents(agencyId, next);
           onSuccessToast?.('אירוע עודכן בהצלחה! ✅');
@@ -314,7 +325,7 @@ export function NewEventForm({
         if (isDemoMode) {
           const newEvent = demoUpsertEvent(agencyId, eventData as any);
           savedId = newEvent.id;
-          demoSetEvents(agencyId, [newEvent, ...demoGetEvents(agencyId)]);
+          demoSetEvents(agencyId, [toEvent(newEvent), ...demoGetEvents(agencyId).map(toEvent)]);
           onSuccessToast?.('אירוע נוסף בהצלחה! 🎉');
         } else {
           const { data: inserted, error } = await supabase
