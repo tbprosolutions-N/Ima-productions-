@@ -27,7 +27,8 @@
     "verify-sync-integrity": "node scripts/verify-sync-integrity.mjs",
     "audit:supabase": "node tests/audit-supabase.mjs",
     "audit:final": "npx tsx tests/final-audit.ts",
-    "verify:env-sync": "node scripts/verify-env-sync.mjs"
+    "verify:env-sync": "node scripts/verify-env-sync.mjs",
+    "google:refresh-token": "node scripts/refresh-google-token.mjs"
   },
   "dependencies": {
     "@fullcalendar/core": "^6.1.10",
