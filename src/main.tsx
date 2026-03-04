@@ -21,6 +21,7 @@ if (typeof window !== 'undefined') {
 }
 
 // Use env-configured app name for document title (production readiness)
+// Deployment sync: 2026-02-16 (Vercel env + TypeScript fixes)
 document.title = appName;
 
 try {
