@@ -124,6 +124,85 @@ async function refreshOAuthToken(clientId: string, clientSecret: string, refresh
   return data.access_token;
 }
 
+// ── ICS (iCalendar) generator ────────────────────────────────────────────────
+// Generates a RFC 5545 compliant VCALENDAR string with METHOD:REQUEST.
+// When attached to an email, Gmail/Outlook shows Accept / Decline / Maybe UI
+// and the event is added to the recipient's calendar on acceptance.
+function generateICS(args: {
+  uid: string;
+  summary: string;
+  description: string;
+  location: string;
+  eventDate: string;       // YYYY-MM-DD
+  eventTime: string;       // HH:MM or ""
+  eventTimeEnd: string;    // HH:MM or ""
+  hasTime: boolean;
+  attendees: { email: string }[];
+  organizerEmail: string;
+  organizerName: string;
+}): string {
+  const { uid, summary, description, location, eventDate, eventTime, eventTimeEnd, hasTime, attendees, organizerEmail, organizerName } = args;
+
+  const esc = (s: string) => s.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
+  const fold = (line: string) => {
+    const out: string[] = [];
+    while (line.length > 75) { out.push(line.slice(0, 75)); line = " " + line.slice(75); }
+    out.push(line);
+    return out.join("\r\n");
+  };
+
+  const dtstamp = new Date().toISOString().replace(/[-:.]/g, "").slice(0, 15) + "Z";
+  const datePart = eventDate.replace(/-/g, "");
+  const hms = (t: string) => {
+    const p = t.split(":").map((x) => parseInt(x, 10) || 0);
+    return `${String(p[0] ?? 0).padStart(2, "0")}${String(p[1] ?? 0).padStart(2, "0")}${String(p[2] ?? 0).padStart(2, "0")}`;
+  };
+  const endTime = eventTimeEnd || (() => {
+    const p = eventTime.split(":").map((x) => parseInt(x, 10) || 0);
+    return `${String(((p[0] ?? 0) + 1) % 24).padStart(2, "0")}:${String(p[1] ?? 0).padStart(2, "0")}:00`;
+  })();
+
+  const startLine = hasTime
+    ? `DTSTART;TZID=Asia/Jerusalem:${datePart}T${hms(eventTime)}`
+    : `DTSTART;VALUE=DATE:${datePart}`;
+  const endLine = hasTime
+    ? `DTEND;TZID=Asia/Jerusalem:${datePart}T${hms(endTime)}`
+    : `DTEND;VALUE=DATE:${(() => { const d = new Date(eventDate); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10).replace(/-/g, ""); })()}`;
+
+  const attendeeLines = attendees
+    .map((a) => fold(`ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:${a.email}`))
+    .join("\r\n");
+
+  const parts = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//NPC Collective//NPC AM//EN",
+    "CALSCALE:GREGORIAN",
+    "METHOD:REQUEST",
+    "BEGIN:VEVENT",
+    `UID:${uid}@npc-am.com`,
+    `DTSTAMP:${dtstamp}`,
+    startLine,
+    endLine,
+    fold(`SUMMARY:${esc(summary)}`),
+    description ? fold(`DESCRIPTION:${esc(description)}`) : null,
+    location ? fold(`LOCATION:${esc(location)}`) : null,
+    fold(`ORGANIZER;CN=${esc(organizerName)}:mailto:${organizerEmail}`),
+    attendeeLines || null,
+    "STATUS:CONFIRMED",
+    "SEQUENCE:0",
+    "BEGIN:VALARM",
+    "ACTION:DISPLAY",
+    "DESCRIPTION:Reminder",
+    "TRIGGER:-PT1H",
+    "END:VALARM",
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ].filter(Boolean);
+
+  return parts.join("\r\n");
+}
+
 async function googleApiFetch(accessToken: string, url: string, init?: RequestInit) {
   const res = await fetch(url, {
     ...init,
@@ -353,6 +432,17 @@ async function handleRequest(req: Request): Promise<Response> {
         google_synced_at: nowIso(),
       } as any).eq("agency_id", agencyId).eq("id", eventId);
 
+      // Also send ICS email so recipients get proper calendar sync UI (Accept/Decline)
+      if (sendInvites && attendees.length > 0) {
+        const resendKey = Deno.env.get("RESEND_API_KEY")?.trim();
+        const resendFrom = Deno.env.get("RESEND_FROM")?.trim();
+        if (resendKey && resendFrom) {
+          try {
+            await sendICSEmail({ resendKey, resendFrom, eventId, summary, description, location, eventDate, eventTime, eventTimeEnd, hasTime, attendees, organizerName });
+          } catch (e) { console.warn("[calendar-invite] ICS email (non-fatal):", e instanceof Error ? e.message : e); }
+        }
+      }
+
       return json({ ok: true, calendarId, google_event_id: result?.id, htmlLink: result?.htmlLink, attendees: attendees.map((a) => a.email), sendUpdates });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -374,32 +464,86 @@ async function handleRequest(req: Request): Promise<Response> {
     return json({ error: `Google Calendar unavailable: ${googleTokenError}. Resend not configured.` }, 502);
   }
 
-  const dateFmt = new Date((ev as any).event_date).toLocaleDateString("he-IL", { year: "numeric", month: "long", day: "numeric" });
-  const emailHtml = `
-    <div dir="rtl" style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;">
-      <h2 style="color:#1a1a1a;border-bottom:2px solid #eee;padding-bottom:12px;">
-        הזמנה לאירוע: ${summary}
-      </h2>
-      <p><strong>תאריך:</strong> ${dateFmt}${hoursStr ? ` | שעה: ${hoursStr}` : ""}</p>
-      ${location ? `<p><strong>מיקום:</strong> ${location}</p>` : ""}
-      ${description ? `<pre style="background:#f5f5f5;padding:12px;border-radius:6px;white-space:pre-wrap;font-family:Arial,sans-serif;">${description}</pre>` : ""}
-      <hr style="margin-top:24px;"/>
-      <p style="color:#888;font-size:12px;">NPC Collective</p>
-    </div>`;
-
   try {
-    const resend = new Resend(resendKey);
-    const { data: emailData, error: emailError } = await resend.emails.send({
-      from: resendFrom,
-      to: attendees.map((a) => a.email),
-      subject: `הזמנה: ${summary} — ${dateFmt}`,
-      html: emailHtml,
-    });
-    if (emailError) throw new Error(String((emailError as any)?.message || emailError));
-    console.log("[calendar-invite] Resend fallback sent:", emailData?.id, "→", attendees.map((a) => a.email));
-    return json({ ok: true, fallback: "email", email_id: emailData?.id, warning: googleTokenError, attendees: attendees.map((a) => a.email) });
+    const emailData = await sendICSEmail({ resendKey, resendFrom, eventId, summary, description, location, eventDate, eventTime, eventTimeEnd, hasTime, attendees, organizerName });
+    console.log("[calendar-invite] ICS invite sent:", emailData?.id, "→", attendees.map((a) => a.email));
+    return json({ ok: true, fallback: "email_ics", email_id: emailData?.id, warning: googleTokenError, attendees: attendees.map((a) => a.email) });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return json({ error: `Google: ${googleTokenError} | Email: ${msg}` }, 502);
   }
+}
+
+// ── Shared ICS email sender ───────────────────────────────────────────────────
+async function sendICSEmail(args: {
+  resendKey: string;
+  resendFrom: string;
+  eventId: string;
+  summary: string;
+  description: string;
+  location: string;
+  eventDate: string;
+  eventTime: string;
+  eventTimeEnd: string;
+  hasTime: boolean;
+  attendees: { email: string }[];
+  organizerName: string;
+}) {
+  const { resendKey, resendFrom, eventId, summary, description, location, eventDate, eventTime, eventTimeEnd, hasTime, attendees, organizerName } = args;
+
+  // Extract plain email from "Name <email>" format
+  const organizerEmail = (resendFrom.match(/<(.+?)>/) || [])[1] || resendFrom.replace(/\s/g, "");
+
+  const icsContent = generateICS({
+    uid: eventId,
+    summary, description, location,
+    eventDate, eventTime, eventTimeEnd, hasTime,
+    attendees,
+    organizerEmail,
+    organizerName: organizerName || "NPC Collective",
+  });
+
+  // Base64-encode ICS for Resend attachment
+  const icsBase64 = btoa(unescape(encodeURIComponent(icsContent)));
+
+  const dateFmt = new Date(eventDate).toLocaleDateString("he-IL", { year: "numeric", month: "long", day: "numeric" });
+  const hoursStr = hasTime ? (eventTimeEnd ? `${eventTime} - ${eventTimeEnd}` : eventTime) : "";
+
+  const emailHtml = `
+    <div dir="rtl" style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;background:#fff;">
+      <div style="background:#111827;padding:16px 24px;border-radius:8px 8px 0 0;">
+        <h1 style="color:#fff;margin:0;font-size:18px;font-weight:600;">NPC Collective</h1>
+      </div>
+      <div style="border:1px solid #e5e7eb;border-top:none;padding:24px;border-radius:0 0 8px 8px;">
+        <h2 style="color:#111827;margin-top:0;">📅 הזמנה לאירוע</h2>
+        <h3 style="color:#374151;margin-bottom:4px;">${summary}</h3>
+        <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+          <tr><td style="padding:8px 0;color:#6b7280;width:110px;">📆 תאריך</td><td style="padding:8px 0;font-weight:600;">${dateFmt}</td></tr>
+          ${hoursStr ? `<tr><td style="padding:8px 0;color:#6b7280;">⏰ שעה</td><td style="padding:8px 0;font-weight:600;">${hoursStr}</td></tr>` : ""}
+          ${location ? `<tr><td style="padding:8px 0;color:#6b7280;">📍 מיקום</td><td style="padding:8px 0;font-weight:600;">${location}</td></tr>` : ""}
+        </table>
+        ${description ? `<div style="background:#f9fafb;padding:12px 16px;border-radius:6px;white-space:pre-wrap;font-size:14px;color:#374151;direction:rtl;">${description}</div>` : ""}
+        <div style="margin-top:20px;padding:12px 16px;background:#eff6ff;border-radius:6px;border:1px solid #bfdbfe;">
+          <p style="margin:0;color:#1d4ed8;font-size:14px;">📎 קובץ ה-ICS המצורף יאפשר לך לאשר ולהוסיף לאוטומטית ליומן Google / Outlook שלך</p>
+        </div>
+        <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0;"/>
+        <p style="color:#9ca3af;font-size:12px;margin:0;">הודעה זו נשלחה על ידי NPC Collective</p>
+      </div>
+    </div>`;
+
+  const resend = new Resend(resendKey);
+  const { data, error } = await resend.emails.send({
+    from: resendFrom,
+    to: attendees.map((a) => a.email),
+    subject: `📅 הזמנה: ${summary} — ${dateFmt}`,
+    html: emailHtml,
+    attachments: [{
+      filename: "invite.ics",
+      content: icsBase64,
+      content_type: "text/calendar; charset=utf-8; method=REQUEST",
+    }],
+  });
+
+  if (error) throw new Error(String((error as any)?.message || error));
+  return data;
 }
