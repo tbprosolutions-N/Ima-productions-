@@ -78,6 +78,7 @@ export interface NewEventFormProps {
 
 const emptyForm = () => ({
   customer_name: '',
+  client_email: '',
   invoice_name: '',
   event_date: new Date().toISOString().slice(0, 10),
   start_time: '09:00',
@@ -141,8 +142,10 @@ export function NewEventForm({
     if (editingEvent) {
       const ev = editingEvent;
       const artistName = ev.artist_id ? artists.find((a) => a.id === ev.artist_id)?.name || '' : '';
+      const existingClientEmail = ev.client_id ? clients.find((c) => c.id === ev.client_id)?.email || '' : '';
       setForm({
         customer_name: ev.business_name || '',
+        client_email: existingClientEmail,
         invoice_name: ev.invoice_name || '',
         event_date: String(ev.event_date || '').slice(0, 10),
         start_time: (ev.event_time as string) || '09:00',
@@ -244,19 +247,24 @@ export function NewEventForm({
             demoSetClients(agencyId, [created, ...demoGetClients(agencyId)]);
           }
         } else {
+          const clientEmailInput = form.client_email.trim();
           const { data: found } = await supabase
             .from('clients')
-            .select('id')
+            .select('id,email')
             .eq('agency_id', agencyId)
             .ilike('name', customerName)
             .limit(1)
             .maybeSingle();
           if ((found as { id?: string } | null)?.id) {
             clientId = (found as { id: string }).id;
+            // Update email on existing client if a new one is provided
+            if (clientEmailInput && !(found as { email?: string }).email) {
+              await supabase.from('clients').update({ email: clientEmailInput }).eq('id', clientId);
+            }
           } else {
             const { data: inserted } = await supabase
               .from('clients')
-              .insert({ agency_id: agencyId, name: customerName })
+              .insert({ agency_id: agencyId, name: customerName, ...(clientEmailInput && { email: clientEmailInput }) })
               .select('id')
               .single();
             if ((inserted as { id?: string } | null)?.id) clientId = (inserted as { id: string }).id;
@@ -447,6 +455,18 @@ export function NewEventForm({
             ))}
           </datalist>
           {errors.customer_name && <p className="text-xs text-red-500">{errors.customer_name}</p>}
+        </div>
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="client_email">מייל לקוח (לזימון)</Label>
+          <Input
+            id="client_email"
+            type="email"
+            value={form.client_email}
+            onChange={(e) => setForm((f) => ({ ...f, client_email: e.target.value }))}
+            placeholder="client@example.com"
+            className="border-primary/30"
+            dir="ltr"
+          />
         </div>
         <div className="flex flex-col gap-2 sm:col-span-2">
           <Label htmlFor="invoice_name">שם בחשבונית</Label>

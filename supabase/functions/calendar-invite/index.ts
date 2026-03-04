@@ -280,9 +280,15 @@ async function handleRequest(req: Request): Promise<Response> {
 
   const attendees: { email: string }[] = [];
   const seen = new Set<string>();
+  // Build attendee list: artist email, then client email (from clients table or event record)
+  const clientEmailResolved = String(
+    (client as any)?.email ||
+    (ev as any).client_email ||  // fallback: email stored directly on the event
+    ""
+  ).trim();
   for (const email of [
     String((artist as any)?.calendar_email || (artist as any)?.email || "").trim(),
-    String((client as any)?.email || "").trim(),
+    clientEmailResolved,
   ]) {
     if (email && !seen.has(email.toLowerCase())) {
       attendees.push({ email });

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import {
   useReactTable,
@@ -48,6 +49,7 @@ const EventsPage: React.FC = () => {
   const { data: artists = [] } = useArtistsQuery(currentAgency?.id);
   const invalidateEvents = useInvalidateEvents();
   const invalidateArtists = useInvalidateArtists();
+  const queryClient = useQueryClient();
   const [requestCorrectionEvent, setRequestCorrectionEvent] = useState<Event | null>(null);
 
   const isRowLocked = (ev: Event) => !!(ev.morning_id || ev.morning_sync_status === 'synced');
@@ -109,19 +111,28 @@ const EventsPage: React.FC = () => {
     if ('payment_date' in sanitized) sanitized.payment_date = safeDate(sanitized.payment_date as string) ?? null;
     if ('due_date' in sanitized) sanitized.due_date = safeDate(sanitized.due_date as string) ?? null;
 
+    if (isDemoMode()) {
+      const next = demoGetEvents(currentAgency.id).map((e) => (e.id === eventId ? { ...e, ...sanitized } : e));
+      demoSetEvents(currentAgency.id, next);
+      invalidateEvents(currentAgency.id);
+      return;
+    }
+
+    // Optimistic update — apply immediately to UI, no loading spinner
+    const prevData = queryClient.getQueryData<Event[]>(['events', currentAgency.id]);
+    queryClient.setQueryData<Event[]>(['events', currentAgency.id], (old) =>
+      old?.map((e) => (e.id === eventId ? { ...e, ...sanitized } : e)) ?? []
+    );
+
     try {
-      if (isDemoMode()) {
-        const next = demoGetEvents(currentAgency.id).map((e) => (e.id === eventId ? { ...e, ...sanitized } : e));
-        demoSetEvents(currentAgency.id, next);
-        invalidateEvents(currentAgency.id);
-        return;
-      }
       const { error } = await supabase.from('events').update(sanitized as any).eq('id', eventId);
       if (error) throw error;
+      // Silently revalidate in background to sync server state (no spinner)
       invalidateEvents(currentAgency.id);
     } catch (e: any) {
+      // Rollback on error
+      if (prevData) queryClient.setQueryData(['events', currentAgency.id], prevData);
       showError(e?.message || 'אירעה שגיאה בעדכון. אנא נסה שוב.');
-      invalidateEvents(currentAgency.id);
     }
   };
 
