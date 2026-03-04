@@ -1,17 +1,11 @@
 /**
  * Edge Function: calendar-invite
- * Direct Google Calendar invite — called immediately when event is created/updated.
- * Uses system-wide Google token (no per-user "Connect Google" required).
- * sendUpdates='all' so artists get email in inbox.
+ * Creates a Google Calendar event and sends email invitations.
+ * If Google Calendar is unavailable (expired/revoked token), falls back to Resend email.
  *
- * Body: { event_id: string, send_invites?: boolean }
- * Requires: JWT (user must be authenticated)
- * Secrets: GOOGLE_SYSTEM_REFRESH_TOKEN, GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET
- * Optional: GOOGLE_SYSTEM_CALENDAR_ID (default: "primary")
- *
- * Fallback: integration_tokens row with agency_id = '00000000-0000-0000-0000-000000000000' (system)
- *
- * Deploy: npx supabase functions deploy calendar-invite
+ * Body: { event_id: string, send_invites?: boolean, access_token?: string }
+ * Secrets: GOOGLE_SYSTEM_REFRESH_TOKEN, GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET,
+ *          RESEND_API_KEY, RESEND_FROM
  */
 
 // @ts-nocheck
@@ -99,7 +93,6 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
-  // Top-level catch — ensures no unhandled exception reaches Deno.serve() and causes a generic 500.
   try {
     return await handleRequest(req);
   } catch (e) {
@@ -118,9 +111,6 @@ async function handleRequest(req: Request): Promise<Response> {
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE) {
     return json({ error: "Server not configured" }, 502);
   }
-  if (!GOOGLE_ID || !GOOGLE_SECRET) {
-    return json({ error: "Google OAuth not configured. Set GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET." }, 502);
-  }
 
   let body: { event_id?: string; send_invites?: boolean; access_token?: string };
   try {
@@ -134,11 +124,9 @@ async function handleRequest(req: Request): Promise<Response> {
   if (!eventId) return json({ error: "Missing event_id" }, 400);
   const sendInvites = body?.send_invites !== false;
 
-  // User JWT: from body.access_token (client sends anon key in Authorization for platform, user JWT in body)
   const userJwt = typeof body?.access_token === "string" ? body.access_token.trim() : "";
   const authHeader = req.headers.get("authorization");
   const bearerToken = authHeader?.replace("Bearer ", "").trim() || "";
-
   const jwt = userJwt || bearerToken;
   if (!jwt) return json({ error: "Missing or invalid authorization" }, 401);
 
@@ -162,81 +150,7 @@ async function handleRequest(req: Request): Promise<Response> {
   const organizerName = String((userRow as { full_name?: string } | null)?.full_name || "").trim();
   if (!agencyId) return json({ error: "User has no agency" }, 403);
 
-  // System-wide Google token: GOOGLE_SYSTEM_REFRESH_TOKEN (secret) or integration_tokens system row
-  const SYSTEM_AGENCY_ID = "00000000-0000-0000-0000-000000000000";
-  const systemRefreshToken = Deno.env.get("GOOGLE_SYSTEM_REFRESH_TOKEN")?.trim();
-
-  let accessToken = "";
-  let calendarId = String(Deno.env.get("GOOGLE_SYSTEM_CALENDAR_ID")?.trim() || "primary");
-
-  if (systemRefreshToken) {
-    // Use system secret — refresh every time (no persistence; stateless)
-    try {
-      const refreshed = await refreshGoogleToken({
-        clientId: GOOGLE_ID,
-        clientSecret: GOOGLE_SECRET,
-        refreshToken: systemRefreshToken,
-      });
-      accessToken = refreshed.access_token;
-    } catch (tokenErr) {
-      const msg = tokenErr instanceof Error ? tokenErr.message : String(tokenErr);
-      console.error("[calendar-invite] Google token refresh failed:", msg);
-      return json({ error: `Google token refresh failed: ${msg}` }, 502);
-    }
-  } else {
-    // Fallback: integration_tokens system row (agency_id = system UUID)
-    const { data: tokenRow, error: tokErr } = await admin
-      .from("integration_tokens")
-      .select("*")
-      .eq("agency_id", SYSTEM_AGENCY_ID)
-      .eq("provider", "google")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (tokErr) return json({ error: `DB error: ${tokErr.message}` }, 502);
-    if (!tokenRow?.access_token && !(tokenRow as any)?.refresh_token) {
-      return json({
-        error: "Google Calendar not configured. Set GOOGLE_SYSTEM_REFRESH_TOKEN in Supabase secrets, or add a system row to integration_tokens.",
-      }, 502);
-    }
-    accessToken = (tokenRow as any).access_token || "";
-    const expiry = parseIsoDate((tokenRow as any).expiry_date);
-    if ((tokenRow as any).refresh_token && isExpiredSoon(expiry)) {
-      try {
-        const refreshed = await refreshGoogleToken({
-          clientId: GOOGLE_ID,
-          clientSecret: GOOGLE_SECRET,
-          refreshToken: (tokenRow as any).refresh_token,
-        });
-        accessToken = refreshed.access_token;
-        const nextExpiry = new Date(Date.now() + refreshed.expires_in * 1000).toISOString();
-        await admin
-          .from("integration_tokens")
-          .update({
-            access_token: accessToken,
-            expiry_date: nextExpiry,
-            scope: refreshed.scope || (tokenRow as any).scope,
-            token_type: refreshed.token_type || (tokenRow as any).token_type,
-          })
-          .eq("id", (tokenRow as any).id);
-      } catch (tokenErr) {
-        const msg = tokenErr instanceof Error ? tokenErr.message : String(tokenErr);
-        console.error("[calendar-invite] integration_tokens refresh failed:", msg);
-        return json({ error: `Google token refresh failed: ${msg}` }, 502);
-      }
-    }
-    // Optional: system integrations row for calendar_id override
-    const { data: sysConn } = await admin
-      .from("integrations")
-      .select("config")
-      .eq("agency_id", SYSTEM_AGENCY_ID)
-      .eq("provider", "google")
-      .maybeSingle();
-    const cfg = ((sysConn as any)?.config || {}) as any;
-    if (cfg?.company_calendar_id) calendarId = String(cfg.company_calendar_id);
-  }
-
-  // Fetch event + artist + client
+  // ── Step 1: Fetch event + artist + client (always needed) ──────────────────
   const { data: ev, error: evErr } = await admin
     .from("events")
     .select("*")
@@ -260,7 +174,6 @@ async function handleRequest(req: Request): Promise<Response> {
   const eventDate = new Date((ev as any).event_date).toISOString().slice(0, 10);
   const eventTime = String((ev as any).event_time || "").trim();
   const eventTimeEnd = String((ev as any).event_time_end || "").trim();
-  // Use time slots when we have at least start time; if no end, use start + 1 hour
   const hasTimeSlots = !!eventTime;
 
   const summaryParts = [String((ev as any).business_name || "אירוע")];
@@ -287,6 +200,7 @@ async function handleRequest(req: Request): Promise<Response> {
   const hoursStr = hasTimeSlots
     ? (eventTimeEnd ? `${eventTime} - ${eventTimeEnd}` : eventTime)
     : "";
+  const location = String((ev as any).location || "").trim();
 
   const descParts: string[] = [];
   if (clientName) descParts.push(`שם הלקוח: ${clientName}`);
@@ -296,155 +210,261 @@ async function handleRequest(req: Request): Promise<Response> {
   if (organizerName) descParts.push(`מארגן: ${organizerName}`);
   const notes = String((ev as any).notes || "").trim();
   if (notes) descParts.push(`הערות: ${notes}`);
-  const description = descParts.length > 0 ? descParts.join("\n") : "";
+  const description = descParts.join("\n");
 
-  // MUST use start.dateTime and end.dateTime for timed events (not date = all-day)
-  const TZ = "Asia/Jerusalem";
-  let start: { date?: string; dateTime?: string; timeZone?: string };
-  let end: { date?: string; dateTime?: string; timeZone?: string };
-  if (hasTimeSlots) {
-    const toHms = (t: string) => {
-      const parts = t.split(":").map((p) => parseInt(p, 10) || 0);
-      const h = parts[0] ?? 0;
-      const m = parts[1] ?? 0;
-      const s = parts[2] ?? 0;
-      return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-    };
-    const startHms = toHms(eventTime);
-    const endHms = eventTimeEnd ? toHms(eventTimeEnd) : addOneHour(eventTime);
-    const startDt = `${eventDate}T${startHms}`;
-    const endDt = `${eventDate}T${endHms}`;
-    start = { dateTime: startDt, timeZone: TZ };
-    end = { dateTime: endDt, timeZone: TZ };
+  // ── Step 2: Try to acquire Google access token ─────────────────────────────
+  let accessToken = "";
+  let googleTokenError = "";
+  const SYSTEM_AGENCY_ID = "00000000-0000-0000-0000-000000000000";
+  let calendarId = String(Deno.env.get("GOOGLE_SYSTEM_CALENDAR_ID")?.trim() || "primary");
+
+  if (GOOGLE_ID && GOOGLE_SECRET) {
+    const systemRefreshToken = Deno.env.get("GOOGLE_SYSTEM_REFRESH_TOKEN")?.trim();
+    if (systemRefreshToken) {
+      try {
+        const refreshed = await refreshGoogleToken({
+          clientId: GOOGLE_ID,
+          clientSecret: GOOGLE_SECRET,
+          refreshToken: systemRefreshToken,
+        });
+        accessToken = refreshed.access_token;
+      } catch (tokenErr) {
+        googleTokenError = tokenErr instanceof Error ? tokenErr.message : String(tokenErr);
+        console.error("[calendar-invite] System token refresh failed (will use email fallback):", googleTokenError);
+      }
+    } else {
+      // Fallback: integration_tokens system row
+      const { data: tokenRow, error: tokErr } = await admin
+        .from("integration_tokens")
+        .select("*")
+        .eq("agency_id", SYSTEM_AGENCY_ID)
+        .eq("provider", "google")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!tokErr && (tokenRow?.access_token || (tokenRow as any)?.refresh_token)) {
+        accessToken = (tokenRow as any).access_token || "";
+        const expiry = parseIsoDate((tokenRow as any).expiry_date);
+        if ((tokenRow as any).refresh_token && isExpiredSoon(expiry)) {
+          try {
+            const refreshed = await refreshGoogleToken({
+              clientId: GOOGLE_ID,
+              clientSecret: GOOGLE_SECRET,
+              refreshToken: (tokenRow as any).refresh_token,
+            });
+            accessToken = refreshed.access_token;
+            const nextExpiry = new Date(Date.now() + refreshed.expires_in * 1000).toISOString();
+            await admin
+              .from("integration_tokens")
+              .update({
+                access_token: accessToken,
+                expiry_date: nextExpiry,
+                scope: refreshed.scope || (tokenRow as any).scope,
+                token_type: refreshed.token_type || (tokenRow as any).token_type,
+              })
+              .eq("id", (tokenRow as any).id);
+          } catch (tokenErr) {
+            googleTokenError = tokenErr instanceof Error ? tokenErr.message : String(tokenErr);
+            console.error("[calendar-invite] integration_tokens refresh failed (will use email fallback):", googleTokenError);
+            accessToken = "";
+          }
+        }
+        const { data: sysConn } = await admin
+          .from("integrations")
+          .select("config")
+          .eq("agency_id", SYSTEM_AGENCY_ID)
+          .eq("provider", "google")
+          .maybeSingle();
+        const cfg = ((sysConn as any)?.config || {}) as any;
+        if (cfg?.company_calendar_id) calendarId = String(cfg.company_calendar_id);
+      } else {
+        googleTokenError = tokErr?.message || "No Google integration configured";
+        console.warn("[calendar-invite] No Google token available (will use email fallback):", googleTokenError);
+      }
+    }
   } else {
-    const endDate = addDaysIsoDate(`${eventDate}T00:00:00.000Z`, 1);
-    start = { date: eventDate };
-    end = { date: endDate };
+    googleTokenError = "Google OAuth credentials not configured";
+    console.warn("[calendar-invite]", googleTokenError, "(will use email fallback)");
   }
 
-  const location = String((ev as any).location || "").trim();
-  const eventBody = {
-    summary,
-    description,
-    ...(location && { location }),
-    start,
-    end,
-    attendees: attendees.length > 0 ? attendees : undefined,
-    guestsCanModify: true,
-    transparency: "opaque",
-    extendedProperties: {
-      private: {
-        ima_agency_id: agencyId,
-        ima_event_id: eventId,
-      },
-    },
-  };
+  // ── Step 3: Try Google Calendar (only if we have a valid access token) ──────
+  let googleEventId: string | null = null;
+  let googleHtmlLink: string | null = null;
+  let googleCalendarError = googleTokenError;
 
-  const existingGoogleEventId = String((ev as any).google_event_id || "");
-  const existingArtistGoogleEventId = String((ev as any).google_artist_event_id || "");
-  // sendUpdates='all' — artists get email notification in their inbox
-  const sendUpdates = sendInvites ? "all" : "none";
-
-  try {
-    let result: any;
-    if (existingGoogleEventId) {
-      const res = await googleApiFetch(
-        accessToken,
-        `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(existingGoogleEventId)}?sendUpdates=${encodeURIComponent(sendUpdates)}`,
-        { method: "PATCH", body: JSON.stringify(eventBody) }
-      );
-      result = await res.json();
+  if (accessToken) {
+    const TZ = "Asia/Jerusalem";
+    let start: { date?: string; dateTime?: string; timeZone?: string };
+    let end: { date?: string; dateTime?: string; timeZone?: string };
+    if (hasTimeSlots) {
+      const toHms = (t: string) => {
+        const parts = t.split(":").map((p) => parseInt(p, 10) || 0);
+        const h = parts[0] ?? 0;
+        const m = parts[1] ?? 0;
+        const s = parts[2] ?? 0;
+        return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+      };
+      const startHms = toHms(eventTime);
+      const endHms = eventTimeEnd ? toHms(eventTimeEnd) : addOneHour(eventTime);
+      start = { dateTime: `${eventDate}T${startHms}`, timeZone: TZ };
+      end = { dateTime: `${eventDate}T${endHms}`, timeZone: TZ };
     } else {
-      const res = await googleApiFetch(
-        accessToken,
-        `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?sendUpdates=${encodeURIComponent(sendUpdates)}`,
-        { method: "POST", body: JSON.stringify(eventBody) }
-      );
-      result = await res.json();
+      start = { date: eventDate };
+      end = { date: addDaysIsoDate(`${eventDate}T00:00:00.000Z`, 1) };
     }
 
-    let artistResult: any = null;
-    const artistCalendarId = String((artist as any)?.google_calendar_id || "").trim();
-    if (artistCalendarId) {
-      if (existingArtistGoogleEventId) {
+    const eventBody = {
+      summary,
+      description,
+      ...(location && { location }),
+      start,
+      end,
+      attendees: attendees.length > 0 ? attendees : undefined,
+      guestsCanModify: true,
+      transparency: "opaque",
+      extendedProperties: { private: { ima_agency_id: agencyId, ima_event_id: eventId } },
+    };
+
+    const existingGoogleEventId = String((ev as any).google_event_id || "");
+    const existingArtistGoogleEventId = String((ev as any).google_artist_event_id || "");
+    const sendUpdates = sendInvites ? "all" : "none";
+
+    try {
+      let result: any;
+      if (existingGoogleEventId) {
         const res = await googleApiFetch(
           accessToken,
-          `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(artistCalendarId)}/events/${encodeURIComponent(existingArtistGoogleEventId)}?sendUpdates=${encodeURIComponent(sendUpdates)}`,
+          `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(existingGoogleEventId)}?sendUpdates=${encodeURIComponent(sendUpdates)}`,
           { method: "PATCH", body: JSON.stringify(eventBody) }
         );
-        artistResult = await res.json();
+        result = await res.json();
       } else {
         const res = await googleApiFetch(
           accessToken,
-          `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(artistCalendarId)}/events?sendUpdates=${encodeURIComponent(sendUpdates)}`,
+          `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?sendUpdates=${encodeURIComponent(sendUpdates)}`,
           { method: "POST", body: JSON.stringify(eventBody) }
         );
-        artistResult = await res.json();
+        result = await res.json();
       }
-    }
 
-    await admin
-      .from("events")
-      .update({
-        google_event_id: result?.id || null,
-        google_event_html_link: result?.htmlLink || null,
-        google_artist_event_id: artistResult?.id || (artistCalendarId ? null : undefined),
-        google_artist_event_html_link: artistResult?.htmlLink || (artistCalendarId ? null : undefined),
-        google_sync_status: "synced",
-        google_synced_at: nowIso(),
-      } as any)
-      .eq("agency_id", agencyId)
-      .eq("id", eventId);
+      googleEventId = result?.id || null;
+      googleHtmlLink = result?.htmlLink || null;
 
-    return json({
-      ok: true,
-      calendarId,
-      google_event_id: result?.id,
-      htmlLink: result?.htmlLink,
-      attendees: attendees.map((a) => a.email),
-      sendUpdates,
-    });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.error("[calendar-invite] Google Calendar error:", msg);
-
-    // Fallback: send invitation email via Resend when Google Calendar is unavailable
-    if (sendInvites && attendees.length > 0) {
-      const resendApiKey = Deno.env.get("RESEND_API_KEY")?.trim();
-      const resendFrom = Deno.env.get("RESEND_FROM")?.trim();
-      if (resendApiKey && resendFrom) {
+      let artistResult: any = null;
+      const artistCalendarId = String((artist as any)?.google_calendar_id || "").trim();
+      if (artistCalendarId) {
         try {
-          const resend = new Resend(resendApiKey);
-          const eventDateFormatted = new Date((ev as any).event_date).toLocaleDateString("he-IL", {
-            year: "numeric",
-            month: "long",
-            day: "numeric",
-          });
-          const timeRange = hoursStr ? ` | שעה: ${hoursStr}` : "";
-          const locationLine = location ? `<p><strong>מיקום:</strong> ${location}</p>` : "";
-          const emailHtml = `
-            <div dir="rtl" style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-              <h2 style="color: #1a1a1a;">הזמנה לאירוע: ${summary}</h2>
-              <p><strong>תאריך:</strong> ${eventDateFormatted}${timeRange}</p>
-              ${locationLine}
-              <pre style="background:#f5f5f5;padding:12px;border-radius:6px;white-space:pre-wrap;">${description}</pre>
-            </div>`;
-          await resend.emails.send({
-            from: resendFrom,
-            to: attendees.map((a: { email: string }) => a.email),
-            subject: `הזמנה: ${summary} — ${eventDateFormatted}`,
-            html: emailHtml,
-          });
-          console.log("[calendar-invite] Fallback email sent to:", attendees.map((a: { email: string }) => a.email));
-          return json({ ok: true, fallback: "email", warning: `Google Calendar unavailable: ${msg}`, attendees: attendees.map((a: { email: string }) => a.email) });
-        } catch (emailErr) {
-          const emailMsg = emailErr instanceof Error ? emailErr.message : String(emailErr);
-          console.error("[calendar-invite] Fallback email also failed:", emailMsg);
-          return json({ error: `Google Calendar: ${msg} | Email fallback: ${emailMsg}` }, 502);
+          if (existingArtistGoogleEventId) {
+            const res = await googleApiFetch(
+              accessToken,
+              `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(artistCalendarId)}/events/${encodeURIComponent(existingArtistGoogleEventId)}?sendUpdates=${encodeURIComponent(sendUpdates)}`,
+              { method: "PATCH", body: JSON.stringify(eventBody) }
+            );
+            artistResult = await res.json();
+          } else {
+            const res = await googleApiFetch(
+              accessToken,
+              `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(artistCalendarId)}/events?sendUpdates=${encodeURIComponent(sendUpdates)}`,
+              { method: "POST", body: JSON.stringify(eventBody) }
+            );
+            artistResult = await res.json();
+          }
+        } catch (artistErr) {
+          console.warn("[calendar-invite] Artist calendar update failed (non-fatal):", artistErr instanceof Error ? artistErr.message : artistErr);
         }
       }
-    }
 
-    return json({ error: msg }, 502);
+      await admin
+        .from("events")
+        .update({
+          google_event_id: googleEventId,
+          google_event_html_link: googleHtmlLink,
+          google_artist_event_id: artistResult?.id || (artistCalendarId ? null : undefined),
+          google_artist_event_html_link: artistResult?.htmlLink || (artistCalendarId ? null : undefined),
+          google_sync_status: "synced",
+          google_synced_at: nowIso(),
+        } as any)
+        .eq("agency_id", agencyId)
+        .eq("id", eventId);
+
+      // Google Calendar succeeded — emails sent via sendUpdates='all'
+      return json({
+        ok: true,
+        calendarId,
+        google_event_id: googleEventId,
+        htmlLink: googleHtmlLink,
+        attendees: attendees.map((a) => a.email),
+        sendUpdates,
+      });
+    } catch (gcalErr) {
+      googleCalendarError = gcalErr instanceof Error ? gcalErr.message : String(gcalErr);
+      console.error("[calendar-invite] Google Calendar API error (will try email fallback):", googleCalendarError);
+    }
+  }
+
+  // ── Step 4: Resend email fallback ──────────────────────────────────────────
+  // Reached when: token expired/revoked, no Google config, or Calendar API failed.
+  if (!sendInvites) {
+    // User didn't request invites — return the token/calendar error as warning
+    return json({ ok: true, warning: googleCalendarError || "Google Calendar skipped" });
+  }
+
+  if (attendees.length === 0) {
+    return json({
+      ok: false,
+      error: "No attendee emails found. Add email to artist or client.",
+      google_error: googleCalendarError,
+    }, 422);
+  }
+
+  const resendApiKey = Deno.env.get("RESEND_API_KEY")?.trim();
+  const resendFrom = Deno.env.get("RESEND_FROM")?.trim();
+  if (!resendApiKey || !resendFrom) {
+    return json({ error: `Google Calendar unavailable: ${googleCalendarError}. Resend also not configured.` }, 502);
+  }
+
+  const eventDateFormatted = new Date((ev as any).event_date).toLocaleDateString("he-IL", {
+    year: "numeric", month: "long", day: "numeric",
+  });
+  const timeRange = hoursStr ? ` | שעה: ${hoursStr}` : "";
+  const locationLine = location ? `<p><strong>מיקום:</strong> ${location}</p>` : "";
+
+  const emailHtml = `
+    <div dir="rtl" style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
+      <h2 style="color: #1a1a1a; border-bottom: 2px solid #eee; padding-bottom: 12px;">
+        הזמנה לאירוע: ${summary}
+      </h2>
+      <p><strong>תאריך:</strong> ${eventDateFormatted}${timeRange}</p>
+      ${locationLine}
+      ${description ? `<pre style="background:#f5f5f5;padding:12px;border-radius:6px;white-space:pre-wrap;font-family:Arial,sans-serif;">${description}</pre>` : ""}
+      <hr style="margin-top:24px;" />
+      <p style="color:#888;font-size:12px;">הודעה זו נשלחה על ידי NPC Collective</p>
+    </div>`;
+
+  try {
+    const resend = new Resend(resendApiKey);
+    const { data: emailData, error: emailError } = await resend.emails.send({
+      from: resendFrom,
+      to: attendees.map((a) => a.email),
+      subject: `הזמנה: ${summary} — ${eventDateFormatted}`,
+      html: emailHtml,
+    });
+
+    if (emailError) throw new Error(String(emailError?.message || emailError));
+
+    console.log("[calendar-invite] Fallback email sent via Resend:", emailData?.id, "to:", attendees.map((a) => a.email));
+    return json({
+      ok: true,
+      fallback: "email",
+      email_id: emailData?.id,
+      warning: `Google Calendar unavailable: ${googleCalendarError}`,
+      attendees: attendees.map((a) => a.email),
+    });
+  } catch (emailErr) {
+    const emailMsg = emailErr instanceof Error ? emailErr.message : String(emailErr);
+    console.error("[calendar-invite] Resend fallback also failed:", emailMsg);
+    return json({
+      error: `Google Calendar: ${googleCalendarError} | Email: ${emailMsg}`,
+    }, 502);
   }
 }
