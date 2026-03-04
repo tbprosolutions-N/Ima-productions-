@@ -1,7 +1,7 @@
 # Task 2: Service Integration Test — Results
 
 **Date:** 2026-02-16  
-**Script:** `node tests/debug-services.mjs` (or `npm run debug:services`)
+**Script:** `tests/debug-services.mjs` was used during migration; removed in final production cleanup.
 
 ---
 
