@@ -370,11 +370,17 @@ See [docs/QA_DEEP_TEST_PLAN.md](docs/QA_DEEP_TEST_PLAN.md) for the full QA test 
 
 ## 🚢 Deployment
 
+### Production (npc-am.com)
+
+- **Hosting:** Cloudflare Pages
+- **Deploy:** `git push origin master` — triggers automatic build on Cloudflare Pages. No CLI needed.
+- See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for details.
+
 ### Supported Platforms
-- ✅ Vercel (Recommended)
-- ✅ Netlify
+- ✅ Cloudflare Pages (Production)
+- ✅ Vercel
+- ✅ Netlify (deprecated)
 - ✅ AWS Amplify
-- ✅ Google Cloud Run
 - ✅ Any static host
 
 ### Environment Variables
