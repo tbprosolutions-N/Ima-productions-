@@ -16,6 +16,7 @@
 
 // @ts-nocheck
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { Resend } from "npm:resend";
 import { corsHeaders } from "../_shared/cors.ts";
 
 const CORS = corsHeaders;
@@ -98,6 +99,17 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
+  // Top-level catch — ensures no unhandled exception reaches Deno.serve() and causes a generic 500.
+  try {
+    return await handleRequest(req);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[calendar-invite] Unhandled exception:", msg);
+    return json({ error: msg }, 500);
+  }
+});
+
+async function handleRequest(req: Request): Promise<Response> {
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL")?.trim();
   const SUPABASE_SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")?.trim();
   const GOOGLE_ID = Deno.env.get("GOOGLE_OAUTH_CLIENT_ID")?.trim();
@@ -159,12 +171,18 @@ Deno.serve(async (req) => {
 
   if (systemRefreshToken) {
     // Use system secret — refresh every time (no persistence; stateless)
-    const refreshed = await refreshGoogleToken({
-      clientId: GOOGLE_ID,
-      clientSecret: GOOGLE_SECRET,
-      refreshToken: systemRefreshToken,
-    });
-    accessToken = refreshed.access_token;
+    try {
+      const refreshed = await refreshGoogleToken({
+        clientId: GOOGLE_ID,
+        clientSecret: GOOGLE_SECRET,
+        refreshToken: systemRefreshToken,
+      });
+      accessToken = refreshed.access_token;
+    } catch (tokenErr) {
+      const msg = tokenErr instanceof Error ? tokenErr.message : String(tokenErr);
+      console.error("[calendar-invite] Google token refresh failed:", msg);
+      return json({ error: `Google token refresh failed: ${msg}` }, 502);
+    }
   } else {
     // Fallback: integration_tokens system row (agency_id = system UUID)
     const { data: tokenRow, error: tokErr } = await admin
@@ -175,7 +193,7 @@ Deno.serve(async (req) => {
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (tokErr) return json({ error: tokErr.message }, 500);
+    if (tokErr) return json({ error: `DB error: ${tokErr.message}` }, 502);
     if (!tokenRow?.access_token && !(tokenRow as any)?.refresh_token) {
       return json({
         error: "Google Calendar not configured. Set GOOGLE_SYSTEM_REFRESH_TOKEN in Supabase secrets, or add a system row to integration_tokens.",
@@ -184,22 +202,28 @@ Deno.serve(async (req) => {
     accessToken = (tokenRow as any).access_token || "";
     const expiry = parseIsoDate((tokenRow as any).expiry_date);
     if ((tokenRow as any).refresh_token && isExpiredSoon(expiry)) {
-      const refreshed = await refreshGoogleToken({
-        clientId: GOOGLE_ID,
-        clientSecret: GOOGLE_SECRET,
-        refreshToken: (tokenRow as any).refresh_token,
-      });
-      accessToken = refreshed.access_token;
-      const nextExpiry = new Date(Date.now() + refreshed.expires_in * 1000).toISOString();
-      await admin
-        .from("integration_tokens")
-        .update({
-          access_token: accessToken,
-          expiry_date: nextExpiry,
-          scope: refreshed.scope || (tokenRow as any).scope,
-          token_type: refreshed.token_type || (tokenRow as any).token_type,
-        })
-        .eq("id", (tokenRow as any).id);
+      try {
+        const refreshed = await refreshGoogleToken({
+          clientId: GOOGLE_ID,
+          clientSecret: GOOGLE_SECRET,
+          refreshToken: (tokenRow as any).refresh_token,
+        });
+        accessToken = refreshed.access_token;
+        const nextExpiry = new Date(Date.now() + refreshed.expires_in * 1000).toISOString();
+        await admin
+          .from("integration_tokens")
+          .update({
+            access_token: accessToken,
+            expiry_date: nextExpiry,
+            scope: refreshed.scope || (tokenRow as any).scope,
+            token_type: refreshed.token_type || (tokenRow as any).token_type,
+          })
+          .eq("id", (tokenRow as any).id);
+      } catch (tokenErr) {
+        const msg = tokenErr instanceof Error ? tokenErr.message : String(tokenErr);
+        console.error("[calendar-invite] integration_tokens refresh failed:", msg);
+        return json({ error: `Google token refresh failed: ${msg}` }, 502);
+      }
     }
     // Optional: system integrations row for calendar_id override
     const { data: sysConn } = await admin
@@ -382,7 +406,45 @@ Deno.serve(async (req) => {
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error("[calendar-invite] Error:", msg);
+    console.error("[calendar-invite] Google Calendar error:", msg);
+
+    // Fallback: send invitation email via Resend when Google Calendar is unavailable
+    if (sendInvites && attendees.length > 0) {
+      const resendApiKey = Deno.env.get("RESEND_API_KEY")?.trim();
+      const resendFrom = Deno.env.get("RESEND_FROM")?.trim();
+      if (resendApiKey && resendFrom) {
+        try {
+          const resend = new Resend(resendApiKey);
+          const eventDateFormatted = new Date((ev as any).event_date).toLocaleDateString("he-IL", {
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+          });
+          const timeRange = hoursStr ? ` | שעה: ${hoursStr}` : "";
+          const locationLine = location ? `<p><strong>מיקום:</strong> ${location}</p>` : "";
+          const emailHtml = `
+            <div dir="rtl" style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <h2 style="color: #1a1a1a;">הזמנה לאירוע: ${summary}</h2>
+              <p><strong>תאריך:</strong> ${eventDateFormatted}${timeRange}</p>
+              ${locationLine}
+              <pre style="background:#f5f5f5;padding:12px;border-radius:6px;white-space:pre-wrap;">${description}</pre>
+            </div>`;
+          await resend.emails.send({
+            from: resendFrom,
+            to: attendees.map((a: { email: string }) => a.email),
+            subject: `הזמנה: ${summary} — ${eventDateFormatted}`,
+            html: emailHtml,
+          });
+          console.log("[calendar-invite] Fallback email sent to:", attendees.map((a: { email: string }) => a.email));
+          return json({ ok: true, fallback: "email", warning: `Google Calendar unavailable: ${msg}`, attendees: attendees.map((a: { email: string }) => a.email) });
+        } catch (emailErr) {
+          const emailMsg = emailErr instanceof Error ? emailErr.message : String(emailErr);
+          console.error("[calendar-invite] Fallback email also failed:", emailMsg);
+          return json({ error: `Google Calendar: ${msg} | Email fallback: ${emailMsg}` }, 502);
+        }
+      }
+    }
+
     return json({ error: msg }, 502);
   }
-});
+}
