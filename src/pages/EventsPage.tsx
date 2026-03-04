@@ -23,7 +23,7 @@ import { useAgency } from '@/contexts/AgencyContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
 import { supabase } from '@/lib/supabase';
-import { formatDate, getWeekday } from '@/lib/utils';
+import { formatDate, getWeekday, safeDate } from '@/lib/utils';
 // exportUtils (xlsx ~643KB) is loaded lazily on first export click
 import type { Event } from '@/types';
 import { demoGetEvents, demoSetEvents, isDemoMode } from '@/lib/demoStore';
@@ -104,14 +104,19 @@ const EventsPage: React.FC = () => {
   const updateEventInline = async (eventId: string, patch: Partial<Event>) => {
     if (!currentAgency) return;
 
+    // Never send empty string for date columns — Postgres rejects with "invalid input syntax for type date"
+    const sanitized = { ...patch } as Record<string, unknown>;
+    if ('payment_date' in sanitized) sanitized.payment_date = safeDate(sanitized.payment_date as string) ?? null;
+    if ('due_date' in sanitized) sanitized.due_date = safeDate(sanitized.due_date as string) ?? null;
+
     try {
       if (isDemoMode()) {
-        const next = demoGetEvents(currentAgency.id).map((e) => (e.id === eventId ? { ...e, ...patch } : e));
+        const next = demoGetEvents(currentAgency.id).map((e) => (e.id === eventId ? { ...e, ...sanitized } : e));
         demoSetEvents(currentAgency.id, next);
         invalidateEvents(currentAgency.id);
         return;
       }
-      const { error } = await supabase.from('events').update(patch as any).eq('id', eventId);
+      const { error } = await supabase.from('events').update(sanitized as any).eq('id', eventId);
       if (error) throw error;
       invalidateEvents(currentAgency.id);
     } catch (e: any) {
@@ -597,6 +602,8 @@ const EventsPage: React.FC = () => {
         <CardHeader className="p-5 md:p-6 space-y-4">
           <div className="flex flex-wrap items-center gap-3">
             <Input
+              id="filter-date-from"
+              name="filterDateFrom"
               type="date"
               placeholder="מתאריך"
               value={filterDateFrom}
@@ -604,6 +611,8 @@ const EventsPage: React.FC = () => {
               className="w-40 border-gray-200 dark:border-gray-700"
             />
             <Input
+              id="filter-date-to"
+              name="filterDateTo"
               type="date"
               placeholder="עד תאריך"
               value={filterDateTo}

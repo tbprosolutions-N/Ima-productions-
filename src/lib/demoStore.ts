@@ -140,7 +140,7 @@ export function demoDefaultEvent(agencyId: string, userId: string, opts: { busin
     artist_fee_amount: 0,
     doc_type,
     doc_number: '',
-    due_date: '',
+    due_date: undefined,
     status,
     notes: '',
     morning_sync_status: 'not_synced',

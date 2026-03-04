@@ -40,6 +40,16 @@ export function getWeekday(date: string | Date, locale: string = 'he-IL'): strin
   return new Intl.DateTimeFormat(locale, { weekday: 'long' }).format(d);
 }
 
+/**
+ * Return a valid YYYY-MM-DD date string, or undefined.
+ * Prevents sending empty strings to Postgres DATE columns (which cause 400 "invalid input syntax for type date").
+ */
+export function safeDate(v: string | null | undefined): string | undefined {
+  if (!v) return undefined;
+  const s = v.trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : undefined;
+}
+
 /** Build ISO 8601 datetime from date (YYYY-MM-DD) + time (HH:MM). Prevents all-day events. */
 export function toISO8601(date: string, time: string): string {
   const d = String(date || '').trim().slice(0, 10);

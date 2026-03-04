@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select';
 import { supabase, invokeCalendarInvite } from '@/lib/supabase';
-import { getWeekday, toISO8601 } from '@/lib/utils';
+import { getWeekday, toISO8601, safeDate } from '@/lib/utils';
 import { agreementService } from '@/services/agreementService';
 import {
   demoGetEvents,
@@ -223,10 +223,10 @@ export function NewEventForm({
       event_time: eventTime ?? undefined,
       event_time_end: eventTimeEnd ?? undefined,
       amount: Number.isFinite(amountNum) ? amountNum : 0,
-      payment_date: form.payment_date ?? undefined,
-      due_date: form.invoice_send_date ?? undefined,
+      payment_date: safeDate(form.payment_date),
+      due_date: safeDate(form.invoice_send_date),
       doc_type: form.doc_type,
-      doc_number: form.doc_number ?? undefined,
+      doc_number: form.doc_number?.trim() || undefined,
       status: (editingEvent ? form.status : 'pending') as EventStatus,
       notes: form.notes?.trim() ?? undefined,
     };
@@ -565,7 +565,7 @@ export function NewEventForm({
             value={form.doc_type}
             onValueChange={(v: DocumentType) => setForm((f) => ({ ...f, doc_type: v }))}
           >
-            <SelectTrigger className="border-primary/30">
+            <SelectTrigger id="doc_type" className="border-primary/30">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -637,8 +637,9 @@ export function NewEventForm({
 
       {/* Checkboxes — Send Invitation → calendar-invite; Send Agreement → agreementService (send-email) */}
       <div className="flex flex-col gap-3">
-        <label className="flex items-center gap-3 cursor-pointer min-h-[44px] py-2 -my-1">
+        <label htmlFor="send_invitation" className="flex items-center gap-3 cursor-pointer min-h-[44px] py-2 -my-1">
           <input
+            id="send_invitation"
             type="checkbox"
             checked={form.send_invitation}
             onChange={(e) => setForm((f) => ({ ...f, send_invitation: e.target.checked }))}
@@ -648,8 +649,9 @@ export function NewEventForm({
             שלח הזמנה — אימייל לאמן וללקוח + הוספה ל-Google Calendar
           </span>
         </label>
-        <label className="flex items-center gap-3 cursor-pointer min-h-[44px] py-2 -my-1">
+        <label htmlFor="send_agreement" className="flex items-center gap-3 cursor-pointer min-h-[44px] py-2 -my-1">
           <input
+            id="send_agreement"
             type="checkbox"
             checked={form.send_agreement}
             onChange={(e) => setForm((f) => ({ ...f, send_agreement: e.target.checked }))}
