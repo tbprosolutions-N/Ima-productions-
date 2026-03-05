@@ -274,9 +274,11 @@ async function handleRequest(req: Request): Promise<Response> {
   const eventTimeEnd = String((ev as any).event_time_end || "").trim();
   const hasTime = !!eventTime;
 
-  const summaryParts = [String((ev as any).business_name || "אירוע")];
-  if ((artist as any)?.name) summaryParts.push(String((artist as any).name));
-  const summary = summaryParts.join(" · ");
+  // Summary: event_name takes priority; falls back to "business_name · artist_name"
+  const eventName = String((ev as any).event_name || "").trim();
+  const businessName = String((ev as any).business_name || "").trim();
+  const summary = eventName ||
+    [businessName || "אירוע", (artist as any)?.name ? String((artist as any).name) : ""].filter(Boolean).join(" · ");
 
   const attendees: { email: string }[] = [];
   const seen = new Set<string>();
@@ -299,11 +301,16 @@ async function handleRequest(req: Request): Promise<Response> {
   const amount = Number((ev as any).amount) || 0;
   const hoursStr = hasTime ? (eventTimeEnd ? `${eventTime} - ${eventTimeEnd}` : eventTime) : "";
   const location = String((ev as any).location || "").trim();
+  // Google Maps URL — Calendar API links plain address strings automatically;
+  // adding the URL explicitly makes it clickable in every client.
+  const mapsUrl = location ? `https://maps.google.com/?q=${encodeURIComponent(location)}` : "";
+
   const descParts: string[] = [];
   if ((client as any)?.name) descParts.push(`שם הלקוח: ${(client as any).name}`);
   if ((artist as any)?.name) descParts.push(`שם האמן: ${(artist as any).name}`);
   if (amount > 0) descParts.push(`סכום האירוע: ₪${amount.toLocaleString("he-IL")}`);
   if (hoursStr) descParts.push(`שעות האירוע: ${hoursStr}`);
+  if (location) descParts.push(`מיקום: ${location}\n${mapsUrl}`);
   if (organizerName) descParts.push(`מארגן: ${organizerName}`);
   const notes = String((ev as any).notes || "").trim();
   if (notes) descParts.push(`הערות: ${notes}`);
@@ -438,17 +445,7 @@ async function handleRequest(req: Request): Promise<Response> {
         google_synced_at: nowIso(),
       } as any).eq("agency_id", agencyId).eq("id", eventId);
 
-      // Also send ICS email so recipients get proper calendar sync UI (Accept/Decline)
-      if (sendInvites && attendees.length > 0) {
-        const resendKey = Deno.env.get("RESEND_API_KEY")?.trim();
-        const resendFrom = Deno.env.get("RESEND_FROM")?.trim();
-        if (resendKey && resendFrom) {
-          try {
-            await sendICSEmail({ resendKey, resendFrom, eventId, summary, description, location, eventDate, eventTime, eventTimeEnd, hasTime, attendees, organizerName });
-          } catch (e) { console.warn("[calendar-invite] ICS email (non-fatal):", e instanceof Error ? e.message : e); }
-        }
-      }
-
+      // Google Calendar already sends email invites via sendUpdates='all' — no extra ICS needed.
       return json({ ok: true, calendarId, google_event_id: result?.id, htmlLink: result?.htmlLink, attendees: attendees.map((a) => a.email), sendUpdates });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

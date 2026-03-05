@@ -77,6 +77,7 @@ export interface NewEventFormProps {
 }
 
 const emptyForm = () => ({
+  event_name: '',
   customer_name: '',
   client_email: '',
   invoice_name: '',
@@ -144,6 +145,7 @@ export function NewEventForm({
       const artistName = ev.artist_id ? artists.find((a) => a.id === ev.artist_id)?.name || '' : '';
       const existingClientEmail = ev.client_id ? clients.find((c) => c.id === ev.client_id)?.email || '' : '';
       setForm({
+        event_name: (ev as any).event_name || '',
         customer_name: ev.business_name || '',
         client_email: existingClientEmail,
         invoice_name: ev.invoice_name || '',
@@ -218,6 +220,7 @@ export function NewEventForm({
 
     const baseEventData = {
       producer_id: userId || agencyId,
+      event_name: form.event_name?.trim() || undefined,
       event_date: eventDate,
       weekday: getWeekday(eventDate),
       business_name: effectiveBusinessName,
@@ -434,6 +437,18 @@ export function NewEventForm({
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-5 modu-form-input touch-manipulation">
+      {/* Event Name */}
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="event_name">שם האירוע</Label>
+        <Input
+          id="event_name"
+          value={form.event_name}
+          onChange={(e) => setForm((f) => ({ ...f, event_name: e.target.value }))}
+          placeholder="לדוגמה: חתונה · בת מצווה · אירוע חברה"
+          className="border-primary/30"
+        />
+      </div>
+
       {/* Event Identification */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="flex flex-col gap-2">
