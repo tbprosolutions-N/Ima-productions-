@@ -1,5 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 
+// Fallback for Vercel env sync (project oerqkyzfsdygmmsonrgz)
+const FALLBACK_URL = 'https://oerqkyzfsdygmmsonrgz.supabase.co';
+const FALLBACK_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9lcnFreXpmc2R5Z21tc29ucmd6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk4ODM4NDUsImV4cCI6MjA4NTQ1OTg0NX0.bgl0O37jqsDdSbt28VotD_or3WdmOcIRA7tCQ8_RdPo';
 const rawUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? '';
 const rawKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? '';
 
@@ -14,8 +17,8 @@ function normalizeSupabaseUrl(url: string): string {
   return u;
 }
 
-const supabaseUrl = normalizeSupabaseUrl(rawUrl);
-const supabaseAnonKey = rawKey.trim();
+const supabaseUrl = normalizeSupabaseUrl(rawUrl) || FALLBACK_URL;
+const supabaseAnonKey = rawKey.trim() || FALLBACK_KEY;
 
 // Supabase anon key must be a JWT (long string starting with "eyJ"). Other values (e.g. sb_publishable_...) break auth.
 const anonKeyLooksLikeJwt = supabaseAnonKey.length > 50 && supabaseAnonKey.startsWith('eyJ');
@@ -127,7 +130,7 @@ export const signInWithMagicLink = async (email: string) => {
 export const signInWithGoogle = async (): Promise<{ error: { message: string } | null }> => {
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const appOrigin = origin.includes('supabase.co') ? (import.meta.env.VITE_APP_URL || 'https://npc-am.com') : origin;
-  const redirectTo = `${appOrigin.replace(/\/$/, '')}`;
+  const redirectTo = `${appOrigin.replace(/\/$/, '')}/auth/callback`;
   try {
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',

@@ -23,6 +23,7 @@ const queryClient = new QueryClient({
 });
 
 const LoginPage = lazy(() => import('./pages/LoginPage'));
+const AuthCallbackPage = lazy(() => import('./pages/AuthCallbackPage'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 const EventsPage = lazy(() => import('./pages/EventsPage'));
 const ArtistsPage = lazy(() => import('./pages/ArtistsPage'));
@@ -98,22 +99,31 @@ const AppRoutes: React.FC = () => {
   const effectiveRole = dbRole ?? user?.role;
   const location = useLocation();
   const isLoginPage = location.pathname === '/login';
+  const isAuthCallback = location.pathname === '/auth/callback';
 
   React.useEffect(() => {
     perfLog('route', location.pathname);
   }, [location.pathname]);
 
-  if (authConnectionFailed && !user && !loading && !isLoginPage) {
+  if (authConnectionFailed && !user && !loading && !isLoginPage && !isAuthCallback) {
     return <AuthRescueScreen />;
   }
 
-  // Await AuthContext's getSession() before rendering — no band-aid forceReady
-  if (loading && !isLoginPage) {
+  // Await AuthContext's getSession() — except /auth/callback (needs to mount to process OAuth)
+  if (loading && !isLoginPage && !isAuthCallback) {
     return <PageLoader label="טוען…" />;
   }
 
   return (
     <Routes>
+      <Route
+        path="/auth/callback"
+        element={
+          <Suspense fallback={<PageLoader label="מתחבר…" />}>
+            <AuthCallbackPage />
+          </Suspense>
+        }
+      />
       <Route
         path="/login"
         element={

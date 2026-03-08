@@ -160,8 +160,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               setUser(null);
               setSupabaseUser(null);
               try { await supabaseSignOut(); } catch { /* ignore */ }
-              const base = typeof window !== 'undefined' ? window.location.origin : '';
-              if (typeof window !== 'undefined') window.location.href = `${base}/login?unauthorized=1`;
+              const pathname = typeof window !== 'undefined' ? window.location.pathname : '';
+              // Don't redirect from callback — let AuthCallbackPage handle timeout
+              if (pathname !== '/auth/callback') {
+                const base = typeof window !== 'undefined' ? window.location.origin : '';
+                if (typeof window !== 'undefined') window.location.href = `${base}/login?unauthorized=1`;
+              }
             }
           }
         } else {
