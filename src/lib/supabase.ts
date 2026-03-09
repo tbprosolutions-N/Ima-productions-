@@ -215,14 +215,14 @@ export function signInWithGooglePopup(): Promise<{ error: { message: string } | 
           cleanup();
           resolve({ error: null });
         };
+        const bc = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(AUTH_BROADCAST_CHANNEL) : null;
         const onBroadcast = (e: MessageEvent) => {
           if (e.data?.type === AUTH_DONE_MESSAGE) {
-            try { bc.close(); } catch {}
+            try { bc?.close(); } catch {}
             cleanup();
             resolve({ error: null });
           }
         };
-        const bc = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(AUTH_BROADCAST_CHANNEL) : null;
         if (bc) bc.addEventListener('message', onBroadcast);
         const onClose = () => {
           if (popup.closed) {
