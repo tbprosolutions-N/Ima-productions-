@@ -19,19 +19,6 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-/** NUCLEAR: force loading=false and fake user when real user is null. Remove before production. */
-const NUCLEAR_BYPASS = true;
-const FAKE_USER: User = {
-  id: 'fake-user-nuclear',
-  email: 'nuclear@npc-am.com',
-  full_name: 'Nuclear Test User',
-  role: 'owner',
-  agency_id: '00000000-0000-0000-0000-000000000001',
-  onboarded: true,
-  created_at: new Date().toISOString(),
-  updated_at: new Date().toISOString(),
-};
-
 const perfLog = (msg: string, ...args: unknown[]) => {
   if (import.meta.env.DEV) console.log(`[perf] Auth: ${msg}`, ...args);
 };
