@@ -25,6 +25,9 @@ const anonKeyLooksLikeJwt = supabaseAnonKey.length > 50 && supabaseAnonKey.start
 
 // Supabase URL and anon key are required. Invalid key (e.g. sb_publishable_...) will break auth.
 
+/** Canonical app URL (VITE_APP_URL with fallback to production). Use for any app-origin logic. */
+export const getAppUrl = (): string => appUrl;
+
 /** For debugging auth connectivity: call from console or Login page. Does not log the full anon key. */
 export function getSupabaseEnvDiagnostic(): {
   urlSet: boolean;
@@ -33,6 +36,7 @@ export function getSupabaseEnvDiagnostic(): {
   urlPrefix: string;
   keyLength: number;
   urlScheme: string;
+  appUrl: string;
 } {
   return {
     urlSet: supabaseUrl.length > 0,
@@ -41,6 +45,7 @@ export function getSupabaseEnvDiagnostic(): {
     urlPrefix: supabaseUrl ? supabaseUrl.slice(0, 40) + (supabaseUrl.length > 40 ? '…' : '') : '(empty)',
     keyLength: supabaseAnonKey.length,
     urlScheme: supabaseUrl ? (supabaseUrl.startsWith('https') ? 'https' : supabaseUrl.startsWith('http') ? 'http' : 'other') : 'n/a',
+    appUrl,
   };
 }
 
@@ -127,25 +132,32 @@ export const signInWithMagicLink = async (email: string) => {
   return { data, error };
 };
 
-/** Returns the redirect URL this app uses for Google OAuth (for diagnostics). */
+// Production auth: single source of truth — avoid Vercel preview URL / auth loop
+const PRODUCTION_APP_URL = 'https://npc-am.com';
+const PRODUCTION_AUTH_CALLBACK = PRODUCTION_APP_URL + '/auth/callback';
+
+const _rawViteAppUrl = (import.meta.env.VITE_APP_URL as string | undefined)?.trim();
+const appUrl = _rawViteAppUrl || PRODUCTION_APP_URL;
+if (typeof window !== 'undefined' && !_rawViteAppUrl) {
+  console.warn('Warning: VITE_APP_URL is missing, falling back to https://npc-am.com');
+}
+
+/** Returns the redirect URL for OAuth. Always production callback regardless of VITE_APP_URL. */
 export function getAuthCallbackRedirectUrl(): string {
-  if (typeof window === 'undefined') return '';
-  const origin = window.location.origin;
-  const appOrigin = origin.includes('supabase.co') ? (import.meta.env.VITE_APP_URL || 'https://npc-am.com') : origin;
-  return `${appOrigin.replace(/\/$/, '')}/auth/callback`;
+  return PRODUCTION_AUTH_CALLBACK;
 }
 
 const AUTH_POPUP_NAME = 'ima_supabase_oauth';
 const AUTH_DONE_MESSAGE = 'ima-auth-done';
+const AUTH_BROADCAST_CHANNEL = 'ima-auth-done';
 const POPUP_WIDTH = 520;
 const POPUP_HEIGHT = 640;
 
-/** Build OAuth URL and redirect target (shared by redirect and popup). */
+/** OAuth redirect target: always https://npc-am.com/auth/callback (never env-dependent). */
 function getGoogleOAuthRedirectTo(): string {
-  if (typeof window === 'undefined') return '';
-  const origin = window.location.origin;
-  const appOrigin = origin.includes('supabase.co') ? (import.meta.env.VITE_APP_URL || 'https://npc-am.com') : origin;
-  return `${appOrigin.replace(/\/$/, '')}/auth/callback`;
+  const redirectTo = PRODUCTION_AUTH_CALLBACK;
+  if (typeof window !== 'undefined') console.info('Auth Redirect Target: ' + redirectTo);
+  return redirectTo;
 }
 
 /**
@@ -160,7 +172,6 @@ export function signInWithGooglePopup(): Promise<{ error: { message: string } | 
       return;
     }
     const redirectTo = getGoogleOAuthRedirectTo();
-    console.info('[Auth] Google sign-in (popup), redirectTo:', redirectTo);
     supabase.auth
       .signInWithOAuth({
         provider: 'google',
@@ -204,6 +215,15 @@ export function signInWithGooglePopup(): Promise<{ error: { message: string } | 
           cleanup();
           resolve({ error: null });
         };
+        const onBroadcast = (e: MessageEvent) => {
+          if (e.data?.type === AUTH_DONE_MESSAGE) {
+            try { bc.close(); } catch {}
+            cleanup();
+            resolve({ error: null });
+          }
+        };
+        const bc = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(AUTH_BROADCAST_CHANNEL) : null;
+        if (bc) bc.addEventListener('message', onBroadcast);
         const onClose = () => {
           if (popup.closed) {
             cleanup();
@@ -223,6 +243,7 @@ export function signInWithGooglePopup(): Promise<{ error: { message: string } | 
           clearTimeout(timeoutId);
           clearInterval(checkClosed);
           window.removeEventListener('message', onMessage);
+          if (bc) try { bc.close(); bc.removeEventListener('message', onBroadcast); } catch {}
         };
         window.addEventListener('message', onMessage);
       })
@@ -244,22 +265,28 @@ export function onAuthPopupDone(callback: () => void): () => void {
   return () => window.removeEventListener('message', handler);
 }
 
-/** Notify opener that auth completed (call from AuthCallbackPage when in popup). */
+/** Notify opener that auth completed (call from AuthCallbackPage when in popup). Uses BroadcastChannel so it works when window.opener is null after OAuth redirect. */
 export function notifyAuthPopupDone(): void {
-  if (typeof window !== 'undefined' && window.opener) {
-    window.opener.postMessage({ type: AUTH_DONE_MESSAGE }, window.location.origin);
+  if (typeof window === 'undefined') return;
+  try {
+    if (typeof BroadcastChannel !== 'undefined') {
+      const bc = new BroadcastChannel(AUTH_BROADCAST_CHANNEL);
+      bc.postMessage({ type: AUTH_DONE_MESSAGE });
+      bc.close();
+    }
+    if (window.opener) window.opener.postMessage({ type: AUTH_DONE_MESSAGE }, window.location.origin);
+  } finally {
     window.close();
   }
 }
 
-/** Native Google SSO (OAuth). usePopup: true = popup (recommended), false = full-page redirect. */
+/** Native Google SSO (OAuth). usePopup: false = redirect (default, most reliable); true = popup. */
 export const signInWithGoogle = async (options?: { usePopup?: boolean }): Promise<{ error: { message: string } | null }> => {
-  const usePopup = options?.usePopup !== false;
+  const usePopup = options?.usePopup === true;
   if (usePopup) return signInWithGooglePopup();
 
   const redirectTo = getGoogleOAuthRedirectTo();
   try {
-    console.info('[Auth] Google sign-in (redirect), redirectTo:', redirectTo);
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {

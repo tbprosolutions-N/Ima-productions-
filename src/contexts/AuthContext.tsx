@@ -156,10 +156,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           perfLog('init:session', authUser.id);
           setSupabaseUser(authUser);
           perfLog('profile:start');
-          const profile = await fetchUserProfile(authUser);
+          let profile = await fetchUserProfile(authUser);
+          if (!profile) {
+            await new Promise((r) => setTimeout(r, 1500));
+            try {
+              await withTimeout<any>(supabase.rpc('ensure_user_profile', { company_code: null }) as any, 10000, 'Provision profile (retry)');
+              const { data: d2 } = await supabase.from('users').select('id,email,full_name,role,agency_id,permissions,avatar_url,created_at,updated_at,onboarded').eq('id', authUser.id).maybeSingle();
+              if (d2) { setUser(d2 as User); profile = d2 as User; }
+            } catch { /* ignore */ }
+          }
           perfLog('profile:end', !!profile);
           if (!mounted) return;
-          // Only redirect to unauthorized when profile row is missing (not on timeout) — prevents logout on refresh
           if (!profile) {
             const { data: recheck } = await supabase.from('users').select('id,email,full_name,role,agency_id,permissions,avatar_url,created_at,updated_at,onboarded').eq('id', authUser.id).maybeSingle();
             if (recheck) {
@@ -169,8 +176,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               setSupabaseUser(null);
               try { await supabaseSignOut(); } catch { /* ignore */ }
               const pathname = typeof window !== 'undefined' ? window.location.pathname : '';
-              // Don't redirect from callback — let AuthCallbackPage handle timeout
               if (pathname !== '/auth/callback') {
+                try { sessionStorage.setItem('ima_unauthorized_redirect', '1'); } catch {}
                 const base = typeof window !== 'undefined' ? window.location.origin : '';
                 if (typeof window !== 'undefined') window.location.href = `${base}/login?unauthorized=1`;
               }

@@ -44,8 +44,8 @@ const ENV_VARS: EnvVar[] = [
     name: 'VITE_APP_URL',
     label: 'App Public URL (optional)',
     required: false,
-    getValue: () => (import.meta.env.VITE_APP_URL as string | undefined) ?? '',
-    hint: 'Production domain, e.g. https://npc-am.com. Used for OAuth redirects.',
+    getValue: () => (import.meta.env.VITE_APP_URL as string | undefined) || 'https://npc-am.com',
+    hint: 'Production domain, e.g. https://npc-am.com. Falls back to https://npc-am.com if unset.',
   },
   {
     name: 'VITE_APP_NAME',

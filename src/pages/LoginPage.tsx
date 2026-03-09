@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
-import { signInWithGoogle, getAuthCallbackRedirectUrl } from '@/lib/supabase';
+import { signInWithGoogle, getAuthCallbackRedirectUrl, getSessionUserFast } from '@/lib/supabase';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 
 function hasAuthHash(): boolean {
@@ -55,7 +55,12 @@ const LoginPage: React.FC = () => {
         toast.error(msg);
       } else if (!useRedirect) {
         await refreshUser();
-        navigate('/dashboard', { replace: true });
+        await new Promise((r) => setTimeout(r, 600));
+        await refreshUser();
+        await new Promise((r) => setTimeout(r, 600));
+        await refreshUser();
+        const { user: sessionUser } = await getSessionUserFast();
+        if (sessionUser) navigate('/dashboard', { replace: true });
       }
       // useRedirect: דף עובר ל-Google ואז ל-callback — אין צורך ב-navigate
     } catch (e: any) {
