@@ -27,9 +27,12 @@ Login fails on **npc-am.com** (or your production URL) when **Supabase does not 
 https://npc-am.com
 https://npc-am.com/
 https://npc-am.com/login
+https://npc-am.com/auth/callback
 https://npc-am.com/dashboard
 https://npc-am.com/reset-password
 ```
+
+**Important:** `https://npc-am.com/auth/callback` is required for Google OAuth login. Without it, Supabase blocks the redirect after sign-in.
 
 If the UI supports a wildcard, you can also add: `https://npc-am.com/**`
 

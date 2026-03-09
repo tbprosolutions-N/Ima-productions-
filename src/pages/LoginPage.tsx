@@ -4,8 +4,8 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
-import { signInWithGoogle } from '@/lib/supabase';
-import { useSearchParams } from 'react-router-dom';
+import { signInWithGoogle, getAuthCallbackRedirectUrl } from '@/lib/supabase';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 
 function hasAuthHash(): boolean {
   if (typeof window === 'undefined') return false;
@@ -23,13 +23,16 @@ const GoogleIcon = () => (
 );
 
 const LoginPage: React.FC = () => {
-  const { loading, user } = useAuth();
+  const { loading, user, refreshUser } = useAuth();
   const toast = useToast();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const unauthorized = searchParams.get('unauthorized') === '1';
+  const authReasonTimeout = searchParams.get('auth_reason') === 'timeout';
 
+  const redirectUrlForSupabase = getAuthCallbackRedirectUrl();
   const companyName = 'NPC';
 
   // Force light mode on login page
@@ -41,17 +44,20 @@ const LoginPage: React.FC = () => {
     return () => { html.style.colorScheme = ''; };
   }, []);
 
-  const handleGoogleSignIn = async () => {
+  const handleGoogleSignIn = async (useRedirect = false) => {
     setError(null);
     setIsLoading(true);
     try {
-      const { error: err } = await signInWithGoogle();
+      const { error: err } = await signInWithGoogle({ usePopup: !useRedirect });
       if (err) {
         const msg = err.message || 'שגיאה בהתחברות';
         setError(msg);
         toast.error(msg);
+      } else if (!useRedirect) {
+        await refreshUser();
+        navigate('/dashboard', { replace: true });
       }
-      // On success, signInWithGoogle redirects; loading stays until redirect
+      // useRedirect: דף עובר ל-Google ואז ל-callback — אין צורך ב-navigate
     } catch (e: any) {
       const msg = e?.message || 'שגיאה בהתחברות';
       setError(msg);
@@ -147,11 +153,34 @@ const LoginPage: React.FC = () => {
                 הדוא״ל שלך לא מאושר במערכת. פנה למנהל לקבלת גישה.
               </div>
             )}
-            {error && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-                {error}
+            {authReasonTimeout && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 text-sm">
+                <strong>ההתחברות לא הושלמה.</strong> ייתכן ש-Supabase חוסם את החזרה לאתר. הוסף את כתובת ה-Redirect (למטה ב&quot;פרטים לפתרון תקלות&quot;) ב-Supabase → Authentication → URL Configuration → Redirect URLs.
               </div>
             )}
+            {error && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm space-y-2">
+                <p>{error}</p>
+                {(error.includes('חלון') || error.includes('קופצים') || error.includes('נחסם')) && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleGoogleSignIn(true)}
+                    className="w-full"
+                  >
+                    התחברות בדף מלא (בלי חלון)
+                  </Button>
+                )}
+              </div>
+            )}
+
+            <p className="text-slate-600 text-xs font-medium">
+              כתובת ה-redirect של האתר (הוסף ב-Supabase → Redirect URLs):
+            </p>
+            <code className="block p-2 bg-slate-100 border border-slate-200 rounded text-xs font-mono break-all select-all mb-4" title="העתק">
+              {redirectUrlForSupabase || (typeof window !== 'undefined' ? window.location.origin + '/auth/callback' : '')}
+            </code>
 
             <Button
               type="button"
@@ -179,6 +208,18 @@ const LoginPage: React.FC = () => {
             <p className="text-xs text-slate-500 text-center mt-2">
               לקבלת גישה — מנהל המערכת יכול להוסיף את הדוא״ל שלך מהגדרות → משתמשים
             </p>
+
+            {/* תמיד גלוי — כדי שיהיה חיווי אם הכניסה נכשלת (למשל Supabase חוסם redirect) */}
+            <div className="mt-4 p-3 bg-amber-50/80 border border-amber-200 rounded-lg text-left">
+              <p className="text-amber-900 text-xs font-semibold mb-1">אם הכניסה לא עובדת — הוסף את הכתובת הזו ב-Supabase:</p>
+              <p className="text-[11px] text-amber-800 mb-1">Authentication → URL Configuration → Redirect URLs (העתק בדיוק):</p>
+              <code className="block p-2 bg-white border border-amber-200 rounded break-all font-mono text-xs select-all" title="לחץ להעתקה">
+                {redirectUrlForSupabase || (typeof window !== 'undefined' ? window.location.origin + '/auth/callback' : '')}
+              </code>
+              <p className="text-amber-700 text-[11px] mt-1.5">
+                אם אחרי לחיצה על Google מופיע דף שגיאה של Supabase או דף לבן — הכתובת חסרה ב-Redirect URLs.
+              </p>
+            </div>
           </CardContent>
 
           <div className="px-6 pb-6 pt-0 border-t border-slate-200">

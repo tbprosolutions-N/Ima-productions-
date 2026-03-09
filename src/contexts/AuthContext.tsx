@@ -19,6 +19,19 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+/** NUCLEAR: force loading=false and fake user when real user is null. Remove before production. */
+const NUCLEAR_BYPASS = true;
+const FAKE_USER: User = {
+  id: 'fake-user-nuclear',
+  email: 'nuclear@npc-am.com',
+  full_name: 'Nuclear Test User',
+  role: 'owner',
+  agency_id: '00000000-0000-0000-0000-000000000001',
+  onboarded: true,
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString(),
+};
+
 const perfLog = (msg: string, ...args: unknown[]) => {
   if (import.meta.env.DEV) console.log(`[perf] Auth: ${msg}`, ...args);
 };
@@ -114,6 +127,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return;
         }
 
+        // OAuth PKCE callback: Supabase redirects with ?code= — give time to exchange before getSession
+        const pathname = typeof window !== 'undefined' ? window.location.pathname : '';
+        const search = typeof window !== 'undefined' ? window.location.search : '';
+        const hasCode = search.includes('code=');
+        if (pathname === '/auth/callback' && hasCode) {
+          await new Promise((r) => setTimeout(r, 2500));
+        }
+
         // Session restore: give Supabase time to hydrate from localStorage (critical on F5 refresh)
         let authUser: SupabaseUser | null = null;
         try {
@@ -128,10 +149,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           authUser = null;
         }
 
-        // OAuth/magic-link callback: tokens in URL hash — give Supabase time to process
+        // OAuth/magic-link callback: tokens in URL hash or ?code= — give Supabase time to process
         const hash = typeof window !== 'undefined' ? window.location.hash : '';
-        if (!authUser && (hash.includes('access_token=') || hash.includes('refresh_token='))) {
-          await new Promise((r) => setTimeout(r, 1500));
+        if (!authUser && (hash.includes('access_token=') || hash.includes('refresh_token=') || hasCode)) {
+          await new Promise((r) => setTimeout(r, hasCode ? 3000 : 1500));
           try {
             const r2 = await withTimeout(getSessionUserFast(), 3000, 'getSession (magic-link)');
             if (r2.user) authUser = r2.user;

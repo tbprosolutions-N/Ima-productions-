@@ -99,6 +99,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: true,
+    flowType: 'pkce',
     storage: safeStorage as any,
     storageKey: 'ima_os_auth',
   },
@@ -126,12 +127,139 @@ export const signInWithMagicLink = async (email: string) => {
   return { data, error };
 };
 
-/** Native Google SSO (OAuth). Primary login method for B2B. */
-export const signInWithGoogle = async (): Promise<{ error: { message: string } | null }> => {
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+/** Returns the redirect URL this app uses for Google OAuth (for diagnostics). */
+export function getAuthCallbackRedirectUrl(): string {
+  if (typeof window === 'undefined') return '';
+  const origin = window.location.origin;
   const appOrigin = origin.includes('supabase.co') ? (import.meta.env.VITE_APP_URL || 'https://npc-am.com') : origin;
-  const redirectTo = `${appOrigin.replace(/\/$/, '')}/auth/callback`;
+  return `${appOrigin.replace(/\/$/, '')}/auth/callback`;
+}
+
+const AUTH_POPUP_NAME = 'ima_supabase_oauth';
+const AUTH_DONE_MESSAGE = 'ima-auth-done';
+const POPUP_WIDTH = 520;
+const POPUP_HEIGHT = 640;
+
+/** Build OAuth URL and redirect target (shared by redirect and popup). */
+function getGoogleOAuthRedirectTo(): string {
+  if (typeof window === 'undefined') return '';
+  const origin = window.location.origin;
+  const appOrigin = origin.includes('supabase.co') ? (import.meta.env.VITE_APP_URL || 'https://npc-am.com') : origin;
+  return `${appOrigin.replace(/\/$/, '')}/auth/callback`;
+}
+
+/**
+ * Start Google OAuth in a popup. Main window stays on npc-am.com — avoids Chrome
+ * "intermediate navigation chain" / third‑party cookie issues. Resolves when
+ * popup completes auth and closes, or rejects on block/timeout/error.
+ */
+export function signInWithGooglePopup(): Promise<{ error: { message: string } | null }> {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined') {
+      resolve({ error: { message: 'לא זמין בסביבה זו' } });
+      return;
+    }
+    const redirectTo = getGoogleOAuthRedirectTo();
+    console.info('[Auth] Google sign-in (popup), redirectTo:', redirectTo);
+    supabase.auth
+      .signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo,
+          scopes: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file',
+        },
+      })
+      .then(({ data, error }) => {
+        if (error) {
+          console.error('[Auth] signInWithOAuth error:', error.message);
+          resolve({ error: { message: error.message } });
+          return;
+        }
+        if (!data?.url) {
+          resolve({ error: { message: 'לא התקבל קישור להתחברות' } });
+          return;
+        }
+        const left = Math.round((window.screen.width - POPUP_WIDTH) / 2);
+        const top = Math.round((window.screen.height - POPUP_HEIGHT) / 2);
+        const popup = window.open(
+          data.url,
+          AUTH_POPUP_NAME,
+          `width=${POPUP_WIDTH},height=${POPUP_HEIGHT},left=${left},top=${top},scrollbars=yes,resizable=yes`
+        );
+        if (!popup) {
+          resolve({ error: { message: 'החלון נחסם. אפשר חלונות קופצים לאתר או לחץ "התחברות בדף מלא".' } });
+          return;
+        }
+        const timeout = 120000; // 2 min
+        const timeoutId = setTimeout(() => {
+          try {
+            if (popup.closed) return;
+            popup.close();
+          } catch {}
+          cleanup();
+          resolve({ error: { message: 'זמן ההתחברות פג. נסה שוב.' } });
+        }, timeout);
+        const onMessage = (e: MessageEvent) => {
+          if (e.origin !== window.location.origin || e.data?.type !== AUTH_DONE_MESSAGE) return;
+          cleanup();
+          resolve({ error: null });
+        };
+        const onClose = () => {
+          if (popup.closed) {
+            cleanup();
+            // Popup closed — session might be set if user completed auth in popup
+            supabase.auth.getSession().then(({ data: { session } }) => {
+              resolve(session ? { error: null } : { error: { message: 'ההתחברות בוטלה או נכשלה.' } });
+            });
+          }
+        };
+        const checkClosed = setInterval(() => {
+          if (popup.closed) {
+            clearInterval(checkClosed);
+            onClose();
+          }
+        }, 300);
+        const cleanup = () => {
+          clearTimeout(timeoutId);
+          clearInterval(checkClosed);
+          window.removeEventListener('message', onMessage);
+        };
+        window.addEventListener('message', onMessage);
+      })
+      .catch((e: any) => {
+        console.error('[Auth] signInWithGooglePopup exception:', e);
+        resolve({ error: { message: e?.message || 'שגיאה בהתחלת התחברות Google' } });
+      });
+  });
+}
+
+/** Listener for auth-done message from popup (call once from LoginPage). */
+export function onAuthPopupDone(callback: () => void): () => void {
+  if (typeof window === 'undefined') return () => {};
+  const handler = (e: MessageEvent) => {
+    if (e.origin !== window.location.origin || e.data?.type !== AUTH_DONE_MESSAGE) return;
+    callback();
+  };
+  window.addEventListener('message', handler);
+  return () => window.removeEventListener('message', handler);
+}
+
+/** Notify opener that auth completed (call from AuthCallbackPage when in popup). */
+export function notifyAuthPopupDone(): void {
+  if (typeof window !== 'undefined' && window.opener) {
+    window.opener.postMessage({ type: AUTH_DONE_MESSAGE }, window.location.origin);
+    window.close();
+  }
+}
+
+/** Native Google SSO (OAuth). usePopup: true = popup (recommended), false = full-page redirect. */
+export const signInWithGoogle = async (options?: { usePopup?: boolean }): Promise<{ error: { message: string } | null }> => {
+  const usePopup = options?.usePopup !== false;
+  if (usePopup) return signInWithGooglePopup();
+
+  const redirectTo = getGoogleOAuthRedirectTo();
   try {
+    console.info('[Auth] Google sign-in (redirect), redirectTo:', redirectTo);
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
@@ -139,10 +267,14 @@ export const signInWithGoogle = async (): Promise<{ error: { message: string } |
         scopes: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file',
       },
     });
-    if (error) return { error: { message: error.message } };
+    if (error) {
+      console.error('[Auth] signInWithOAuth error:', error.message);
+      return { error: { message: error.message } };
+    }
     if (data?.url) window.location.href = data.url;
     return { error: null };
   } catch (e: any) {
+    console.error('[Auth] signInWithGoogle exception:', e);
     return { error: { message: e?.message || 'שגיאה בהתחלת התחברות Google' } };
   }
 };

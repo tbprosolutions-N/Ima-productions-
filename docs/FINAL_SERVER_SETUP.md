@@ -63,19 +63,21 @@ Set these **exact** values for production (npc-am.com):
 https://npc-am.com
 https://npc-am.com/
 https://npc-am.com/login
+https://npc-am.com/auth/callback
 https://npc-am.com/dashboard
 https://npc-am.com/reset-password
 https://npc-am.com/** 
 ```
 
+- **Required for Google login:** `https://npc-am.com/auth/callback` — the app redirects here after OAuth. Without it, login can fail.
 - Some Supabase UIs allow a wildcard: add `https://npc-am.com/**` if available.
 - If wildcards are not supported, add at least:  
-  `https://npc-am.com`, `https://npc-am.com/`, `https://npc-am.com/login`, `https://npc-am.com/dashboard`, `https://npc-am.com/reset-password`.
+  `https://npc-am.com`, `https://npc-am.com/`, `https://npc-am.com/login`, `https://npc-am.com/auth/callback`, `https://npc-am.com/dashboard`, `https://npc-am.com/reset-password`.
 
 **Checklist:**
 
 - [ ] **Site URL** = `https://npc-am.com`
-- [ ] **Redirect URLs** include `https://npc-am.com` and `https://npc-am.com/login`
+- [ ] **Redirect URLs** include `https://npc-am.com`, `https://npc-am.com/login`, and `https://npc-am.com/auth/callback`
 - [ ] Save changes and wait a minute for propagation
 - [ ] Clear browser cache / try incognito if login still times out
 
