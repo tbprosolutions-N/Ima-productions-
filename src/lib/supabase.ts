@@ -23,6 +23,16 @@ const supabaseAnonKey = rawKey.trim() || FALLBACK_KEY;
 // Supabase anon key must be a JWT (long string starting with "eyJ"). Other values (e.g. sb_publishable_...) break auth.
 const anonKeyLooksLikeJwt = supabaseAnonKey.length > 50 && supabaseAnonKey.startsWith('eyJ');
 
+// Diagnostic: verify env loaded (first 5 chars only for safety). Expected project: oerqkyzfsdygmmsonrgz
+const EXPECTED_PROJECT_REF = 'oerqkyzfsdygmmsonrgz';
+if (typeof window !== 'undefined') {
+  const urlFirst5 = supabaseUrl.slice(0, 5);
+  const keyFirst5 = supabaseAnonKey.slice(0, 5);
+  const urlMatchesProject = supabaseUrl.includes(EXPECTED_PROJECT_REF);
+  console.info('[Auth] Env check — URL (first 5):', urlFirst5, '| Key (first 5):', keyFirst5, '| Project ref in URL:', urlMatchesProject);
+  if (!urlMatchesProject) console.warn('[Auth] Supabase URL may not match project', EXPECTED_PROJECT_REF);
+}
+
 // Supabase URL and anon key are required. Invalid key (e.g. sb_publishable_...) will break auth.
 
 /** Canonical app URL (VITE_APP_URL with fallback to production). Use for any app-origin logic. */

@@ -1,3 +1,6 @@
+/**
+ * Matches DB: public.users.role CHECK (role IN ('producer','finance','manager','owner'))
+ */
 export type UserRole = 'producer' | 'finance' | 'manager' | 'owner';
 
 export type BusinessType = 'ima' | 'bar' | 'nightclub';
@@ -10,13 +13,16 @@ export type MorningSyncStatus = 'not_synced' | 'syncing' | 'synced' | 'error';
 
 export type DocumentTemplateType = 'artist_agreement' | 'client_agreement' | 'appearance_agreement' | 'invoice_template' | 'other';
 
+/**
+ * Aligned with public.users: id, email, full_name, role, agency_id, permissions, avatar_url, created_at, updated_at, onboarded.
+ * No company_code column — that is only the RPC parameter for ensure_user_profile(company_code).
+ */
 export interface User {
   id: string;
   email: string;
   full_name: string;
   role: UserRole;
   agency_id: string;
-  // Optional fine-grained permissions (demo-first)
   permissions?: {
     finance?: boolean;
     users?: boolean;
@@ -30,10 +36,15 @@ export interface User {
   onboarded: boolean;
 }
 
+/**
+ * Aligned with public.agencies: id, name, type, company_id, settings, created_at, updated_at.
+ */
 export interface Agency {
   id: string;
   name: string;
   type: BusinessType;
+  /** DB column: agencies.company_id (e.g. IMA001, NPC001). Optional in type when not selected. */
+  company_id?: string;
   created_at: string;
   updated_at: string;
   settings: Record<string, any>;

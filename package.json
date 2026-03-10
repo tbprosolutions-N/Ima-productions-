@@ -28,7 +28,9 @@
     "audit:supabase": "node tests/audit-supabase.mjs",
     "audit:final": "npx tsx tests/final-audit.ts",
     "verify:env-sync": "node scripts/verify-env-sync.mjs",
-    "google:refresh-token": "node scripts/refresh-google-token.mjs"
+    "google:refresh-token": "node scripts/refresh-google-token.mjs",
+    "bootstrap-user": "npx tsx add_user.ts",
+    "login-diagnostic": "node scripts/login-diagnostic.mjs"
   },
   "dependencies": {
     "@fullcalendar/core": "^6.1.10",

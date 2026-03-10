@@ -66,8 +66,29 @@ const AuthRescueScreen: React.FC = () => {
   );
 };
 
+const ProfileErrorScreen: React.FC = () => {
+  const { profileError, clearProfileError } = useAuth();
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-[#f8fafc] p-4">
+      <div className="max-w-md w-full text-center space-y-4 bg-white rounded-xl border border-amber-200 shadow-lg p-6">
+        <div className="mx-auto w-16 h-16 bg-amber-100 rounded-2xl flex items-center justify-center p-2">
+          <img src="/logo.svg" alt="NPC" className="w-full h-full object-contain opacity-80" />
+        </div>
+        <h1 className="text-xl font-bold text-slate-900">טוען פרופיל</h1>
+        <p className="text-amber-800 text-sm font-medium">פרופיל משתמש לא זמין — בדוק את הקונסול (F12) לשגיאת Supabase.</p>
+        {profileError && <p className="text-slate-600 text-xs font-mono break-all">{profileError}</p>}
+        <p className="text-slate-500 text-xs">אין התנתקות אוטומטית — תיקן RLS / pending_invites והרענן.</p>
+        <div className="flex gap-2 justify-center">
+          <button type="button" onClick={() => window.location.reload()} className="px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-medium">רענון</button>
+          <button type="button" onClick={clearProfileError} className="px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium">נקה שגיאה</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, loading, authConnectionFailed } = useAuth();
+  const { user, loading, authConnectionFailed, profileError } = useAuth();
 
   if (authConnectionFailed && !user && !loading) {
     return <AuthRescueScreen />;
@@ -75,6 +96,10 @@ const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 
   if (loading) {
     return <PageLoader label="טוען…" />;
+  }
+
+  if (!user && profileError) {
+    return <ProfileErrorScreen />;
   }
 
   if (!user) {
@@ -114,6 +139,7 @@ const AppRoutes: React.FC = () => {
     return <PageLoader label="טוען…" />;
   }
 
+  // Canonical route → page mapping: see docs/ROUTES_AND_PAGES.md (single login + callback, no duplicates)
   return (
     <Routes>
       <Route

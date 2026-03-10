@@ -9,6 +9,9 @@ interface AuthContextType {
   supabaseUser: SupabaseUser | null;
   loading: boolean;
   authConnectionFailed: boolean;
+  /** When set: authenticated but profile fetch failed (RLS / missing row). No auto signOut — stay on error state for debug. */
+  profileError: string | null;
+  clearProfileError: () => void;
   retryConnection: () => void;
   setUserFromLogin: (profile: User, supabaseUser: SupabaseUser) => void;
   signOut: () => Promise<void>;
@@ -23,60 +26,87 @@ const perfLog = (msg: string, ...args: unknown[]) => {
   if (import.meta.env.DEV) console.log(`[perf] Auth: ${msg}`, ...args);
 };
 
+function logProfileError(phase: string, err: unknown): void {
+  const e = err as { code?: string; message?: string; status?: number; details?: string };
+  const code = e?.code ?? '';
+  const message = e?.message ?? String(err);
+  const status = e?.status;
+  const hint =
+    status === 403 ? ' (RLS — check policy on public.users)' :
+    status === 406 ? ' (Schema/accept)' :
+    status === 404 ? ' (Missing row)' : '';
+  console.error(`[Auth] Profile ${phase}:`, { code, message, status, details: e?.details }, hint);
+}
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [supabaseUser, setSupabaseUser] = useState<SupabaseUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [authConnectionFailed, setAuthConnectionFailed] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
 
-  // ── Profile fetch (used AFTER login or on confirmed session). Resilient: no aggressive timeout that logs out. ──────────
-  const fetchUserProfile = async (authUser: SupabaseUser): Promise<User | null> => {
-    const timeout = 15000; // Single longer timeout so slow networks don't lose session
+  const clearProfileError = useCallback(() => setProfileError(null), []);
+
+  // ── Profile fetch: robust ensure_user_profile + exact error logging (403 RLS, 406 Schema, 404 Missing). No auto signOut. ──────────
+  const fetchUserProfile = useCallback(async (authUser: SupabaseUser): Promise<User | null> => {
+    setProfileError(null);
+    const timeout = 15000;
     try {
-      // maybeSingle() returns { data: null, error: null } when no row exists — never throws PGRST116.
-      // This prevents accidental logouts triggered by the missing-row exception path.
       const { data, error } = await withTimeout<any>(
         supabase.from('users').select('id,email,full_name,role,agency_id,permissions,avatar_url,created_at,updated_at,onboarded').eq('id', authUser.id).maybeSingle() as any,
         timeout,
         'Fetch user profile'
       );
-      if (error) throw error;
+      if (error) {
+        logProfileError('select', error);
+        setProfileError(`${error?.code ?? 'error'} ${error?.message ?? ''} (status: ${(error as any)?.status ?? 'n/a'})`);
+        return null;
+      }
       if (data) { setUser(data); return data; }
 
-      // data === null means no row yet — try auto-provisioning (new invite / first login)
+      // No row — try ensure_user_profile (creates owner if first, or from pending_invites). company_code is RPC param only (not a users column); in some DB versions it maps to agencies.company_id.
       try {
         const cc = (() => { try { return (localStorage.getItem('ima:last_company_id') || '').trim() || null; } catch { return null; } })();
-        await withTimeout<any>(supabase.rpc('ensure_user_profile', { company_code: cc }) as any, 12000, 'Provision profile');
+        const { data: rpcData, error: rpcError } = await withTimeout<any>(
+          supabase.rpc('ensure_user_profile', { company_code: cc }) as any, 12000, 'Provision profile');
+        if (rpcError) {
+          logProfileError('ensure_user_profile RPC', rpcError);
+          setProfileError(`RPC: ${rpcError?.message ?? String(rpcError)}`);
+        }
         const { data: d2, error: e2 } = await withTimeout<any>(
           supabase.from('users').select('id,email,full_name,role,agency_id,permissions,avatar_url,created_at,updated_at,onboarded').eq('id', authUser.id).maybeSingle() as any, 10000, 'Re-fetch profile');
-        if (!e2 && d2) { setUser(d2); return d2; }
+        if (e2) {
+          logProfileError('re-fetch after RPC', e2);
+          setProfileError(`${e2?.code ?? 'error'} ${e2?.message ?? ''}`);
+          return null;
+        }
+        if (d2) { setUser(d2); return d2; }
       } catch (pe) {
-        void pe;
+        logProfileError('ensure_user_profile (exception)', pe);
+        setProfileError(String((pe as Error)?.message ?? 'Profile provision failed'));
       }
     } catch (err) {
       const msg = String((err as any)?.message || '');
       const isTimeout = msg.includes('timed out');
-      if (!isTimeout) void err;
+      if (!isTimeout) logProfileError('fetch', err);
+      if (!isTimeout) setProfileError(msg || 'Profile fetch failed');
     }
     return null;
-  };
+  }, []);
+
 
   const refreshUser = useCallback(async () => {
-    // Background refresh — NEVER clears the session on failure.
-    // Only an explicit signOut() should clear the user.
+    setProfileError(null);
     try {
       const { user: au } = await withTimeout(getSessionUserFast(), 3000, 'getSession (refresh)');
       if (au) {
         setSupabaseUser(au);
         await fetchUserProfile(au);
       }
-      // If au is null on a background check we ignore it — the session may simply
-      // have been slow to restore from localStorage. The next explicit action will
-      // re-validate properly.
     } catch {
       // Background refresh failed — session preserved
     }
-  }, []);
+  }, [fetchUserProfile]);
 
   const retryConnection = React.useCallback(() => {
     setAuthConnectionFailed(false);
@@ -101,6 +131,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const initAuth = async () => {
       perfLog('init:start');
+      setProfileError(null);
       try {
         // Demo mode — instant, no Supabase
         const demoAuth = localStorage.getItem('demo_authenticated');
@@ -160,10 +191,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (!profile) {
             await new Promise((r) => setTimeout(r, 1500));
             try {
-              await withTimeout<any>(supabase.rpc('ensure_user_profile', { company_code: null }) as any, 10000, 'Provision profile (retry)');
+              const rpcResult = await withTimeout<any>(supabase.rpc('ensure_user_profile', { company_code: null }) as any, 10000, 'Provision profile (retry)');
+              if (rpcResult?.error) logProfileError('init retry RPC', rpcResult.error);
               const { data: d2 } = await supabase.from('users').select('id,email,full_name,role,agency_id,permissions,avatar_url,created_at,updated_at,onboarded').eq('id', authUser.id).maybeSingle();
               if (d2) { setUser(d2 as User); profile = d2 as User; }
-            } catch { /* ignore */ }
+            } catch (retryErr) {
+              logProfileError('init retry (exception)', retryErr);
+            }
           }
           perfLog('profile:end', !!profile);
           if (!mounted) return;
@@ -172,15 +206,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (recheck) {
               setUser(recheck as User);
             } else {
-              setUser(null);
-              setSupabaseUser(null);
-              try { await supabaseSignOut(); } catch { /* ignore */ }
-              const pathname = typeof window !== 'undefined' ? window.location.pathname : '';
-              if (pathname !== '/auth/callback') {
-                try { sessionStorage.setItem('ima_unauthorized_redirect', '1'); } catch {}
-                const base = typeof window !== 'undefined' ? window.location.origin : '';
-                if (typeof window !== 'undefined') window.location.href = `${base}/login?unauthorized=1`;
-              }
+              // No auto signOut: stay on Profile Loading / Error state so debug logs are visible
+              setProfileError((prev) => prev || 'Profile missing after retry (see console for 403/406/404)');
             }
           }
         } else {
@@ -335,13 +362,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     supabaseUser,
     loading,
     authConnectionFailed,
+    profileError,
+    clearProfileError,
     retryConnection,
     setUserFromLogin,
     signOut,
     refreshUser,
     updateProfile,
     updateCurrentUser,
-  }), [user, supabaseUser, loading, authConnectionFailed, retryConnection, setUserFromLogin, signOut, refreshUser, updateProfile, updateCurrentUser]);
+  }), [user, supabaseUser, loading, authConnectionFailed, profileError, clearProfileError, retryConnection, setUserFromLogin, signOut, refreshUser, updateProfile, updateCurrentUser]);
 
   if (import.meta.env.DEV) {
     (window as any).__IMA_AUTH_STATE__ = { user, loading, supabaseUser };

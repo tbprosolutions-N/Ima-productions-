@@ -1,10 +1,13 @@
+/**
+ * Login page — single entry for /login. See docs/ROUTES_AND_PAGES.md.
+ */
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
-import { signInWithGoogle, getAuthCallbackRedirectUrl, getSessionUserFast } from '@/lib/supabase';
+import { signInWithGoogle, signIn, getAuthCallbackRedirectUrl, getSessionUserFast } from '@/lib/supabase';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 
 function hasAuthHash(): boolean {
@@ -29,6 +32,9 @@ const LoginPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [passwordLoading, setPasswordLoading] = useState(false);
   const unauthorized = searchParams.get('unauthorized') === '1';
   const authReasonTimeout = searchParams.get('auth_reason') === 'timeout';
 
@@ -43,6 +49,35 @@ const LoginPage: React.FC = () => {
     html.style.colorScheme = 'light';
     return () => { html.style.colorScheme = ''; };
   }, []);
+
+  const handleEmailPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmedEmail = email.trim();
+    const trimmedPassword = password.trim();
+    if (!trimmedEmail || !trimmedPassword) {
+      setError('הזן דוא״ל וסיסמה');
+      return;
+    }
+    setError(null);
+    setPasswordLoading(true);
+    try {
+      const { data, error: signInError } = await signIn(trimmedEmail, trimmedPassword);
+      if (signInError) {
+        const msg = signInError.message || 'שגיאה בהתחברות';
+        setError(msg.includes('Invalid') ? 'דוא״ל או סיסמה שגויים. אם נרשמת עם Google — השתמש בכפתור Google.' : msg);
+        return;
+      }
+      if (data?.session) {
+        await refreshUser();
+        const { user: sessionUser } = await getSessionUserFast();
+        if (sessionUser) navigate('/dashboard', { replace: true });
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'שגיאה בהתחברות');
+    } finally {
+      setPasswordLoading(false);
+    }
+  };
 
   const handleGoogleSignIn = async (useRedirect = false) => {
     setError(null);
@@ -212,6 +247,46 @@ const LoginPage: React.FC = () => {
 
             <p className="text-xs text-slate-500 text-center mt-2">
               לקבלת גישה — מנהל המערכת יכול להוסיף את הדוא״ל שלך מהגדרות → משתמשים
+            </p>
+
+            <div className="relative my-4">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t border-slate-200" />
+              </div>
+              <div className="relative flex justify-center text-xs">
+                <span className="bg-white px-2 text-slate-500">או כניסה עם דוא״ל וסיסמה</span>
+              </div>
+            </div>
+
+            <form onSubmit={handleEmailPasswordSubmit} className="space-y-3">
+              <label className="block text-sm font-medium text-slate-700">
+                דוא״ל
+                <input
+                  type="email"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+                  placeholder="you@example.com"
+                />
+              </label>
+              <label className="block text-sm font-medium text-slate-700">
+                סיסמה
+                <input
+                  type="password"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+                  placeholder="••••••••"
+                />
+              </label>
+              <Button type="submit" disabled={passwordLoading} className="w-full">
+                {passwordLoading ? 'מתחבר...' : 'כניסה עם דוא״ל וסיסמה'}
+              </Button>
+            </form>
+            <p className="text-[11px] text-slate-500 text-center">
+              כניסה עם סיסמה עובדת רק אם הוגדרה סיסמה ב-Supabase. אם נרשמת עם Google — השתמש בכפתור Google.
             </p>
 
             {/* תמיד גלוי — כדי שיהיה חיווי אם הכניסה נכשלת (למשל Supabase חוסם redirect) */}

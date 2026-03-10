@@ -3,7 +3,8 @@
  * Add a new admin user to the users table (production).
  * Requires: VITE_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env
  *
- * Usage: npx tsx add_user.ts
+ * Usage: npx tsx add_user.ts [email]
+ *        BOOTSTRAP_EMAIL=you@example.com npx tsx add_user.ts
  *
  * Creates auth.users entry via Supabase Admin API, then inserts public.users row.
  */
@@ -44,8 +45,11 @@ if (!supabaseUrl || !serviceRoleKey) {
 
 const admin = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
 
-const EMAIL = 'modu.general@gmail.com';
-const FULL_NAME = 'Noa MODU';
+// Email from: CLI arg, then BOOTSTRAP_EMAIL env, then default
+const EMAIL =
+  (process.argv[2] || process.env.BOOTSTRAP_EMAIL || '').trim() ||
+  'modu.general@gmail.com';
+const FULL_NAME = process.env.BOOTSTRAP_FULL_NAME || 'Owner';
 const ROLE = 'owner';
 const PREFERRED_AGENCY_ID = '96c0994d-4bc5-48b4-9351-4048e426618d';
 
@@ -67,9 +71,12 @@ async function main() {
   // 1) Create auth user (or get existing)
   let userId: string;
 
+  const bootstrapPassword = (process.env.BOOTSTRAP_PASSWORD || '').trim();
+
   const { data: createData, error: createErr } = await admin.auth.admin.createUser({
     email: EMAIL,
-    email_confirm: false,
+    password: bootstrapPassword || undefined,
+    email_confirm: true,
     user_metadata: { full_name: FULL_NAME, role: ROLE, agency_id: agencyId },
   });
 
@@ -83,6 +90,11 @@ async function main() {
       if (existing) {
         userId = existing.id;
         console.log('Auth user already exists:', EMAIL, '→ id:', userId);
+        if (bootstrapPassword) {
+          const { error: updateErr } = await admin.auth.admin.updateUserById(userId, { password: bootstrapPassword });
+          if (updateErr) console.error('Could not set password:', updateErr.message);
+          else console.log('Password updated for', EMAIL);
+        }
       } else {
         console.error('Create failed and no existing user found:', createErr.message);
         process.exit(1);
@@ -98,6 +110,7 @@ async function main() {
       process.exit(1);
     }
     console.log('Auth user created:', EMAIL, '→ id:', userId);
+    if (bootstrapPassword) console.log('Password set for', EMAIL);
   }
 
   // 2) Upsert public.users
