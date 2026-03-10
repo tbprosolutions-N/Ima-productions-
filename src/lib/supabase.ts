@@ -142,8 +142,9 @@ export const signInWithMagicLink = async (email: string) => {
   return { data, error };
 };
 
-// Production auth: single source of truth — avoid Vercel preview URL / auth loop
+// Production auth: support both npc-am.com and www.npc-am.com so login works from either
 const PRODUCTION_APP_URL = 'https://npc-am.com';
+const PRODUCTION_APP_URL_WWW = 'https://www.npc-am.com';
 const PRODUCTION_AUTH_CALLBACK = PRODUCTION_APP_URL + '/auth/callback';
 
 const _rawViteAppUrl = (import.meta.env.VITE_APP_URL as string | undefined)?.trim();
@@ -152,8 +153,14 @@ if (typeof window !== 'undefined' && !_rawViteAppUrl) {
   console.warn('Warning: VITE_APP_URL is missing, falling back to https://npc-am.com');
 }
 
-/** Returns the redirect URL for OAuth. Always production callback regardless of VITE_APP_URL. */
+/** Returns the redirect URL for OAuth. Uses current origin when on npc-am.com or www.npc-am.com so www works. */
 export function getAuthCallbackRedirectUrl(): string {
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    const origin = window.location.origin;
+    if (origin === PRODUCTION_APP_URL || origin === PRODUCTION_APP_URL_WWW) {
+      return origin + '/auth/callback';
+    }
+  }
   return PRODUCTION_AUTH_CALLBACK;
 }
 
@@ -163,9 +170,9 @@ const AUTH_BROADCAST_CHANNEL = 'ima-auth-done';
 const POPUP_WIDTH = 520;
 const POPUP_HEIGHT = 640;
 
-/** OAuth redirect target: always https://npc-am.com/auth/callback (never env-dependent). */
+/** OAuth redirect target: same host as current page (www.npc-am.com → www callback, npc-am.com → non-www). */
 function getGoogleOAuthRedirectTo(): string {
-  const redirectTo = PRODUCTION_AUTH_CALLBACK;
+  const redirectTo = getAuthCallbackRedirectUrl();
   if (typeof window !== 'undefined') console.info('Auth Redirect Target: ' + redirectTo);
   return redirectTo;
 }

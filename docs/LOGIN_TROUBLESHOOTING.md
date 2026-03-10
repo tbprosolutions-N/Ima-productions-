@@ -14,11 +14,12 @@ If login doesn’t work (redirect loop, “profile missing”, or nothing happen
 ## 2. Supabase — Redirect URL (required)
 
 1. **Supabase Dashboard** → your project → **Authentication** → **URL Configuration**.
-2. **Redirect URLs** — add **exactly**:
+2. **Redirect URLs** — add **both** (so login works from `npc-am.com` and `www.npc-am.com`):
    ```
    https://npc-am.com/auth/callback
+   https://www.npc-am.com/auth/callback
    ```
-3. **Site URL** can be `https://npc-am.com`.
+3. **Site URL** can be `https://npc-am.com` (or add `https://www.npc-am.com` if you use www).
 4. Save and wait ~1 minute.
 
 Without this, Supabase will not redirect back after Google and login will fail.
